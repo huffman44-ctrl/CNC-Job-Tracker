@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNC Job Sheet Tracker</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ══════════════════════════════════
+       UPLOAD SCREEN
+  ══════════════════════════════════ -->
+  <div id="upload-screen">
+    <div class="upload-card">
+      <div class="upload-brand">
+        <span class="upload-logo-badge">CNC</span>
+        <span class="upload-brand-name">Job Sheet Tracker</span>
+      </div>
+      <h1>Upload Setup Sheets</h1>
+
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0">
+        <div class="drop-icon-wrap">
+          <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <p class="drop-primary">Drop HTML sheet files here</p>
+        <p class="drop-hint">Select multiple files to load an entire job at once</p>
+        <p class="drop-divider">— or —</p>
+        <label class="btn btn-primary" for="file-input">Browse Files</label>
+        <input type="file" id="file-input" accept=".html,.htm" multiple hidden>
+      </div>
+
+      <div id="file-list" class="file-list" hidden></div>
+      <p id="upload-error" class="upload-error" hidden></p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       CONTENT SCREEN
+  ══════════════════════════════════ -->
+  <div id="content-screen" hidden>
+
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span id="header-job-name" class="header-file-title"></span>
+          <span id="header-sheet-count" class="header-job-name"></span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-ghost btn-sm" id="export-btn">Export CSV</button>
+        <button class="btn btn-danger btn-sm" id="reset-btn">Reset All</button>
+        <button class="btn btn-ghost btn-sm" id="new-job-btn">New Job</button>
+      </div>
+    </header>
+
+    <div class="progress-strip">
+      <div class="progress-bar-track">
+        <div id="progress-fill" class="progress-bar-fill" style="width:0%"></div>
+      </div>
+      <span id="progress-label" class="progress-label">0 of 0 complete</span>
+    </div>
+
+    <main class="content-main">
+      <div class="add-sheets-row">
+        <label class="btn btn-outline btn-sm" for="add-file-input">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add More Sheets
+        </label>
+        <input type="file" id="add-file-input" accept=".html,.htm" multiple hidden>
+      </div>
+
+      <div id="sheets-container"></div>
+    </main>
+
+  </div>
+
+  <!-- ══════════════════════════════════
+       COMPLETION MODAL
+  ══════════════════════════════════ -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 class="modal-title">Mark Complete</h2>
+      <p id="modal-subtitle" class="modal-subtitle"></p>
+      <div class="modal-form">
+        <div class="form-group">
+          <label class="form-label" for="modal-datetime">Completion Date &amp; Time</label>
+          <input type="datetime-local" id="modal-datetime" class="form-input">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-operator">Operator Name</label>
+          <select id="modal-operator" class="form-input">
+            <option value="Collin">Collin</option>
+            <option value="Travis">Travis</option>
+            <option value="__other__">Other...</option>
+          </select>
+        </div>
+        <div class="form-group" id="modal-operator-other-group" hidden>
+          <label class="form-label" for="modal-operator-other">Enter Name</label>
+          <input type="text" id="modal-operator-other" class="form-input" placeholder="Operator name">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="modal-notes">Notes</label>
+          <textarea id="modal-notes" class="form-input form-textarea" placeholder="Optional"></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-confirm">Confirm Complete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
+       CLEAR CONFIRM MODAL
+  ══════════════════════════════════ -->
+  <div id="clear-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card--sm">
+      <h2 class="modal-title">Clear Record?</h2>
+      <p id="clear-subtitle" class="modal-subtitle"></p>
+      <p class="modal-body-text">This removes the completion date and operator record for this toolpath.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="clear-cancel">Keep It</button>
+        <button class="btn btn-danger" id="clear-confirm">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

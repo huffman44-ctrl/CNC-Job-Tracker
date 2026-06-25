@@ -1,0 +1,8 @@
+{
+  "name": "cnc-webapp",
+  "version": "1.0.0",
+  "description": "CNC Job Setup Sheet processor",
+  "scripts": {
+    "serve": "npx serve ."
+  }
+}
