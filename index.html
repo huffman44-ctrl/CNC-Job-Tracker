@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CNC Job Sheet Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230c4a6e'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/style.css?v=4">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     .project-note-preview{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:#e2e8f0;border-radius:6px;border:1px solid #94a3b8}
     .project-note-preview svg{width:13px;height:13px;flex-shrink:0;margin-top:1px;color:#475569}
@@ -113,7 +114,7 @@
       </div>
       <div class="header-right">
         <button class="dark-toggle header-dark-toggle" id="dark-mode-btn" aria-label="Toggle dark mode"></button>
-        <button class="btn btn-ghost btn-sm" id="export-btn">Export CSV</button>
+        <button class="btn btn-ghost btn-sm" id="sync-btn">Export to Sheet</button>
         <button class="btn btn-danger btn-sm" id="reset-btn">Reset All</button>
         <button class="btn btn-ghost btn-sm" id="new-job-btn">New Job</button>
       </div>
@@ -208,9 +209,11 @@
     </div>
   </div>
 
-  <script src="js/firebase-config.js?v=3"></script>
-  <script src="js/storage.js?v=3"></script>
-  <script src="js/parser.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/firebase-config.js?v=4"></script>
+  <script src="js/storage.js?v=4"></script>
+  <script src="js/parser.js?v=4"></script>
+  <script src="js/sheets-config.js?v=4"></script>
+  <script src="js/sheets-sync.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

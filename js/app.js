@@ -89,7 +89,7 @@ fileInput.addEventListener('change', e => { handleFiles(e.target.files, true);  
 addFileInput.addEventListener('change', e => { handleFiles(e.target.files, false); addFileInput.value = ''; });
 
 document.getElementById('new-job-btn').addEventListener('click', resetToUpload);
-document.getElementById('export-btn').addEventListener('click', doExport);
+document.getElementById('sync-btn').addEventListener('click', doSyncToSheet);
 document.getElementById('reset-btn').addEventListener('click', doResetAll);
 document.getElementById('modal-cancel').addEventListener('click', closeModal);
 document.getElementById('modal-confirm').addEventListener('click', confirmComplete);
@@ -779,9 +779,9 @@ function updateOverallProgress(displaySheets) {
 }
 
 /* ══════════════════════════════════════════
-   Export / Reset
+   Export to Google Sheet
 ══════════════════════════════════════════ */
-function doExport() {
+function buildExportRows() {
   const displaySheets = getDisplaySheets();
   const rows = [['Sheet', 'Job', 'Total Time', 'Completed At', 'Operator', 'Notes']];
   for (const sheet of displaySheets) {
@@ -795,15 +795,28 @@ function doExport() {
       rec?.notes    || '',
     ]);
   }
-  const out  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
-  const blob = new Blob([out], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const baseName = (displaySheets[0]?.fileName || 'cnc-job')
-    .replace(/\.html?$/i, '')
-    .replace(/_summary.*/i, '');
-  const a = Object.assign(document.createElement('a'), { href: url, download: `${baseName}.csv` });
-  a.click();
-  URL.revokeObjectURL(url);
+  return rows;
+}
+
+async function doSyncToSheet() {
+  const btn = document.getElementById('sync-btn');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  try {
+    const count = await SheetsSync.syncToSheet(buildExportRows());
+    btn.textContent = `Synced ✓ (${count} rows)`;
+    setTimeout(() => {
+      btn.textContent = 'Export to Sheet';
+      btn.disabled = false;
+    }, 3000);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Export to Sheet';
+    if (err.message !== 'cancelled') {
+      alert(`Export failed: ${err.message}`);
+    }
+  }
 }
 
 async function doResetAll() {
