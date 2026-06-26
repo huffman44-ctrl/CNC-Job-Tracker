@@ -53,6 +53,7 @@
   --shadow-lg:   0 12px 40px rgba(0,0,0,0.8);
 }
 
+[data-theme="dark"] .layout-svg-scroll { background: #ffffff; border-radius: var(--radius-sm); }
 [data-theme="dark"] .file-list-item   { border-color: #1a4a2e; }
 [data-theme="dark"] .status-badge     { border-color: #065f46; }
 [data-theme="dark"] .chip-time        { border-color: #3d2c00; color: #fbbf24; }
