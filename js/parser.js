@@ -25,16 +25,23 @@ function parseJobSheet(htmlString) {
   let toolpaths    = [];
   let totalTime    = '';
   let materialInfo = [];
+  const detailMap  = {};
 
   for (const box of topBoxes) {
-    const title = box.querySelector(':scope > .boxborder > .boxtitle')?.textContent.trim().toLowerCase() || '';
+    const title = box.querySelector('.boxtitle')?.textContent.trim().toLowerCase() || '';
 
-    if (title.includes('toolpath')) {
+    if (title.includes('toolpaths')) {
       toolpaths  = extractToolpaths(box);
       totalTime  = extractTotalTime(box);
+    } else if (/^toolpath:/.test(title)) {
+      extractDetailSection(box, detailMap);
     } else if (title.includes('material')) {
       materialInfo = extractMaterialInfo(box);
     }
+  }
+
+  if (Object.keys(detailMap).length) {
+    toolpaths = toolpaths.map(tp => ({ ...tp, ...(detailMap[tp.name] || {}) }));
   }
 
   // Extract Material Border SVG from the Job Layout Sheet section
@@ -55,12 +62,19 @@ function extractToolpaths(box) {
   const items = [];
   let idx = 0;
 
-  // Rows nested inside .childindent — three .box33 cols: name | tool | time
-  for (const row of box.querySelectorAll('.childindent .fullwidth')) {
+  // Prefer rows inside .childindent (grouped by sheet); fall back to all .fullwidth rows
+  let rows = Array.from(box.querySelectorAll('.childindent .fullwidth'));
+  if (!rows.length) {
+    rows = Array.from(box.querySelectorAll('.fullwidth')).filter(
+      row => !row.closest('.tableheader') && row.querySelectorAll('.box33').length >= 3
+    );
+  }
+
+  for (const row of rows) {
     const cols = row.querySelectorAll('.box33');
-    const name = cols[0]?.querySelector('.level')?.textContent.trim() || '';
-    const tool = cols[1]?.querySelector('.level')?.textContent.trim() || '';
-    const time = cols[2]?.querySelector('.level')?.textContent.trim() || '';
+    const name = cols[0]?.querySelector('.level')?.textContent.trim() || cols[0]?.textContent.trim() || '';
+    const tool = cols[1]?.querySelector('.level')?.textContent.trim() || cols[1]?.textContent.trim() || '';
+    const time = cols[2]?.querySelector('.level')?.textContent.trim() || cols[2]?.textContent.trim() || '';
     if (name) items.push({ id: `tp-${idx++}`, name, tool, timeEstimate: time });
   }
 
@@ -117,6 +131,36 @@ function extractMaterialInfo(box) {
   }
 
   return info;
+}
+
+/* ── Toolpath Details ── */
+function extractDetailSection(box, map) {
+  for (const child of box.querySelectorAll('.childboxborder')) {
+    const boxtitle = child.querySelector('.boxtitle')?.textContent.trim() || '';
+    const name = boxtitle.replace(/^toolpath:\s*/i, '').trim();
+    if (!name) continue;
+
+    const detail = {};
+    for (const cell of child.querySelectorAll('.childboxcontainer .box25')) {
+      const level = cell.querySelector('.level');
+      if (!level) continue;
+      const parts = level.innerHTML
+        .split(/<br\s*\/?>/i)
+        .map(s => s.replace(/<[^>]+>/g, '').trim())
+        .filter(Boolean);
+      if (parts.length < 2) continue;
+      const key = parts[0].toLowerCase().replace(/:$/, '');
+      const val = parts.slice(1).join(' ');
+      if      (key.includes('feed rate'))   detail.feedRate     = val;
+      else if (key.includes('plunge'))      detail.plungeRate   = val;
+      else if (key.includes('spindle'))     detail.spindleSpeed = val;
+      else if (key.includes('tool type'))   detail.toolType     = val;
+      else if (key.includes('max cut'))     detail.maxCutDepth  = val;
+      else if (key.includes('pass depth'))  detail.passDepth    = val;
+      else if (key.includes('stepover'))    detail.stepover     = val;
+    }
+    map[name] = detail;
+  }
 }
 
 /* ── Utility ── */

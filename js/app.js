@@ -226,7 +226,12 @@ function buildSheetCard(sheet, idx) {
       </span>`;
   }
 
+  const fileNameEl = document.createElement('div');
+  fileNameEl.className = 'sheet-filename';
+  fileNameEl.textContent = sheet.fileName.replace(/\.html?$/i, '');
+
   textWrap.appendChild(titleEl);
+  textWrap.appendChild(fileNameEl);
   textWrap.appendChild(metaEl);
 
   const rightEl = document.createElement('div');
@@ -367,6 +372,30 @@ function buildItemRow(item) {
 
   infoEl.appendChild(nameEl);
   infoEl.appendChild(chipsEl);
+
+  const detailFields = [
+    { key: 'feedRate',     label: 'Feed Rate' },
+    { key: 'plungeRate',   label: 'Plunge Rate' },
+    { key: 'spindleSpeed', label: 'Spindle' },
+    { key: 'toolType',     label: 'Tool Type' },
+    { key: 'maxCutDepth',  label: 'Max Cut' },
+    { key: 'passDepth',    label: 'Pass Depth' },
+    { key: 'stepover',     label: 'Stepover' },
+  ];
+  const hasDetails = detailFields.some(f => item[f.key]);
+  if (hasDetails) {
+    const grid = document.createElement('div');
+    grid.className = 'item-detail-grid';
+    for (const { key, label } of detailFields) {
+      if (!item[key]) continue;
+      const entry = document.createElement('div');
+      entry.className = 'item-detail-entry';
+      entry.innerHTML = `<span class="item-detail-label">${escHtml(label)}</span><span class="item-detail-value">${escHtml(item[key])}</span>`;
+      grid.appendChild(entry);
+    }
+    infoEl.appendChild(grid);
+  }
+
   row.appendChild(infoEl);
   return row;
 }
