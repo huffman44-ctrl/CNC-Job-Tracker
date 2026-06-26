@@ -540,7 +540,10 @@ function doExport() {
   const out  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob = new Blob([out], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), { href: url, download: `cnc-job-${Date.now()}.csv` });
+  const baseName = (sheets[0]?.fileName || 'cnc-job')
+    .replace(/\.html?$/i, '')
+    .replace(/_summary.*/i, '');
+  const a    = Object.assign(document.createElement('a'), { href: url, download: `${baseName}.csv` });
   a.click();
   URL.revokeObjectURL(url);
 }
