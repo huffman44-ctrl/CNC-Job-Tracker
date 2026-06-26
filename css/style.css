@@ -1035,20 +1035,20 @@ body {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--gray-50, rgba(0,0,0,0.03));
+  background: #e2e8f0;
   border-radius: 6px;
-  border: 1px solid var(--gray-200);
+  border: 1px solid #94a3b8;
 }
 .project-note-preview svg {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
   margin-top: 1px;
-  color: var(--gray-400);
+  color: #475569;
 }
 .project-note-text {
   font-size: 12px;
-  color: var(--gray-500);
+  color: #1e293b;
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1056,8 +1056,10 @@ body {
   overflow: hidden;
 }
 [data-theme="dark"] .project-note-preview {
-  background: rgba(255,255,255,0.04);
-  border-color: var(--gray-200);
+  background: rgba(255,255,255,0.08);
+  border-color: #484f58;
 }
+[data-theme="dark"] .project-note-preview svg { color: #8b949e; }
+[data-theme="dark"] .project-note-text { color: #c9d1d9; }
 
 .form-textarea--tall { min-height: 130px; }

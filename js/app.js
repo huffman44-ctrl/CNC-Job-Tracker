@@ -18,6 +18,7 @@ function toggleDarkMode() {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('cnc::darkMode', next);
   updateDarkBtns();
+  if (!document.getElementById('projects-screen').hidden) renderProjects();
 }
 
 document.getElementById('dark-mode-btn').addEventListener('click', toggleDarkMode);
