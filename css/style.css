@@ -80,8 +80,9 @@
 [data-theme="dark"] .layout-svg-scroll { background: #ffffff; border-radius: var(--radius-sm); }
 [data-theme="dark"] .file-list-item   { border-color: #1a4a2e; }
 [data-theme="dark"] .status-badge     { border-color: #065f46; }
-[data-theme="dark"] .chip-time        { border-color: #3d2c00; color: #fbbf24; }
-[data-theme="dark"] .resume-banner    { background: #1f1600; border-color: #3d2c00; color: #fbbf24; }
+[data-theme="dark"] .chip-time              { border-color: #3d2c00; color: #fbbf24; }
+[data-theme="dark"] .status-badge--progress { background: #1f1600; border-color: #3d2c00; color: #fbbf24; }
+[data-theme="dark"] .btn-muted              { background: var(--gray-100); color: var(--gray-400); border-color: var(--gray-200); }
 
 /* ── Dark Mode Toggle Button ── */
 .dark-toggle {
@@ -596,6 +597,11 @@ body {
   background: linear-gradient(90deg, #065f46 0%, var(--green) 100%);
 }
 
+/* ── Sheet in-progress state ── */
+.sheet-card.in-progress .sheet-header {
+  background: linear-gradient(90deg, #92400e 0%, var(--gold) 100%);
+}
+
 /* ── Toolpath Rows (display-only) ── */
 .toolpaths-list { padding: 0; }
 
@@ -728,6 +734,15 @@ body {
   border: 1px solid var(--gray-200);
 }
 .btn-muted:hover { background: var(--gray-200); color: var(--gray-700); }
+
+.btn-amber { background: var(--gold); color: #fff; box-shadow: 0 2px 6px rgba(217,119,6,0.35); }
+.btn-amber:hover { background: #b45309; box-shadow: 0 3px 10px rgba(217,119,6,0.4); transform: translateY(-1px); }
+
+.status-badge--progress {
+  background: var(--gold-light);
+  color: var(--gold);
+  border-color: #fde68a;
+}
 
 /* ═══════════════════════════════════════════
    MODALS

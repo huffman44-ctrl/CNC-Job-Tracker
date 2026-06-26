@@ -206,11 +206,16 @@ function hideUploadError()    { uploadErrorEl.hidden = true; }
 /* ══════════════════════════════════════════
    Render
 ══════════════════════════════════════════ */
+function isCompleted(sheet) {
+  const rec = Storage.get(sheet.fileKey, 'sheet');
+  return !!rec && rec.status !== 'in-progress';
+}
+
 function renderAllSheets() {
   sheetsContainer.innerHTML = '';
 
-  const active   = sheets.filter(s => !Storage.get(s.fileKey, 'sheet'));
-  const complete = sheets.filter(s =>  Storage.get(s.fileKey, 'sheet'));
+  const active   = sheets.filter(s => !isCompleted(s));
+  const complete = sheets.filter(s =>  isCompleted(s));
 
   active.forEach((sheet, idx) => sheetsContainer.appendChild(buildSheetCard(sheet, idx)));
 
@@ -350,17 +355,29 @@ function buildSheetCard(sheet, idx) {
   const statusEl = document.createElement('div');
   statusEl.className = 'sheet-status-area';
 
-  const completeBtn = document.createElement('button');
-  completeBtn.type = 'button';
+  const actionBtn = document.createElement('button');
+  actionBtn.type = 'button';
 
-  completeBtn.addEventListener('click', () => {
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+
+  actionBtn.addEventListener('click', () => {
     const rec = Storage.get(sheet.fileKey, 'sheet');
-    if (rec) openClearModal(sheet, completeBtn, statusEl);
-    else     openCompleteModal(sheet, completeBtn, statusEl);
+    if (!rec) {
+      Storage.set(sheet.fileKey, 'sheet', { status: 'in-progress' });
+      renderAllSheets();
+    } else if (rec.status === 'in-progress') {
+      openCompleteModal(sheet, actionBtn, statusEl);
+    }
+  });
+
+  clearBtn.addEventListener('click', () => {
+    openClearModal(sheet, actionBtn, statusEl);
   });
 
   footer.appendChild(statusEl);
-  footer.appendChild(completeBtn);
+  footer.appendChild(clearBtn);
+  footer.appendChild(actionBtn);
   body.appendChild(footer);
 
   /* ── Toggle ── */
@@ -373,7 +390,7 @@ function buildSheetCard(sheet, idx) {
   card.appendChild(header);
   card.appendChild(body);
 
-  applySheetCompletion(sheet, card, completeBtn, statusEl);
+  applySheetCompletion(sheet, card, actionBtn, clearBtn, statusEl);
 
   return card;
 }
@@ -440,12 +457,16 @@ function buildItemRow(item) {
   return row;
 }
 
-function applySheetCompletion(sheet, card, completeBtn, statusEl) {
+function applySheetCompletion(sheet, card, actionBtn, clearBtn, statusEl) {
   const rec = Storage.get(sheet.fileKey, 'sheet');
-  card.classList.toggle('completed', !!rec);
+  const inProg = !!rec && rec.status === 'in-progress';
+  const done   = !!rec && rec.status !== 'in-progress';
+
+  card.classList.toggle('completed',   done);
+  card.classList.toggle('in-progress', inProg);
   statusEl.innerHTML = '';
 
-  if (rec) {
+  if (done) {
     const dt = new Date(rec.completedAt);
     statusEl.innerHTML = `
       <span class="status-badge">
@@ -456,11 +477,29 @@ function applySheetCompletion(sheet, card, completeBtn, statusEl) {
       </span>
       <span class="status-date">${formatDT(dt)}</span>
       ${rec.operator ? `<span class="status-op">· ${escHtml(rec.operator)}</span>` : ''}`;
-    completeBtn.textContent = 'Clear Record';
-    completeBtn.className = 'btn btn-muted btn-sm';
+    actionBtn.hidden = true;
+    clearBtn.textContent = 'Clear Record';
+    clearBtn.className   = 'btn btn-muted btn-sm';
+    clearBtn.hidden      = false;
+  } else if (inProg) {
+    statusEl.innerHTML = `
+      <span class="status-badge status-badge--progress">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        In Progress
+      </span>`;
+    actionBtn.hidden     = false;
+    actionBtn.textContent = 'Mark Complete';
+    actionBtn.className  = 'btn btn-primary btn-sm';
+    clearBtn.textContent = 'Clear';
+    clearBtn.className   = 'btn btn-muted btn-sm';
+    clearBtn.hidden      = false;
   } else {
-    completeBtn.textContent = 'Mark Complete';
-    completeBtn.className = 'btn btn-primary btn-sm';
+    actionBtn.hidden      = false;
+    actionBtn.textContent = 'Mark In Progress';
+    actionBtn.className   = 'btn btn-amber btn-sm';
+    clearBtn.hidden       = true;
   }
 }
 
@@ -496,6 +535,7 @@ function confirmComplete() {
     ? modalOperatorOther.value.trim()
     : modalOperator.value;
   Storage.set(sheet.fileKey, 'sheet', {
+    status:      'complete',
     completedAt: dtValue ? new Date(dtValue).toISOString() : new Date().toISOString(),
     operator,
     notes: modalNotes.value.trim(),
@@ -530,7 +570,7 @@ function updateSheetBadge(sheet) {
 
 function updateOverallProgress() {
   const total = sheets.length;
-  const done  = sheets.filter(s => Storage.get(s.fileKey, 'sheet')).length;
+  const done  = sheets.filter(s => isCompleted(s)).length;
   const pct   = total ? Math.round((done / total) * 100) : 0;
   progressFill.style.width = pct + '%';
   progressLabel.textContent = `${done} of ${total} sheet${total !== 1 ? 's' : ''} complete (${pct}%)`;
