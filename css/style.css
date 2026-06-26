@@ -1035,9 +1035,9 @@ body {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  background: #e2e8f0;
+  background: #ff0000 !important;
   border-radius: 6px;
-  border: 1px solid #94a3b8;
+  border: 3px solid #000000 !important;
 }
 .project-note-preview svg {
   width: 13px;
