@@ -1,8 +1,8 @@
 const FIREBASE_CONFIG = {
-  apiKey:            "PASTE_YOUR_API_KEY_HERE",
-  authDomain:        "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId:         "PASTE_YOUR_PROJECT_ID_HERE",
-  storageBucket:     "PASTE_YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID_HERE",
-  appId:             "PASTE_YOUR_APP_ID_HERE"
+  apiKey: "AIzaSyDRTYXSnohVHc6RaSZAu2nrDqo60gNrrRo",
+  authDomain: "cnc-job-tracker.firebaseapp.com",
+  projectId: "cnc-job-tracker",
+  storageBucket: "cnc-job-tracker.firebasestorage.app",
+  messagingSenderId: "594975133723",
+  appId: "1:594975133723:web:e3bfd823a3f029bb72a8be"
 };
