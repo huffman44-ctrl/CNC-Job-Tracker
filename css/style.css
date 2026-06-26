@@ -31,6 +31,60 @@
   --shadow-lg:   0 12px 40px rgba(0,0,0,0.16), 0 4px 8px rgba(0,0,0,0.06);
 }
 
+/* ── Dark Mode Overrides ── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0d1117;
+  --white:       #161b22;
+  --gray-50:     #0d1117;
+  --gray-100:    #21262d;
+  --gray-200:    #30363d;
+  --gray-300:    #484f58;
+  --gray-400:    #8b949e;
+  --gray-500:    #8b949e;
+  --gray-700:    #c9d1d9;
+  --gray-800:    #e6edf3;
+  --teal-light:  #0c2430;
+  --green-light: #071e13;
+  --gold-light:  #1f1600;
+  --red-light:   #1c0505;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.5);
+  --shadow:      0 4px 12px rgba(0,0,0,0.6);
+  --shadow-lg:   0 12px 40px rgba(0,0,0,0.8);
+}
+
+[data-theme="dark"] .file-list-item   { border-color: #1a4a2e; }
+[data-theme="dark"] .status-badge     { border-color: #065f46; }
+[data-theme="dark"] .chip-time        { border-color: #3d2c00; color: #fbbf24; }
+[data-theme="dark"] .resume-banner    { background: #1f1600; border-color: #3d2c00; color: #fbbf24; }
+
+/* ── Dark Mode Toggle Button ── */
+.dark-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.1);
+  flex-shrink: 0;
+}
+.dark-toggle:hover { background: rgba(255,255,255,0.2); color: var(--white); }
+.dark-toggle svg   { width: 15px; height: 15px; }
+
+.upload-dark-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: var(--gray-400);
+  background: var(--gray-100);
+}
+.upload-dark-toggle:hover { background: var(--gray-200); color: var(--gray-700); }
+
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

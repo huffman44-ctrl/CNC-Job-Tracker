@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CNC Job Sheet Tracker</title>
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    (function(){
+      var t = localStorage.getItem('cnc::darkMode');
+      document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+    })();
+  </script>
 </head>
 <body>
 
@@ -13,6 +19,7 @@
   ══════════════════════════════════ -->
   <div id="upload-screen">
     <div class="upload-card">
+      <button class="dark-toggle upload-dark-toggle" id="upload-dark-btn" aria-label="Toggle dark mode"></button>
       <div class="upload-brand">
         <span class="upload-logo-badge">CNC</span>
         <span class="upload-brand-name">Job Sheet Tracker</span>
@@ -54,6 +61,7 @@
         </div>
       </div>
       <div class="header-right">
+        <button class="dark-toggle header-dark-toggle" id="dark-mode-btn" aria-label="Toggle dark mode"></button>
         <button class="btn btn-ghost btn-sm" id="export-btn">Export CSV</button>
         <button class="btn btn-danger btn-sm" id="reset-btn">Reset All</button>
         <button class="btn btn-ghost btn-sm" id="new-job-btn">New Job</button>
