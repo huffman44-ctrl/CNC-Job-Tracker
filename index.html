@@ -179,6 +179,23 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════
+       PROJECT NOTES MODAL
+  ══════════════════════════════════ -->
+  <div id="notes-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 class="modal-title">Project Notes</h2>
+      <p id="notes-modal-subtitle" class="modal-subtitle"></p>
+      <div class="modal-form">
+        <textarea id="notes-modal-text" class="form-input form-textarea form-textarea--tall" placeholder="Add notes for this project…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="notes-modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="notes-modal-save">Save Note</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/firebase-config.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/parser.js"></script>

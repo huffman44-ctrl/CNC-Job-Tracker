@@ -8,6 +8,7 @@
 const Storage = (() => {
   let db = null;
   const completionsCache = {}; // { [fileKey]: { completedAt, operator, notes } }
+  const notesCache = {};       // { [noteKey]: string }
 
   function init(firestore) {
     db = firestore;
@@ -60,6 +61,50 @@ const Storage = (() => {
       snap.forEach(doc => { completionsCache[doc.id] = doc.data(); });
       callback();
     }, err => console.warn('Firestore listener error:', err));
+  }
+
+  /* ── Project Notes ── */
+
+  function getNote(noteKey) {
+    return notesCache[noteKey] || null;
+  }
+
+  async function setNote(noteKey, text) {
+    const trimmed = (text || '').trim();
+    if (trimmed) {
+      notesCache[noteKey] = trimmed;
+    } else {
+      delete notesCache[noteKey];
+    }
+    if (!db) return;
+    try {
+      if (trimmed) {
+        await db.collection('projectNotes').doc(noteKey).set({ text: trimmed });
+      } else {
+        await db.collection('projectNotes').doc(noteKey).delete();
+      }
+    } catch (e) {
+      console.warn('Firestore setNote failed:', e);
+    }
+  }
+
+  async function loadNotes() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('projectNotes').get();
+      snap.forEach(doc => { notesCache[doc.id] = doc.data().text; });
+    } catch (e) {
+      console.warn('Firestore loadNotes failed:', e);
+    }
+  }
+
+  function onNoteChange(callback) {
+    if (!db) return;
+    db.collection('projectNotes').onSnapshot(snap => {
+      Object.keys(notesCache).forEach(k => delete notesCache[k]);
+      snap.forEach(doc => { notesCache[doc.id] = doc.data().text; });
+      callback();
+    }, err => console.warn('Firestore notes listener error:', err));
   }
 
   /* ── Sheets ── */
@@ -144,5 +189,5 @@ const Storage = (() => {
     return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions, exportCSV };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions, exportCSV };
 })();
