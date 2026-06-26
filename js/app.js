@@ -351,7 +351,7 @@ function buildProjectCard(jobName, projectSheets) {
 
   const noteBtn = document.createElement('button');
   noteBtn.type = 'button';
-  noteBtn.className = 'btn btn-ghost btn-sm';
+  noteBtn.className = 'btn btn-muted btn-sm';
   noteBtn.textContent = Storage.getNote(noteKey(jobName)) ? 'Edit Note' : 'Add Note';
   noteBtn.addEventListener('click', e => {
     e.stopPropagation();
