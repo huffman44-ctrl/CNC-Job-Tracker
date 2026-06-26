@@ -881,3 +881,116 @@ body {
   background: var(--gray-100);
   margin: 0;
 }
+
+/* ══════════════════════════════════════════
+   PROJECTS SCREEN
+══════════════════════════════════════════ */
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.project-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.project-card-header {
+  padding: 18px 22px;
+  background: linear-gradient(90deg, var(--navy) 0%, var(--navy-2) 100%);
+}
+.project-card--complete .project-card-header {
+  background: linear-gradient(90deg, #065f46 0%, var(--green) 100%);
+}
+.project-card--in-progress .project-card-header {
+  background: linear-gradient(90deg, #92400e 0%, var(--gold) 100%);
+}
+
+.project-card-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--white);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.project-card-sheet-count {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  margin-top: 3px;
+  font-weight: 600;
+}
+
+.project-card-body {
+  padding: 14px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.project-progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--gray-100);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.project-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal), var(--teal-2));
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(.4,0,.2,1);
+}
+.project-card--complete .project-progress-fill {
+  background: linear-gradient(90deg, var(--green), var(--green-2));
+}
+.project-card--in-progress .project-progress-fill {
+  background: linear-gradient(90deg, var(--gold), #fbbf24);
+}
+.project-progress-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-400);
+  white-space: nowrap;
+}
+
+.project-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-stats {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.project-stat {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid;
+}
+.project-stat--complete   { background: var(--green-light); color: var(--green);  border-color: #a7f3d0; }
+.project-stat--progress   { background: var(--gold-light);  color: var(--gold);   border-color: #fde68a; }
+.project-stat--incomplete { background: var(--gray-100);    color: var(--gray-500); border-color: var(--gray-200); }
+
+[data-theme="dark"] .project-stat--complete   { background: #071e13; border-color: #065f46; }
+[data-theme="dark"] .project-stat--progress   { background: #1f1600; border-color: #3d2c00; color: #fbbf24; }
+[data-theme="dark"] .project-stat--incomplete { background: var(--gray-100); border-color: var(--gray-200); }

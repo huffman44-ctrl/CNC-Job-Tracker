@@ -30,6 +30,29 @@
   </div>
 
   <!-- ══════════════════════════════════
+       PROJECTS SCREEN
+  ══════════════════════════════════ -->
+  <div id="projects-screen" hidden>
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span class="header-file-title">All Projects</span>
+          <span id="projects-count" class="header-job-name"></span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="dark-toggle" id="projects-dark-btn" aria-label="Toggle dark mode"></button>
+        <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
+      </div>
+    </header>
+    <main class="content-main">
+      <div id="projects-container" class="projects-grid"></div>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════
        UPLOAD SCREEN
   ══════════════════════════════════ -->
   <div id="upload-screen">
@@ -68,6 +91,7 @@
 
     <header class="app-header">
       <div class="header-left">
+        <button class="btn btn-ghost btn-sm" id="back-to-projects-btn" hidden>← Projects</button>
         <span class="header-logo-badge">CNC</span>
         <div class="header-divider"></div>
         <div class="header-titles">

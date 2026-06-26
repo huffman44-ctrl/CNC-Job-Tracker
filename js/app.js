@@ -7,8 +7,9 @@ const sunSvg  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 function updateDarkBtns() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const icon = isDark ? sunSvg : moonSvg;
-  document.getElementById('dark-mode-btn').innerHTML   = icon;
-  document.getElementById('upload-dark-btn').innerHTML = icon;
+  document.getElementById('dark-mode-btn').innerHTML     = icon;
+  document.getElementById('upload-dark-btn').innerHTML   = icon;
+  document.getElementById('projects-dark-btn').innerHTML = icon;
 }
 
 function toggleDarkMode() {
@@ -21,60 +22,28 @@ function toggleDarkMode() {
 
 document.getElementById('dark-mode-btn').addEventListener('click', toggleDarkMode);
 document.getElementById('upload-dark-btn').addEventListener('click', toggleDarkMode);
+document.getElementById('projects-dark-btn').addEventListener('click', toggleDarkMode);
 updateDarkBtns();
-
-/* ══════════════════════════════════════════
-   Firebase Init
-══════════════════════════════════════════ */
-async function initApp() {
-  const loadingScreen = document.getElementById('loading-screen');
-  try {
-    const configured = typeof FIREBASE_CONFIG !== 'undefined'
-      && FIREBASE_CONFIG.projectId
-      && !FIREBASE_CONFIG.projectId.startsWith('PASTE');
-
-    if (!configured) throw new Error('Firebase config not set');
-
-    firebase.initializeApp(FIREBASE_CONFIG);
-    const db = firebase.firestore();
-    Storage.init(db);
-
-    const [storedSheets] = await Promise.all([
-      Storage.loadSheets(),
-      Storage.loadCompletions(),
-    ]);
-
-    if (storedSheets.length > 0) {
-      sheets = storedSheets;
-      showContentScreen();
-    }
-
-    Storage.onCompletionChange(() => renderAllSheets());
-
-  } catch (err) {
-    console.warn('Running without Firebase:', err.message);
-  }
-
-  loadingScreen.classList.add('hidden');
-}
 
 /* ══════════════════════════════════════════
    State
 ══════════════════════════════════════════ */
-let sheets   = [];   // [{ fileKey, fileName, sheetTitle, jobName, totalTime, toolpaths, materialInfo }]
-let modalCtx = null; // { sheet, completeBtn, statusEl }
-let clearCtx = null;
+let sheets         = [];
+let currentProject = null; // jobName string when inside a project, null on directory
+let modalCtx       = null;
+let clearCtx       = null;
 
 /* ══════════════════════════════════════════
    DOM refs
 ══════════════════════════════════════════ */
-const uploadScreen  = document.getElementById('upload-screen');
-const contentScreen = document.getElementById('content-screen');
-const dropZone      = document.getElementById('drop-zone');
-const fileInput     = document.getElementById('file-input');
-const addFileInput  = document.getElementById('add-file-input');
-const fileListEl    = document.getElementById('file-list');
-const uploadErrorEl = document.getElementById('upload-error');
+const uploadScreen   = document.getElementById('upload-screen');
+const projectsScreen = document.getElementById('projects-screen');
+const contentScreen  = document.getElementById('content-screen');
+const dropZone       = document.getElementById('drop-zone');
+const fileInput      = document.getElementById('file-input');
+const addFileInput   = document.getElementById('add-file-input');
+const fileListEl     = document.getElementById('file-list');
+const uploadErrorEl  = document.getElementById('upload-error');
 
 const headerJobName    = document.getElementById('header-job-name');
 const headerSheetCount = document.getElementById('header-sheet-count');
@@ -82,19 +51,19 @@ const progressFill     = document.getElementById('progress-fill');
 const progressLabel    = document.getElementById('progress-label');
 const sheetsContainer  = document.getElementById('sheets-container');
 
-const modalOverlay         = document.getElementById('modal-overlay');
-const modalSubtitle        = document.getElementById('modal-subtitle');
-const modalDatetime        = document.getElementById('modal-datetime');
-const modalOperator        = document.getElementById('modal-operator');
-const modalOperatorOther   = document.getElementById('modal-operator-other');
-const modalOperatorOtherGrp= document.getElementById('modal-operator-other-group');
-const modalNotes           = document.getElementById('modal-notes');
+const modalOverlay          = document.getElementById('modal-overlay');
+const modalSubtitle         = document.getElementById('modal-subtitle');
+const modalDatetime         = document.getElementById('modal-datetime');
+const modalOperator         = document.getElementById('modal-operator');
+const modalOperatorOther    = document.getElementById('modal-operator-other');
+const modalOperatorOtherGrp = document.getElementById('modal-operator-other-group');
+const modalNotes            = document.getElementById('modal-notes');
 
 const clearOverlay  = document.getElementById('clear-overlay');
 const clearSubtitle = document.getElementById('clear-subtitle');
 
 /* ══════════════════════════════════════════
-   Upload / file handling
+   Upload / File Handling
 ══════════════════════════════════════════ */
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
@@ -107,12 +76,12 @@ dropZone.addEventListener('drop', e => {
   handleFiles(e.dataTransfer.files, true);
 });
 
-/* Prevent browser from opening files if drag misses the drop zone */
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => {
   e.preventDefault();
-  if (!uploadScreen.hidden)  handleFiles(e.dataTransfer.files, true);
-  else if (!contentScreen.hidden) handleFiles(e.dataTransfer.files, false);
+  if (!uploadScreen.hidden)    handleFiles(e.dataTransfer.files, true);
+  else if (!contentScreen.hidden)  handleFiles(e.dataTransfer.files, false);
+  else if (!projectsScreen.hidden) handleFiles(e.dataTransfer.files, true);
 });
 
 fileInput.addEventListener('change', e => { handleFiles(e.target.files, true);  fileInput.value = ''; });
@@ -125,6 +94,11 @@ document.getElementById('modal-cancel').addEventListener('click', closeModal);
 document.getElementById('modal-confirm').addEventListener('click', confirmComplete);
 document.getElementById('clear-cancel').addEventListener('click', closeClearModal);
 document.getElementById('clear-confirm').addEventListener('click', confirmClear);
+document.getElementById('back-to-projects-btn').addEventListener('click', () => {
+  currentProject = null;
+  showProjectsScreen();
+});
+document.getElementById('upload-new-btn').addEventListener('click', goToUpload);
 
 modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
 clearOverlay.addEventListener('click', e => { if (e.target === clearOverlay) closeClearModal(); });
@@ -159,19 +133,28 @@ function handleFiles(fileList, isFirstLoad) {
     }
   }
 
-  let loadedCount = 0;
+  let loadedCount    = 0;
+  let firstNewJobName = null;
   for (const file of htmlFiles) {
     const reader = new FileReader();
     reader.onload = e => {
       const parsed = parseJobSheet(e.target.result);
-      const key = simpleHash(file.name);
+      const key    = simpleHash(file.name);
       if (!sheets.find(s => s.fileKey === key)) {
         const sheet = { fileKey: key, fileName: file.name, ...parsed };
+        if (!firstNewJobName) firstNewJobName = projectKey(sheet);
         sheets.push(sheet);
-        Storage.saveSheet(sheet); // persist to Firestore (async, fire-and-forget)
+        Storage.saveSheet(sheet);
       }
       loadedCount++;
-      if (loadedCount === htmlFiles.length && sheets.length) showContentScreen();
+      if (loadedCount === htmlFiles.length && sheets.length) {
+        if (isFirstLoad) {
+          currentProject = firstNewJobName;
+          showContentScreen();
+        } else {
+          renderAllSheets();
+        }
+      }
     };
     reader.readAsText(file);
   }
@@ -180,31 +163,180 @@ function handleFiles(fileList, isFirstLoad) {
 async function resetToUpload() {
   if (!confirm('Start a new job? This clears all loaded sheets and completion records for everyone.')) return;
   await Promise.all([Storage.clearSheets(), Storage.clearAllCompletions()]);
-  sheets = [];
+  sheets         = [];
+  currentProject = null;
   sheetsContainer.innerHTML = '';
   fileListEl.innerHTML = '';
-  fileListEl.hidden = true;
-  contentScreen.hidden = true;
-  uploadScreen.hidden  = false;
+  fileListEl.hidden    = true;
+  contentScreen.hidden  = true;
+  projectsScreen.hidden = true;
+  uploadScreen.hidden   = false;
 }
 
-function showContentScreen() {
-  uploadScreen.hidden  = true;
-  contentScreen.hidden = false;
-
-  const jobName = sheets[0]?.jobName || 'Job';
-  headerJobName.textContent    = jobName;
-  headerSheetCount.textContent = `${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}`;
-
-  renderAllSheets();
+function goToUpload() {
+  fileListEl.innerHTML = '';
+  fileListEl.hidden    = true;
+  hideUploadError();
+  contentScreen.hidden  = true;
+  projectsScreen.hidden = true;
+  uploadScreen.hidden   = false;
 }
-
 
 function showUploadError(msg) { uploadErrorEl.textContent = msg; uploadErrorEl.hidden = false; }
 function hideUploadError()    { uploadErrorEl.hidden = true; }
 
 /* ══════════════════════════════════════════
-   Render
+   Screen Navigation
+══════════════════════════════════════════ */
+function showProjectsScreen() {
+  uploadScreen.hidden   = true;
+  contentScreen.hidden  = true;
+  projectsScreen.hidden = false;
+  renderProjects();
+}
+
+function showContentScreen() {
+  uploadScreen.hidden   = true;
+  projectsScreen.hidden = true;
+  contentScreen.hidden  = false;
+
+  const displaySheets = getDisplaySheets();
+  headerJobName.textContent    = displaySheets[0]?.jobName || currentProject || 'Job';
+  headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
+  document.getElementById('back-to-projects-btn').hidden = false;
+
+  renderAllSheets();
+}
+
+/* ══════════════════════════════════════════
+   Projects Directory
+══════════════════════════════════════════ */
+function projectKey(sheet) {
+  return sheet.jobName || sheet.fileName || 'Unknown Job';
+}
+
+function getDisplaySheets() {
+  return currentProject
+    ? sheets.filter(s => projectKey(s) === currentProject)
+    : sheets;
+}
+
+function getProjectGroups() {
+  const map = {};
+  for (const sheet of sheets) {
+    const key = projectKey(sheet);
+    if (!map[key]) map[key] = [];
+    map[key].push(sheet);
+  }
+  return map;
+}
+
+function renderProjects() {
+  const container = document.getElementById('projects-container');
+  container.innerHTML = '';
+
+  const groups = getProjectGroups();
+  const names  = Object.keys(groups);
+
+  document.getElementById('projects-count').textContent =
+    `${names.length} project${names.length !== 1 ? 's' : ''} · ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}`;
+
+  if (!names.length) {
+    container.innerHTML = '<div class="empty-state">No projects loaded.</div>';
+    return;
+  }
+
+  for (const name of names) {
+    container.appendChild(buildProjectCard(name, groups[name]));
+  }
+}
+
+function buildProjectCard(jobName, projectSheets) {
+  const total    = projectSheets.length;
+  const complete = projectSheets.filter(s => {
+    const rec = Storage.get(s.fileKey, 'sheet');
+    return rec && rec.status === 'complete';
+  }).length;
+  const inProg = projectSheets.filter(s => {
+    const rec = Storage.get(s.fileKey, 'sheet');
+    return rec && rec.status === 'in-progress';
+  }).length;
+  const incomplete = total - complete - inProg;
+  const pct        = total ? Math.round((complete / total) * 100) : 0;
+
+  const status = complete === total ? 'complete'
+    : (complete > 0 || inProg > 0) ? 'in-progress'
+    : 'incomplete';
+
+  const card = document.createElement('div');
+  card.className = `project-card project-card--${status}`;
+
+  /* Header */
+  const hdr = document.createElement('div');
+  hdr.className = 'project-card-header';
+  hdr.innerHTML = `
+    <div class="project-card-name">${escHtml(jobName)}</div>
+    <div class="project-card-sheet-count">${total} sheet${total !== 1 ? 's' : ''}</div>`;
+
+  /* Body */
+  const body = document.createElement('div');
+  body.className = 'project-card-body';
+
+  /* Progress row */
+  const barWrap = document.createElement('div');
+  barWrap.className = 'project-progress-wrap';
+  barWrap.innerHTML = `
+    <div class="project-progress-track">
+      <div class="project-progress-fill" style="width:${pct}%"></div>
+    </div>
+    <span class="project-progress-label">${complete} of ${total} complete</span>`;
+
+  /* Stats + open button */
+  const bottom = document.createElement('div');
+  bottom.className = 'project-card-bottom';
+
+  const stats = document.createElement('div');
+  stats.className = 'project-stats';
+  const statDefs = [
+    { count: complete,   label: 'complete',    cls: 'project-stat--complete'   },
+    { count: inProg,     label: 'in progress', cls: 'project-stat--progress'   },
+    { count: incomplete, label: 'incomplete',  cls: 'project-stat--incomplete' },
+  ];
+  for (const { count, label, cls } of statDefs) {
+    if (count === 0) continue;
+    const chip = document.createElement('span');
+    chip.className = `project-stat ${cls}`;
+    chip.textContent = `${count} ${label}`;
+    stats.appendChild(chip);
+  }
+
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'btn btn-primary btn-sm';
+  openBtn.textContent = 'Open →';
+  openBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    currentProject = jobName;
+    showContentScreen();
+  });
+
+  bottom.appendChild(stats);
+  bottom.appendChild(openBtn);
+  body.appendChild(barWrap);
+  body.appendChild(bottom);
+  card.appendChild(hdr);
+  card.appendChild(body);
+
+  card.addEventListener('click', () => {
+    currentProject = jobName;
+    showContentScreen();
+  });
+
+  return card;
+}
+
+/* ══════════════════════════════════════════
+   Render Sheets
 ══════════════════════════════════════════ */
 function isCompleted(sheet) {
   const rec = Storage.get(sheet.fileKey, 'sheet');
@@ -212,10 +344,11 @@ function isCompleted(sheet) {
 }
 
 function renderAllSheets() {
+  const displaySheets = getDisplaySheets();
   sheetsContainer.innerHTML = '';
 
-  const active   = sheets.filter(s => !isCompleted(s));
-  const complete = sheets.filter(s =>  isCompleted(s));
+  const active   = displaySheets.filter(s => !isCompleted(s));
+  const complete = displaySheets.filter(s =>  isCompleted(s));
 
   active.forEach((sheet, idx) => sheetsContainer.appendChild(buildSheetCard(sheet, idx)));
 
@@ -236,7 +369,7 @@ function renderAllSheets() {
     sheetsContainer.appendChild(section);
   }
 
-  updateOverallProgress();
+  updateOverallProgress(displaySheets);
 }
 
 function buildSheetCard(sheet, idx) {
@@ -301,7 +434,6 @@ function buildSheetCard(sheet, idx) {
   const body = document.createElement('div');
   body.className = 'sheet-body';
 
-  // Material info strip
   if (sheet.materialInfo?.length) {
     const strip = document.createElement('div');
     strip.className = 'material-strip';
@@ -316,7 +448,6 @@ function buildSheetCard(sheet, idx) {
     body.appendChild(strip);
   }
 
-  // Material Border SVG
   if (sheet.layoutSvg) {
     try {
       const svgWrap = document.createElement('div');
@@ -335,7 +466,6 @@ function buildSheetCard(sheet, idx) {
     }
   }
 
-  // Toolpath rows (read-only)
   if (sheet.toolpaths?.length) {
     const list = document.createElement('div');
     list.className = 'toolpaths-list';
@@ -348,18 +478,18 @@ function buildSheetCard(sheet, idx) {
     body.appendChild(empty);
   }
 
-  // Sheet-level completion footer
+  /* ── Footer ── */
   const footer = document.createElement('div');
   footer.className = 'sheet-complete-footer';
 
-  const statusEl = document.createElement('div');
+  const statusEl  = document.createElement('div');
   statusEl.className = 'sheet-status-area';
 
   const actionBtn = document.createElement('button');
-  actionBtn.type = 'button';
+  actionBtn.type  = 'button';
 
-  const clearBtn = document.createElement('button');
-  clearBtn.type = 'button';
+  const clearBtn  = document.createElement('button');
+  clearBtn.type   = 'button';
 
   actionBtn.addEventListener('click', () => {
     const rec = Storage.get(sheet.fileKey, 'sheet');
@@ -458,7 +588,7 @@ function buildItemRow(item) {
 }
 
 function applySheetCompletion(sheet, card, actionBtn, clearBtn, statusEl) {
-  const rec = Storage.get(sheet.fileKey, 'sheet');
+  const rec    = Storage.get(sheet.fileKey, 'sheet');
   const inProg = !!rec && rec.status === 'in-progress';
   const done   = !!rec && rec.status !== 'in-progress';
 
@@ -477,10 +607,10 @@ function applySheetCompletion(sheet, card, actionBtn, clearBtn, statusEl) {
       </span>
       <span class="status-date">${formatDT(dt)}</span>
       ${rec.operator ? `<span class="status-op">· ${escHtml(rec.operator)}</span>` : ''}`;
-    actionBtn.hidden = true;
-    clearBtn.textContent = 'Clear Record';
-    clearBtn.className   = 'btn btn-muted btn-sm';
-    clearBtn.hidden      = false;
+    actionBtn.hidden      = true;
+    clearBtn.textContent  = 'Clear Record';
+    clearBtn.className    = 'btn btn-muted btn-sm';
+    clearBtn.hidden       = false;
   } else if (inProg) {
     statusEl.innerHTML = `
       <span class="status-badge status-badge--progress">
@@ -489,12 +619,12 @@ function applySheetCompletion(sheet, card, actionBtn, clearBtn, statusEl) {
         </svg>
         In Progress
       </span>`;
-    actionBtn.hidden     = false;
+    actionBtn.hidden      = false;
     actionBtn.textContent = 'Mark Complete';
-    actionBtn.className  = 'btn btn-primary btn-sm';
-    clearBtn.textContent = 'Clear';
-    clearBtn.className   = 'btn btn-muted btn-sm';
-    clearBtn.hidden      = false;
+    actionBtn.className   = 'btn btn-primary btn-sm';
+    clearBtn.textContent  = 'Clear';
+    clearBtn.className    = 'btn btn-muted btn-sm';
+    clearBtn.hidden       = false;
   } else {
     actionBtn.hidden      = false;
     actionBtn.textContent = 'Mark In Progress';
@@ -530,8 +660,8 @@ function closeClearModal() { clearOverlay.classList.add('hidden'); clearCtx = nu
 function confirmComplete() {
   if (!modalCtx) return;
   const { sheet } = modalCtx;
-  const dtValue  = modalDatetime.value;
-  const operator = modalOperator.value === '__other__'
+  const dtValue   = modalDatetime.value;
+  const operator  = modalOperator.value === '__other__'
     ? modalOperatorOther.value.trim()
     : modalOperator.value;
   Storage.set(sheet.fileKey, 'sheet', {
@@ -555,22 +685,9 @@ function confirmClear() {
 /* ══════════════════════════════════════════
    Progress
 ══════════════════════════════════════════ */
-function updateSheetBadge(sheet) {
-  const badge = document.querySelector(`[data-badge-for="${sheet.fileKey}"]`);
-  if (!badge) return;
-  const rec = Storage.get(sheet.fileKey, 'sheet');
-  if (rec) {
-    badge.textContent = '✓ Complete';
-    badge.classList.add('done');
-  } else {
-    badge.textContent = '';
-    badge.classList.remove('done');
-  }
-}
-
-function updateOverallProgress() {
-  const total = sheets.length;
-  const done  = sheets.filter(s => isCompleted(s)).length;
+function updateOverallProgress(displaySheets) {
+  const total = displaySheets.length;
+  const done  = displaySheets.filter(s => isCompleted(s)).length;
   const pct   = total ? Math.round((done / total) * 100) : 0;
   progressFill.style.width = pct + '%';
   progressLabel.textContent = `${done} of ${total} sheet${total !== 1 ? 's' : ''} complete (${pct}%)`;
@@ -580,32 +697,34 @@ function updateOverallProgress() {
    Export / Reset
 ══════════════════════════════════════════ */
 function doExport() {
+  const displaySheets = getDisplaySheets();
   const rows = [['Sheet', 'Job', 'Total Time', 'Completed At', 'Operator', 'Notes']];
-  for (const sheet of sheets) {
+  for (const sheet of displaySheets) {
     const rec = Storage.get(sheet.fileKey, 'sheet');
     rows.push([
       sheet.sheetTitle || sheet.fileName,
-      sheet.jobName || '',
-      sheet.totalTime || '',
+      sheet.jobName    || '',
+      sheet.totalTime  || '',
       rec ? formatDT(new Date(rec.completedAt)) : '',
       rec?.operator || '',
-      rec?.notes || '',
+      rec?.notes    || '',
     ]);
   }
   const out  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob = new Blob([out], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
-  const baseName = (sheets[0]?.fileName || 'cnc-job')
+  const baseName = (displaySheets[0]?.fileName || 'cnc-job')
     .replace(/\.html?$/i, '')
     .replace(/_summary.*/i, '');
-  const a    = Object.assign(document.createElement('a'), { href: url, download: `${baseName}.csv` });
+  const a = Object.assign(document.createElement('a'), { href: url, download: `${baseName}.csv` });
   a.click();
   URL.revokeObjectURL(url);
 }
 
 async function doResetAll() {
-  if (!confirm('Reset ALL completion records for this entire job? This cannot be undone.')) return;
-  await Storage.clearAllCompletions();
+  if (!confirm('Reset ALL completion records for this job? This cannot be undone.')) return;
+  const displaySheets = getDisplaySheets();
+  await Promise.all(displaySheets.map(s => Storage.clear(s.fileKey, 'sheet')));
   renderAllSheets();
 }
 
@@ -630,5 +749,42 @@ function localIso(date) {
   return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
 }
 
-/* ── Kick off Firebase init ── */
+/* ══════════════════════════════════════════
+   Firebase Init
+══════════════════════════════════════════ */
+async function initApp() {
+  const loadingScreen = document.getElementById('loading-screen');
+  try {
+    const configured = typeof FIREBASE_CONFIG !== 'undefined'
+      && FIREBASE_CONFIG.projectId
+      && !FIREBASE_CONFIG.projectId.startsWith('PASTE');
+
+    if (!configured) throw new Error('Firebase config not set');
+
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.firestore();
+    Storage.init(db);
+
+    const [storedSheets] = await Promise.all([
+      Storage.loadSheets(),
+      Storage.loadCompletions(),
+    ]);
+
+    if (storedSheets.length > 0) {
+      sheets = storedSheets;
+      showProjectsScreen();
+    }
+
+    Storage.onCompletionChange(() => {
+      if (!projectsScreen.hidden) renderProjects();
+      if (!contentScreen.hidden)  renderAllSheets();
+    });
+
+  } catch (err) {
+    console.warn('Running without Firebase:', err.message);
+  }
+
+  loadingScreen.classList.add('hidden');
+}
+
 initApp();
