@@ -908,6 +908,35 @@ body {
 .project-card-header {
   padding: 18px 22px;
   background: linear-gradient(90deg, var(--navy) 0%, var(--navy-2) 100%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.project-delete-btn {
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.45);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.project-delete-btn:hover {
+  background: rgba(220,38,38,0.45);
+  border-color: rgba(220,38,38,0.7);
+  color: #fca5a5;
+}
+.project-delete-btn svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
 }
 .project-card--complete .project-card-header {
   background: linear-gradient(90deg, #065f46 0%, var(--green) 100%);

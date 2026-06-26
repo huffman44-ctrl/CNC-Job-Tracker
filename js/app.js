@@ -149,8 +149,7 @@ function handleFiles(fileList, isFirstLoad) {
       loadedCount++;
       if (loadedCount === htmlFiles.length && sheets.length) {
         if (isFirstLoad) {
-          currentProject = firstNewJobName;
-          showContentScreen();
+          showProjectsScreen();
         } else {
           renderAllSheets();
         }
@@ -251,6 +250,20 @@ function renderProjects() {
   }
 }
 
+async function deleteProject(jobName) {
+  const projectSheets = sheets.filter(s => projectKey(s) === jobName);
+  await Promise.all(projectSheets.flatMap(s => [
+    Storage.deleteSheet(s.fileKey),
+    Storage.clear(s.fileKey, 'sheet'),
+  ]));
+  sheets = sheets.filter(s => projectKey(s) !== jobName);
+  if (!sheets.length) {
+    goToUpload();
+  } else {
+    renderProjects();
+  }
+}
+
 function buildProjectCard(jobName, projectSheets) {
   const total    = projectSheets.length;
   const complete = projectSheets.filter(s => {
@@ -274,9 +287,25 @@ function buildProjectCard(jobName, projectSheets) {
   /* Header */
   const hdr = document.createElement('div');
   hdr.className = 'project-card-header';
-  hdr.innerHTML = `
+
+  const hdrText = document.createElement('div');
+  hdrText.innerHTML = `
     <div class="project-card-name">${escHtml(jobName)}</div>
     <div class="project-card-sheet-count">${total} sheet${total !== 1 ? 's' : ''}</div>`;
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'project-delete-btn';
+  deleteBtn.setAttribute('aria-label', 'Delete project');
+  deleteBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>`;
+  deleteBtn.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!confirm(`Delete "${jobName}"? This removes all ${total} sheet${total !== 1 ? 's' : ''} and completion records for everyone.`)) return;
+    await deleteProject(jobName);
+  });
+
+  hdr.appendChild(hdrText);
+  hdr.appendChild(deleteBtn);
 
   /* Body */
   const body = document.createElement('div');

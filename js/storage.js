@@ -94,6 +94,15 @@ const Storage = (() => {
     }
   }
 
+  async function deleteSheet(fileKey) {
+    if (!db) return;
+    try {
+      await db.collection('sheets').doc(fileKey).delete();
+    } catch (e) {
+      console.warn('Firestore deleteSheet failed:', e);
+    }
+  }
+
   async function clearSheets() {
     if (!db) return;
     try {
@@ -135,5 +144,5 @@ const Storage = (() => {
     return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, saveSheet, loadSheets, clearSheets, clearAllCompletions, exportCSV };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions, exportCSV };
 })();
