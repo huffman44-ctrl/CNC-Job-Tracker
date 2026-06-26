@@ -53,6 +53,30 @@
   --shadow-lg:   0 12px 40px rgba(0,0,0,0.8);
 }
 
+/* ── Loading Screen ── */
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  gap: 20px;
+  z-index: 200;
+}
+.loading-screen.hidden { display: none; }
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--gray-200);
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: var(--gray-400); font-size: 14px; margin: 0; }
+
 [data-theme="dark"] .layout-svg-scroll { background: #ffffff; border-radius: var(--radius-sm); }
 [data-theme="dark"] .file-list-item   { border-color: #1a4a2e; }
 [data-theme="dark"] .status-badge     { border-color: #065f46; }

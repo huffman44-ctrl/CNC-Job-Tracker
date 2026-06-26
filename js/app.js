@@ -24,6 +24,41 @@ document.getElementById('upload-dark-btn').addEventListener('click', toggleDarkM
 updateDarkBtns();
 
 /* ══════════════════════════════════════════
+   Firebase Init
+══════════════════════════════════════════ */
+async function initApp() {
+  const loadingScreen = document.getElementById('loading-screen');
+  try {
+    const configured = typeof FIREBASE_CONFIG !== 'undefined'
+      && FIREBASE_CONFIG.projectId
+      && !FIREBASE_CONFIG.projectId.startsWith('PASTE');
+
+    if (!configured) throw new Error('Firebase config not set');
+
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.firestore();
+    Storage.init(db);
+
+    const [storedSheets] = await Promise.all([
+      Storage.loadSheets(),
+      Storage.loadCompletions(),
+    ]);
+
+    if (storedSheets.length > 0) {
+      sheets = storedSheets;
+      showContentScreen();
+    }
+
+    Storage.onCompletionChange(() => renderAllSheets());
+
+  } catch (err) {
+    console.warn('Running without Firebase:', err.message);
+  }
+
+  loadingScreen.classList.add('hidden');
+}
+
+/* ══════════════════════════════════════════
    State
 ══════════════════════════════════════════ */
 let sheets   = [];   // [{ fileKey, fileName, sheetTitle, jobName, totalTime, toolpaths, materialInfo }]
@@ -131,7 +166,9 @@ function handleFiles(fileList, isFirstLoad) {
       const parsed = parseJobSheet(e.target.result);
       const key = simpleHash(file.name);
       if (!sheets.find(s => s.fileKey === key)) {
-        sheets.push({ fileKey: key, fileName: file.name, ...parsed });
+        const sheet = { fileKey: key, fileName: file.name, ...parsed };
+        sheets.push(sheet);
+        Storage.saveSheet(sheet); // persist to Firestore (async, fire-and-forget)
       }
       loadedCount++;
       if (loadedCount === htmlFiles.length && sheets.length) showContentScreen();
@@ -140,7 +177,9 @@ function handleFiles(fileList, isFirstLoad) {
   }
 }
 
-function resetToUpload() {
+async function resetToUpload() {
+  if (!confirm('Start a new job? This clears all loaded sheets and completion records for everyone.')) return;
+  await Promise.all([Storage.clearSheets(), Storage.clearAllCompletions()]);
   sheets = [];
   sheetsContainer.innerHTML = '';
   fileListEl.innerHTML = '';
@@ -158,32 +197,8 @@ function showContentScreen() {
   headerSheetCount.textContent = `${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}`;
 
   renderAllSheets();
-  showResumeBannerIfNeeded();
 }
 
-function showResumeBannerIfNeeded() {
-  document.getElementById('resume-banner')?.remove();
-  const sheetsWithRecords = sheets.filter(s => Storage.get(s.fileKey, 'sheet'));
-  if (!sheetsWithRecords.length) return;
-
-  const banner = document.createElement('div');
-  banner.id = 'resume-banner';
-  banner.className = 'resume-banner';
-  const n = sheetsWithRecords.length;
-  banner.innerHTML = `
-    <span>${n} sheet${n !== 1 ? 's have' : ' has'} existing completion records from a previous session.</span>
-    <button class="btn btn-sm btn-danger"  id="resume-fresh-btn">Start Fresh</button>
-    <button class="btn btn-sm btn-outline" id="resume-keep-btn">Keep Records</button>`;
-
-  document.querySelector('.content-main').prepend(banner);
-
-  document.getElementById('resume-fresh-btn').addEventListener('click', () => {
-    for (const s of sheetsWithRecords) Storage.clearAll(s.fileKey);
-    banner.remove();
-    renderAllSheets();
-  });
-  document.getElementById('resume-keep-btn').addEventListener('click', () => banner.remove());
-}
 
 function showUploadError(msg) { uploadErrorEl.textContent = msg; uploadErrorEl.hidden = false; }
 function hideUploadError()    { uploadErrorEl.hidden = true; }
@@ -548,9 +563,9 @@ function doExport() {
   URL.revokeObjectURL(url);
 }
 
-function doResetAll() {
+async function doResetAll() {
   if (!confirm('Reset ALL completion records for this entire job? This cannot be undone.')) return;
-  for (const sheet of sheets) Storage.clearAll(sheet.fileKey);
+  await Storage.clearAllCompletions();
   renderAllSheets();
 }
 
@@ -574,3 +589,6 @@ function localIso(date) {
   const p = n => String(n).padStart(2,'0');
   return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
 }
+
+/* ── Kick off Firebase init ── */
+initApp();

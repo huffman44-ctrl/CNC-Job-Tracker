@@ -1,88 +1,139 @@
 /**
- * Completion record shape:
- * {
- *   completedAt: ISO string,   // date/time the operator confirmed
- *   operator:    string,       // operator name (optional)
- *   notes:       string        // free-text notes (optional)
- * }
+ * Completion records: Firestore completions/{fileKey}
+ * Sheet data:         Firestore sheets/{fileKey}
  *
- * Storage key: "cnc::<fileKey>::<itemId>"
- * fileKey is a hash of the filename so records from different files don't collide.
+ * Local cache enables synchronous reads so UI never blocks on Firestore.
+ * All writes update the cache immediately and persist to Firestore async.
  */
 const Storage = (() => {
-  const PREFIX = 'cnc';
+  let db = null;
+  const completionsCache = {}; // { [fileKey]: { completedAt, operator, notes } }
 
-  function _key(fileKey, itemId) {
-    return `${PREFIX}::${fileKey}::${itemId}`;
+  function init(firestore) {
+    db = firestore;
   }
+
+  /* ── Completions ── */
 
   function get(fileKey, itemId) {
-    try {
-      const raw = localStorage.getItem(_key(fileKey, itemId));
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
+    return completionsCache[fileKey] ?? null;
   }
 
-  function set(fileKey, itemId, record) {
+  async function set(fileKey, itemId, record) {
+    completionsCache[fileKey] = record;
+    if (!db) return;
     try {
-      localStorage.setItem(_key(fileKey, itemId), JSON.stringify(record));
+      await db.collection('completions').doc(fileKey).set(record);
     } catch (e) {
-      console.warn('Storage.set failed:', e);
+      console.warn('Firestore write failed:', e);
     }
   }
 
-  function clear(fileKey, itemId) {
-    localStorage.removeItem(_key(fileKey, itemId));
-  }
-
-  function clearAll(fileKey) {
-    const prefix = `${PREFIX}::${fileKey}::`;
-    const toRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(prefix)) toRemove.push(k);
+  async function clear(fileKey, itemId) {
+    delete completionsCache[fileKey];
+    if (!db) return;
+    try {
+      await db.collection('completions').doc(fileKey).delete();
+    } catch (e) {
+      console.warn('Firestore delete failed:', e);
     }
-    toRemove.forEach(k => localStorage.removeItem(k));
   }
 
-  function getAllForFile(fileKey) {
-    const prefix = `${PREFIX}::${fileKey}::`;
-    const result = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(prefix)) {
-        const itemId = k.slice(prefix.length);
-        try { result[itemId] = JSON.parse(localStorage.getItem(k)); } catch {}
-      }
+  async function clearAll(fileKey) {
+    return clear(fileKey, 'sheet');
+  }
+
+  async function loadCompletions() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('completions').get();
+      snap.forEach(doc => { completionsCache[doc.id] = doc.data(); });
+    } catch (e) {
+      console.warn('Firestore loadCompletions failed:', e);
     }
-    return result;
   }
 
+  function onCompletionChange(callback) {
+    if (!db) return;
+    db.collection('completions').onSnapshot(snap => {
+      Object.keys(completionsCache).forEach(k => delete completionsCache[k]);
+      snap.forEach(doc => { completionsCache[doc.id] = doc.data(); });
+      callback();
+    }, err => console.warn('Firestore listener error:', err));
+  }
+
+  /* ── Sheets ── */
+
+  async function saveSheet(sheet) {
+    if (!db) return;
+    try {
+      await db.collection('sheets').doc(sheet.fileKey).set({
+        fileKey:      sheet.fileKey,
+        fileName:     sheet.fileName     || '',
+        sheetTitle:   sheet.sheetTitle   || '',
+        jobName:      sheet.jobName      || '',
+        totalTime:    sheet.totalTime    || '',
+        toolpaths:    sheet.toolpaths    || [],
+        materialInfo: sheet.materialInfo || [],
+        layoutSvg:    sheet.layoutSvg    || '',
+        uploadedAt:   firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn('Firestore saveSheet failed:', e);
+    }
+  }
+
+  async function loadSheets() {
+    if (!db) return [];
+    try {
+      const snap = await db.collection('sheets').orderBy('uploadedAt').get();
+      return snap.docs.map(doc => doc.data());
+    } catch (e) {
+      console.warn('Firestore loadSheets failed:', e);
+      return [];
+    }
+  }
+
+  async function clearSheets() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('sheets').get();
+      if (snap.empty) return;
+      const batch = db.batch();
+      snap.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    } catch (e) {
+      console.warn('Firestore clearSheets failed:', e);
+    }
+  }
+
+  async function clearAllCompletions() {
+    Object.keys(completionsCache).forEach(k => delete completionsCache[k]);
+    if (!db) return;
+    try {
+      const snap = await db.collection('completions').get();
+      if (snap.empty) return;
+      const batch = db.batch();
+      snap.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    } catch (e) {
+      console.warn('Firestore clearAllCompletions failed:', e);
+    }
+  }
+
+  /* ── CSV helper (kept for compatibility) ── */
   function exportCSV(fileKey, sections) {
     const rows = [['Section', 'Toolpath', 'Tool', 'Time Estimate', 'Completed At', 'Operator', 'Notes']];
-
     for (const section of sections) {
       if (section.type !== 'toolpaths') continue;
       for (const item of section.items) {
         const rec = get(fileKey, item.id);
-        rows.push([
-          section.title,
-          item.name,
-          item.tool,
-          item.timeEstimate,
-          rec ? rec.completedAt : '',
-          rec ? (rec.operator || '') : '',
-          rec ? (rec.notes || '') : '',
-        ]);
+        rows.push([section.title, item.name, item.tool, item.timeEstimate,
+          rec ? rec.completedAt : '', rec ? (rec.operator || '') : '', rec ? (rec.notes || '') : '']);
       }
     }
-
-    return rows.map(row =>
-      row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-    ).join('\r\n');
+    return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   }
 
-  return { get, set, clear, clearAll, getAllForFile, exportCSV };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, saveSheet, loadSheets, clearSheets, clearAllCompletions, exportCSV };
 })();
