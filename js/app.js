@@ -783,6 +783,7 @@ function updateOverallProgress(displaySheets) {
 ══════════════════════════════════════════ */
 function doExport() {
   const displaySheets = getDisplaySheets();
+  if (!displaySheets.length) { alert('No sheets loaded to export.'); return; }
   const rows = [['Sheet', 'Job', 'Total Time', 'Completed At', 'Operator', 'Notes']];
   for (const sheet of displaySheets) {
     const rec = Storage.get(sheet.fileKey, 'sheet');
@@ -790,20 +791,23 @@ function doExport() {
       sheet.sheetTitle || sheet.fileName,
       sheet.jobName    || '',
       sheet.totalTime  || '',
-      rec ? formatDT(new Date(rec.completedAt)) : '',
+      rec?.completedAt ? formatDT(new Date(rec.completedAt)) : '',
       rec?.operator || '',
       rec?.notes    || '',
     ]);
   }
-  const out  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const escape = c => String(c).replace(/"/g, '""').replace(/[\r\n]+/g, ' ');
+  const out  = rows.map(r => r.map(c => `"${escape(c)}"`).join(',')).join('\r\n');
   const blob = new Blob([out], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const baseName = (displaySheets[0]?.fileName || 'cnc-job')
     .replace(/\.html?$/i, '')
     .replace(/_summary.*/i, '');
-  const a = Object.assign(document.createElement('a'), { href: url, download: `${baseName}.csv` });
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${baseName}.csv`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
 async function doResetAll() {

@@ -175,19 +175,5 @@ const Storage = (() => {
     }
   }
 
-  /* ── CSV helper (kept for compatibility) ── */
-  function exportCSV(fileKey, sections) {
-    const rows = [['Section', 'Toolpath', 'Tool', 'Time Estimate', 'Completed At', 'Operator', 'Notes']];
-    for (const section of sections) {
-      if (section.type !== 'toolpaths') continue;
-      for (const item of section.items) {
-        const rec = get(fileKey, item.id);
-        rows.push([section.title, item.name, item.tool, item.timeEstimate,
-          rec ? rec.completedAt : '', rec ? (rec.operator || '') : '', rec ? (rec.notes || '') : '']);
-      }
-    }
-    return rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
-  }
-
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions, exportCSV };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions };
 })();
