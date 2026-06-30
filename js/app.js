@@ -788,7 +788,7 @@ function updateOverallProgress(displaySheets) {
 /* ══════════════════════════════════════════
    Export / Reset
 ══════════════════════════════════════════ */
-function doExport() {
+async function doExport() {
   const displaySheets = getDisplaySheets();
   if (!displaySheets.length) { alert('No sheets loaded to export.'); return; }
   const rows = [['Sheet', 'Job', 'Total Time', 'Completed At', 'Operator', 'Notes']];
@@ -815,6 +815,12 @@ function doExport() {
   a.download = `${baseName}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
+
+  const jobName = currentProject;
+  if (!jobName) return;
+  if (!confirm(`Delete "${jobName}"? This removes all ${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''} and completion records for everyone.`)) return;
+  await deleteProject(jobName);
+  if (sheets.length) showProjectsScreen();
 }
 
 async function doResetAll() {
