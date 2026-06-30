@@ -304,7 +304,7 @@ body {
   box-shadow: 0 2px 12px rgba(0,0,0,0.28);
 }
 
-.header-left  { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.header-left  { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .header-logo-badge {
