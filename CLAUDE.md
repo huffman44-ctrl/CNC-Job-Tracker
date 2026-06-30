@@ -1,32 +1,52 @@
 # CNC Job Sheet Tracker — Project Context
 
 ## What this app does
-Browser-only (no server, no framework) single-page app. Operators upload VCarve CNC job sheet HTML files, view toolpaths and material info per sheet, and mark each sheet complete with a date/time + operator name. Completion records persist in localStorage.
+Browser-only (no build step, no framework) single-page app. Operators upload VCarve CNC job sheet HTML files, grouped into projects by job name, and track each sheet through a 3-state workflow: **Incomplete → In Progress → Complete** (date/time + operator name + notes recorded on completion). All sheet data, completions, and project notes sync live across devices via Firestore — this is **not** local-only storage; every operator sees the same shared state in real time.
 
 ## File structure
 ```
 CNC_WebApp/
-├── index.html          — single-page shell (upload screen + content screen + 2 modals)
-├── css/style.css       — all styles; CSS custom properties for color tokens
-├── js/parser.js        — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }
-├── js/storage.js       — Storage.get/set/clear/clearAll/getAllForFile/exportCSV
-├── js/app.js           — all UI logic (drag-drop, render, accordion, modal, progress)
-└── samples/            — VCarve HTML sample files for testing
+├── index.html                 — 4 screens (loading, projects directory, upload, content) + 3 modals (mark complete, clear confirm, project notes)
+├── css/style.css               — all styles; CSS custom properties for color tokens; dark mode via [data-theme]
+├── js/parser.js                 — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }; simpleHash(str)
+├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/ collections) with in-memory cache for sync reads
+├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
+├── js/app.js                    — all UI logic: dark mode, file upload, projects directory, accordion sheet cards, modals, CSV export, Firebase init
+├── package.json                 — `npm run serve` → `npx serve .` (no build step needed)
+├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root (not in samples/)
+└── samples/                    — gitignored; local-only scratch space for test HTML files, not committed
 ```
 
+## ⚠️ Testing safety — read before running this app
+`js/firebase-config.js` points at the **real, shared production database** that real operators use. Running the app normally (`npm run serve` + open in browser, or driving it with Playwright/automation) connects live and any upload/completion/delete action writes to production immediately.
+
+**Never test against the real config.** To test safely offline:
+1. Copy the app to a temp directory.
+2. Overwrite the copy's `js/firebase-config.js` with a `projectId` that starts with `"PASTE"` (e.g. `"PASTE_DISABLED"`).
+3. `initApp()` in app.js (~line 850) checks `FIREBASE_CONFIG.projectId.startsWith('PASTE')` and skips Firebase entirely when true, falling back to in-memory-only mode — uploads, completions, and deletes stay local to that browser tab with zero risk to prod data.
+
+If you ever suspect a test run touched production, check the `sheets` collection for unexpected docs by filename and delete them immediately — don't leave fake data mixed into real operator records.
+
 ## Architecture
-- `parseJobSheet()` in parser.js uses DOMParser on the uploaded HTML
-- `simpleHash(filename)` (djb2-style) namespaces localStorage keys: `cnc::<hash>::<itemId>`
-- Sheet-level completion stored under itemId `'sheet'`
-- `buildSheetCard()` in app.js assembles each accordion card in order:
-  1. material-strip (material info chips)
-  2. layout-svg-wrap (Material Border SVG)
-  3. toolpaths-list (toolpath rows)
-  4. sheet-complete-footer (Mark Complete / Clear Record button)
-- Accordion uses CSS `max-height` transition on `.sheet-body.open`
+- **Screens** (`index.html`, toggled via `hidden` attribute, driven by `showProjectsScreen()` / `goToUpload()` / `showContentScreen()` in app.js):
+  1. **Loading** — shown while Firebase connects
+  2. **Projects directory** — grid of project cards (one per distinct `jobName`), each showing progress %, complete/in-progress/incomplete stat chips, an optional note preview, Add Note / Open / Delete (trash icon) actions
+  3. **Upload** — drag-drop or browse for HTML files
+  4. **Content** — accordion of sheet cards for one project, with progress bar, Export CSV, Reset All, New Job
+- **Storage** (`js/storage.js`) — thin wrapper over Firestore with a synchronous local cache so the UI never blocks on network:
+  - `sheets/{fileKey}` — parsed sheet data (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`)
+  - `completions/{fileKey}` — completion record `{ status: 'in-progress'|'complete', completedAt, operator, notes }` (`get`/`set`/`clear`/`loadCompletions`/`onCompletionChange` realtime listener)
+  - `projectNotes/{hash(jobName)}` — free-text per-project notes (`getNote`/`setNote`/`loadNotes`/`onNoteChange`)
+  - `fileKey` = `simpleHash(filename)` (djb2-style, from parser.js) — namespaces all three collections per uploaded file
+- **Sheet ordering** — `getDisplaySheets()` (app.js ~line 232) sorts by `sheetNumber(fileName)`, which regex-matches `/sheet\s*0*(\d+)/i` out of the filename (handles `Sheet 9`, `Sheet01`, etc.) so display order is always numeric regardless of FileReader/upload completion order. Files without a parseable sheet number sort to the end.
+- **Project grouping** — `projectKey(sheet)` = `sheet.jobName || sheet.fileName`; `getProjectGroups()` buckets all loaded sheets by that key for the directory screen.
+- **3-state completion** — no record = Incomplete; `{status:'in-progress'}` = In Progress; `{status:'complete', completedAt, operator, notes}` = Complete. Driven by `applySheetCompletion()` (app.js ~line 659); clicking the action button advances the state, the modal only appears for the In Progress → Complete transition.
+- `buildSheetCard()` assembles each accordion card in order: material-strip → layout-svg-wrap → toolpaths-list → sheet-complete-footer. Accordion uses CSS `max-height` transition on `.sheet-body.open`.
+- **Dark mode** — `data-theme` attribute on `<html>`, persisted to `localStorage['cnc::darkMode']` (this one piece of state is intentionally local-only, not synced — it's a per-device display preference, not job data).
 
 ## VCarve HTML format (source files)
 - Top-level `.boxborder` sections with `.boxtitle` headings
+- Job name comes from `#jobtitle`; sheet title from the first `.boxtitle` (fallback `#title`)
 - **Job Layout Sheet** section: contains `#vectorcenter` div with the Material Border SVG
 - **Toolpaths Summary** section: `.childindent .fullwidth` rows, each with three `.box33` cols [name | tool | time]
 - **Material Setup** section: `.box33`/`.fullwidth` elements with `<b>` labels and `.boxpic span` values
@@ -37,31 +57,24 @@ CNC_WebApp/
 - `vector-effect: non-scaling-stroke; stroke-width: 1.5px !important` applied via CSS to all SVG shape elements — the 0.03 viewBox-unit strokes would be sub-pixel (~0.08px) at display size without this
 - SVG displayed at `width: 280px; height: auto` (portrait ~560px tall) inside a `max-height: 420px; overflow-y: auto` scroll container
 - SVG insertion in `buildSheetCard` is wrapped in try-catch so any SVG error doesn't prevent toolpaths from rendering
+- Project card header text wrapper has `min-width: 0` + `.project-card-name` has `overflow-wrap: break-word` — without this, a long job name with no spaces (no soft wrap point) forces the flex header row wider than the card, pushing the delete button past the card's `overflow: hidden` edge and making it disappear
 
-## Current status (as of 2026-06-25)
+## Current status (as of 2026-06-30)
 ### Working
-- File upload (drag-drop + browse), multi-file support, "Add More Sheets"
-- Accordion sheet cards with sheet title, total time chip
-- Material info strip (parsed from Material Setup section)
-- Material Border SVG display (with scroll, correct stroke rendering)
-- Toolpath rows (name, tool chip, time chip) below the SVG
-- Sheet-level completion: Mark Complete modal (date/time, operator dropdown with Collin/Travis/Other, notes)
-- Clear Record confirmation modal
-- Progress bar (X of Y sheets complete)
-- Active vs. Completed sections (completed sheets move to bottom)
-- Resume banner if localStorage has records from a prior session
-- Export CSV button
-- Reset All button
+- File upload (drag-drop + browse), multi-file support, "Add More Sheets" within a project
+- Projects directory screen: progress %, stat chips, per-project notes, delete project
+- Sheets always render in numeric order based on the sheet number in the filename
+- Accordion sheet cards with sheet title, total time chip, material info strip, Material Border SVG, toolpath rows
+- 3-state sheet completion (Incomplete → In Progress → Complete) with Mark Complete modal (date/time, operator dropdown Collin/Travis/Other, notes) and Clear Record confirmation
+- Progress bar per project; live cross-device sync via Firestore for sheets, completions, and notes
+- Dark mode toggle (persisted locally per device)
+- Export CSV, Reset All, New Job / back-to-projects navigation
 
-### Pending / last known issue
-- The toolpath list was reported as missing after the SVG section was added. A `try-catch` was applied around the SVG block and SVG insertion simplified to `scrollEl.innerHTML = sheet.layoutSvg`. **Needs confirmation from user that toolpaths now appear correctly below the SVG.**
-- If toolpaths still missing: check browser console for `"SVG render failed:"` error, or verify `sheet.toolpaths` is not empty for the test file.
-
-## Operators configured in modal
+### Operators configured in modal
 - Collin (default)
 - Travis
 - Other... (free-text input)
 
-## Sample test file
-`samples/260520_gmc_savana_3500_155wb_ew_cargo_Order_1195_Summary_Sheet 9.html`
-GMC Savana 3500 cargo van — has 1 Job Layout Sheet section (with SVG), 1 Material Setup section, 1 Toolpaths Summary section with 5 toolpath rows.
+## Sample test files
+- `260520_gmc_savana_3500_155wb_ew_cargo_Order_1195_Summary_Sheet 9.html` (repo root, tracked in git) — GMC Savana 3500 cargo van, 1 Job Layout Sheet (with SVG), 1 Material Setup section, 1 Toolpaths Summary section with 5 toolpath rows
+- `samples/` — gitignored scratch folder for additional local test files (e.g. `260623_Sprinter_2108_Order_1201_Summary_Sheet01.html`); add files here freely, they won't be committed
