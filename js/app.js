@@ -224,10 +224,16 @@ function noteKey(jobName) {
   return 'proj_' + simpleHash(jobName);
 }
 
+function sheetNumber(fileName) {
+  const m = fileName.match(/sheet\s*0*(\d+)/i);
+  return m ? parseInt(m[1], 10) : Infinity;
+}
+
 function getDisplaySheets() {
-  return currentProject
+  const result = currentProject
     ? sheets.filter(s => projectKey(s) === currentProject)
-    : sheets;
+    : [...sheets];
+  return result.sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
 }
 
 function getProjectGroups() {
