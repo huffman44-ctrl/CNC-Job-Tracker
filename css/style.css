@@ -945,12 +945,17 @@ body {
   background: linear-gradient(90deg, #92400e 0%, var(--gold) 100%);
 }
 
+.project-card-header-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
 .project-card-name {
   font-size: 15px;
   font-weight: 800;
   color: var(--white);
   letter-spacing: -0.01em;
   line-height: 1.3;
+  overflow-wrap: break-word;
 }
 .project-card-sheet-count {
   font-size: 11px;

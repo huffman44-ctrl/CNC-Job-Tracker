@@ -305,6 +305,7 @@ function buildProjectCard(jobName, projectSheets) {
   hdr.className = 'project-card-header';
 
   const hdrText = document.createElement('div');
+  hdrText.className = 'project-card-header-text';
   hdrText.innerHTML = `
     <div class="project-card-name">${escHtml(jobName)}</div>
     <div class="project-card-sheet-count">${total} sheet${total !== 1 ? 's' : ''}</div>`;
