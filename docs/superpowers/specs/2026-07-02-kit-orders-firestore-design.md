@@ -1,7 +1,7 @@
 # Kit Orders in CNC_WebApp — Design Spec
 
 Date: 2026-07-02
-Status: Approved by Austin (brainstorming session, Fable 5)
+Status: Approved by Travis (brainstorming session, Fable 5)
 
 ## Goal
 
@@ -14,7 +14,7 @@ Replace the Order Log tab of `Shop Management for VanLab/CNC-Kit-Management/2606
 - **Orders UI lives in CNC_WebApp** — same app, same Firebase project, vanilla JS, no build step.
 - **Only the Order Log tab migrates.** The xlsx's other tabs (Product Readiness Check, Assembly Numbering, Material Quantity, Appliances) stay in Excel for a later phase.
 - **Denormalized data model.** One `orders` collection, no `customers` collection. Kit buyers are overwhelmingly one-time customers. Lowercased `customerEmail` is the disciplined future join key: a customer directory can be derived retroactively by script, with no schema migration.
-- **Auth: Google sign-in** with a three-email allowlist (Austin, Collin, Travis) enforced in Firestore security rules and mirrored in the UI. All allowlisted accounts get full read/write on all collections.
+- **Auth: Google sign-in** with a single-email allowlist at launch (Travis — the user — travis@goldenboyscnc.com), enforced in Firestore security rules and mirrored in the UI. Allowlisted accounts get full read/write on all collections. Collin gets added later via a one-line rules edit; note that until then, any device Collin uses must be signed in with Travis's account or the whole app (job tracker included) is locked for him.
 - **Import everything** (~212 orders); numbering continues from the max (currently #1204). The xlsx is renamed `*_ARCHIVED.xlsx` afterward and its Order Log tab is never written again.
 - Node.js v24 is installed on this machine (the calculator CLAUDE.md's "no Node" note is stale); the import script is a Node script.
 
@@ -93,14 +93,14 @@ Out of scope this phase: orders CSV export, email integration, invoice generatio
 
 - **Firebase Auth, Google provider**, compat SDK style matching the app's existing `firebase.firestore()` usage.
 - Loading screen gains an auth gate: signed out → "Sign in with Google" button; signed in but not allowlisted → "Not authorized" + sign-out link. Sessions persist per device (one-time sign-in).
-- **Allowlist** (Austin, Collin, Travis — emails live in the gitignored `CNC_WebApp/.env` under `ALLOWLIST_*` keys; `PASTE_`-prefixed values are still unfilled) enforced in Firestore rules — `allow read, write: if request.auth != null && request.auth.token.email in [ ...allowlist ]` — and mirrored in the UI for friendly errors. Full read/write for all allowlisted accounts on all collections. Adding a person = one-line rules edit.
+- **Allowlist** — just Travis (travis@goldenboyscnc.com) at launch; emails live in the gitignored `CNC_WebApp/.env` under `ALLOWLIST_*` keys, with a commented-out slot ready for Collin — enforced in Firestore rules — `allow read, write: if request.auth != null && request.auth.token.email in [ ...allowlist ]` — and mirrored in the UI for friendly errors. Full read/write for all allowlisted accounts on all collections. Adding a person = one-line rules edit.
 - **The `PASTE` projectId escape hatch also skips auth**, preserving the offline-testing regime in CNC_WebApp's CLAUDE.md.
 
 **Rollout order (never lock out the shop floor):**
 
 1. Inspect current Firestore rules in the console; save a copy (the rollback artifact). Verify the assumption that they are open.
 2. Deploy the app update with sign-in UI **while rules stay open** — the app asks for sign-in, the database doesn't yet require it.
-3. Enroll all three devices; confirm each works signed in.
+3. Enroll Travis's device(s); confirm each works signed in. (Shared shop devices count — every device that uses the app needs a signed-in session before step 4.)
 4. Flip the rules. Immediately verify signed-in devices still work AND an incognito window cannot read data. Rollback = paste saved rules back (<1 min).
 
 ## Migration (import script)
