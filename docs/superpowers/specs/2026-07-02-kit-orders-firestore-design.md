@@ -93,7 +93,7 @@ Out of scope this phase: orders CSV export, email integration, invoice generatio
 
 - **Firebase Auth, Google provider**, compat SDK style matching the app's existing `firebase.firestore()` usage.
 - Loading screen gains an auth gate: signed out → "Sign in with Google" button; signed in but not allowlisted → "Not authorized" + sign-out link. Sessions persist per device (one-time sign-in).
-- **Allowlist** (emails collected at implementation time: Austin, Collin, Travis) enforced in Firestore rules — `allow read, write: if request.auth != null && request.auth.token.email in [ ...allowlist ]` — and mirrored in the UI for friendly errors. Full read/write for all allowlisted accounts on all collections. Adding a person = one-line rules edit.
+- **Allowlist** (Austin, Collin, Travis — emails live in the gitignored `CNC_WebApp/.env` under `ALLOWLIST_*` keys; `PASTE_`-prefixed values are still unfilled) enforced in Firestore rules — `allow read, write: if request.auth != null && request.auth.token.email in [ ...allowlist ]` — and mirrored in the UI for friendly errors. Full read/write for all allowlisted accounts on all collections. Adding a person = one-line rules edit.
 - **The `PASTE` projectId escape hatch also skips auth**, preserving the offline-testing regime in CNC_WebApp's CLAUDE.md.
 
 **Rollout order (never lock out the shop floor):**
