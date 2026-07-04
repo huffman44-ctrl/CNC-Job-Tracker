@@ -218,7 +218,15 @@ function showContentScreen() {
   headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
   document.getElementById('back-to-projects-btn').hidden = false;
 
+  updateJobNoteBanner();
   renderAllSheets();
+}
+
+function updateJobNoteBanner() {
+  const banner = document.getElementById('job-note-banner');
+  const note   = currentProject ? Storage.getNote(noteKey(currentProject)) : null;
+  banner.hidden = !note;
+  if (note) document.getElementById('job-note-banner-text').textContent = note;
 }
 
 /* ══════════════════════════════════════════
@@ -1029,6 +1037,7 @@ async function initApp() {
 
     Storage.onNoteChange(() => {
       if (!projectsScreen.hidden) renderProjects();
+      if (!contentScreen.hidden)  updateJobNoteBanner();
     });
 
     Storage.onSheetNoteChange(() => {

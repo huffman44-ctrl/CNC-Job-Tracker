@@ -1421,6 +1421,31 @@ body {
   color: var(--gold);
 }
 
+/* ── Job note banner (content screen, read-only) ── */
+.job-note-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--orange-light);
+  border-bottom: 1px solid var(--gray-200);
+}
+.job-note-banner svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--orange);
+  margin-top: 2px;
+}
+#job-note-banner-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 .detail-hero-meta {
   display: flex;
   align-items: center;
