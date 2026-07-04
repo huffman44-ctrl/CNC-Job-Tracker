@@ -203,8 +203,12 @@
     <div class="modal-card">
       <h2 class="modal-title">Project Notes</h2>
       <p id="notes-modal-subtitle" class="modal-subtitle"></p>
-      <div class="modal-form">
-        <textarea id="notes-modal-text" class="form-input form-textarea form-textarea--tall" placeholder="Add notes for this project…"></textarea>
+      <div class="modal-form notes-modal-form">
+        <div class="form-group">
+          <label class="form-label" for="notes-modal-text">Job Note</label>
+          <textarea id="notes-modal-text" class="form-input form-textarea form-textarea--tall" placeholder="Add notes for this project…"></textarea>
+        </div>
+        <div id="notes-modal-sheets"></div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="notes-modal-cancel">Cancel</button>

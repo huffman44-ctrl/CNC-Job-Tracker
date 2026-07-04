@@ -819,6 +819,34 @@ function openNotesModal(jobName) {
   notesCtx = { jobName };
   document.getElementById('notes-modal-subtitle').textContent = jobName;
   document.getElementById('notes-modal-text').value = Storage.getNote(noteKey(jobName)) || '';
+
+  const sheetsWrap = document.getElementById('notes-modal-sheets');
+  sheetsWrap.innerHTML = '';
+  const projectSheets = sheets
+    .filter(s => projectKey(s) === jobName)
+    .sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
+  if (projectSheets.length) {
+    const heading = document.createElement('div');
+    heading.className = 'notes-modal-section-label';
+    heading.textContent = 'Sheet Notes';
+    sheetsWrap.appendChild(heading);
+  }
+  for (const sheet of projectSheets) {
+    const group = document.createElement('div');
+    group.className = 'form-group';
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.textContent = sheet.sheetTitle || sheet.fileName;
+    const ta = document.createElement('textarea');
+    ta.className = 'form-input form-textarea';
+    ta.placeholder = 'Add a note for this sheet…';
+    ta.dataset.fileKey = sheet.fileKey;
+    ta.value = Storage.getSheetNote(sheet.fileKey) || '';
+    group.appendChild(label);
+    group.appendChild(ta);
+    sheetsWrap.appendChild(group);
+  }
+
   notesOverlay.classList.remove('hidden');
   setTimeout(() => document.getElementById('notes-modal-text').focus(), 50);
 }
@@ -831,7 +859,14 @@ function closeNotesModal() {
 async function saveNote() {
   if (!notesCtx) return;
   const text = document.getElementById('notes-modal-text').value;
-  await Storage.setNote(noteKey(notesCtx.jobName), text);
+  const writes = [Storage.setNote(noteKey(notesCtx.jobName), text)];
+  document.querySelectorAll('#notes-modal-sheets textarea').forEach(ta => {
+    const existing = Storage.getSheetNote(ta.dataset.fileKey) || '';
+    if (ta.value.trim() !== existing) {
+      writes.push(Storage.setSheetNote(ta.dataset.fileKey, ta.value));
+    }
+  });
+  await Promise.all(writes);
   closeNotesModal();
   renderProjects();
 }

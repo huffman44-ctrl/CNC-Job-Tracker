@@ -1205,6 +1205,25 @@ body {
 
 .form-textarea--tall { min-height: 130px; }
 
+/* ── Notes modal: per-sheet note fields ── */
+.notes-modal-form {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.notes-modal-section-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gray-400);
+  border-top: 1px solid var(--gray-200);
+  padding-top: 14px;
+  margin-bottom: 10px;
+}
+#notes-modal-sheets .form-group { margin-bottom: 12px; }
+#notes-modal-sheets .form-textarea { min-height: 48px; }
+
 /* ══════════════════════════════════════════
    WORKSPACE (Content Screen — master/detail)
 ══════════════════════════════════════════ */
