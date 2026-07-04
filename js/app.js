@@ -958,6 +958,7 @@ async function initApp() {
       Storage.loadSheets(),
       Storage.loadCompletions(),
       Storage.loadNotes(),
+      Storage.loadSheetNotes(),
     ]);
 
     if (storedSheets.length > 0) {
@@ -972,6 +973,11 @@ async function initApp() {
 
     Storage.onNoteChange(() => {
       if (!projectsScreen.hidden) renderProjects();
+    });
+
+    Storage.onSheetNoteChange(() => {
+      if (!projectsScreen.hidden) renderProjects();
+      if (!contentScreen.hidden)  renderAllSheets();
     });
 
   } catch (err) {

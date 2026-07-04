@@ -9,6 +9,7 @@ const Storage = (() => {
   let db = null;
   const completionsCache = {}; // { [fileKey]: { completedAt, operator, notes } }
   const notesCache = {};       // { [noteKey]: string }
+  const sheetNotesCache = {};  // { [fileKey]: string }
 
   function init(firestore) {
     db = firestore;
@@ -107,6 +108,50 @@ const Storage = (() => {
     }, err => console.warn('Firestore notes listener error:', err));
   }
 
+  /* ── Sheet Notes (per-sheet instruction notes) ── */
+
+  function getSheetNote(fileKey) {
+    return sheetNotesCache[fileKey] || null;
+  }
+
+  async function setSheetNote(fileKey, text) {
+    const trimmed = (text || '').trim();
+    if (trimmed) {
+      sheetNotesCache[fileKey] = trimmed;
+    } else {
+      delete sheetNotesCache[fileKey];
+    }
+    if (!db) return;
+    try {
+      if (trimmed) {
+        await db.collection('sheetNotes').doc(fileKey).set({ text: trimmed });
+      } else {
+        await db.collection('sheetNotes').doc(fileKey).delete();
+      }
+    } catch (e) {
+      console.warn('Firestore setSheetNote failed:', e);
+    }
+  }
+
+  async function loadSheetNotes() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('sheetNotes').get();
+      snap.forEach(doc => { sheetNotesCache[doc.id] = doc.data().text; });
+    } catch (e) {
+      console.warn('Firestore loadSheetNotes failed:', e);
+    }
+  }
+
+  function onSheetNoteChange(callback) {
+    if (!db) return;
+    db.collection('sheetNotes').onSnapshot(snap => {
+      Object.keys(sheetNotesCache).forEach(k => delete sheetNotesCache[k]);
+      snap.forEach(doc => { sheetNotesCache[doc.id] = doc.data().text; });
+      callback();
+    }, err => console.warn('Firestore sheetNotes listener error:', err));
+  }
+
   /* ── Sheets ── */
 
   async function saveSheet(sheet) {
@@ -175,5 +220,5 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions };
 })();
