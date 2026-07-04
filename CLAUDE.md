@@ -37,6 +37,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
   - `sheets/{fileKey}` — parsed sheet data (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`)
   - `completions/{fileKey}` — completion record `{ status: 'in-progress'|'complete', completedAt, operator, notes }` (`get`/`set`/`clear`/`loadCompletions`/`onCompletionChange` realtime listener)
   - `projectNotes/{hash(jobName)}` — free-text per-project notes (`getNote`/`setNote`/`loadNotes`/`onNoteChange`)
+  - `sheetNotes/{fileKey}` — per-sheet instruction note `{ text }`, written by Travis from the project card's notes modal; rendered read-only in the sheet detail (callout) and sheet nav (icon) (`getSheetNote`/`setSheetNote`/`loadSheetNotes`/`onSheetNoteChange`)
   - `fileKey` = `simpleHash(filename)` (djb2-style, from parser.js) — namespaces all three collections per uploaded file
 - **Sheet ordering** — `getDisplaySheets()` (app.js ~line 232) sorts by `sheetNumber(fileName)`, which regex-matches `/sheet\s*0*(\d+)/i` out of the filename (handles `Sheet 9`, `Sheet01`, etc.) so display order is always numeric regardless of FileReader/upload completion order. Files without a parseable sheet number sort to the end.
 - **Project grouping** — `projectKey(sheet)` = `sheet.jobName || sheet.fileName`; `getProjectGroups()` buckets all loaded sheets by that key for the directory screen.
@@ -69,6 +70,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - Progress bar per project; live cross-device sync via Firestore for sheets, completions, and notes
 - Dark mode toggle (persisted locally per device)
 - Export CSV, Reset All, New Job / back-to-projects navigation
+- Per-sheet instruction notes (Travis → operator, read-only in sheet view) + job-note banner in sheet view; both live-synced
 
 ### Operators configured in modal
 - Collin (default)

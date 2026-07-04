@@ -174,7 +174,11 @@ function handleFiles(fileList, isFirstLoad) {
 
 async function resetToUpload() {
   if (!confirm('Start a new job? This clears all loaded sheets and completion records for everyone.')) return;
-  await Promise.all([Storage.clearSheets(), Storage.clearAllCompletions()]);
+  await Promise.all([
+    Storage.clearSheets(),
+    Storage.clearAllCompletions(),
+    ...sheets.map(s => Storage.setSheetNote(s.fileKey, '')),
+  ]);
   sheets         = [];
   currentProject = null;
   sheetNavEl.innerHTML = '';
@@ -328,6 +332,7 @@ async function deleteProject(jobName) {
   await Promise.all(projectSheets.flatMap(s => [
     Storage.deleteSheet(s.fileKey),
     Storage.clear(s.fileKey, 'sheet'),
+    Storage.setSheetNote(s.fileKey, ''),
   ]));
   sheets = sheets.filter(s => projectKey(s) !== jobName);
   if (!sheets.length) {
