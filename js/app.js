@@ -33,6 +33,7 @@ let sheets         = [];
 let currentProject = null; // jobName string when inside a project, null on directory
 let modalCtx       = null;
 let clearCtx       = null;
+let selectedSheetKey = null;
 
 /* ══════════════════════════════════════════
    DOM refs
@@ -50,7 +51,8 @@ const headerJobName    = document.getElementById('header-job-name');
 const headerSheetCount = document.getElementById('header-sheet-count');
 const progressFill     = document.getElementById('progress-fill');
 const progressLabel    = document.getElementById('progress-label');
-const sheetsContainer  = document.getElementById('sheets-container');
+const sheetNavEl       = document.getElementById('sheet-nav');
+const sheetDetailEl    = document.getElementById('sheet-detail');
 
 const modalOverlay          = document.getElementById('modal-overlay');
 const modalSubtitle         = document.getElementById('modal-subtitle');
@@ -100,6 +102,11 @@ document.getElementById('back-to-projects-btn').addEventListener('click', () => 
   showProjectsScreen();
 });
 document.getElementById('upload-new-btn').addEventListener('click', goToUpload);
+
+const projectSearchEl = document.getElementById('project-search');
+const projectSortEl   = document.getElementById('project-sort');
+projectSearchEl.addEventListener('input', renderProjects);
+projectSortEl.addEventListener('change', renderProjects);
 
 modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
 clearOverlay.addEventListener('click', e => { if (e.target === clearOverlay) closeClearModal(); });
@@ -170,7 +177,8 @@ async function resetToUpload() {
   await Promise.all([Storage.clearSheets(), Storage.clearAllCompletions()]);
   sheets         = [];
   currentProject = null;
-  sheetsContainer.innerHTML = '';
+  sheetNavEl.innerHTML = '';
+  sheetDetailEl.innerHTML = '';
   fileListEl.innerHTML = '';
   fileListEl.hidden    = true;
   contentScreen.hidden  = true;
@@ -246,18 +254,59 @@ function getProjectGroups() {
   return map;
 }
 
+function projectProgressPct(projectSheets) {
+  const total = projectSheets.length;
+  if (!total) return 0;
+  const complete = projectSheets.filter(s => {
+    const rec = Storage.get(s.fileKey, 'sheet');
+    return rec && rec.status === 'complete';
+  }).length;
+  return complete / total;
+}
+
 function renderProjects() {
   const container = document.getElementById('projects-container');
   container.innerHTML = '';
 
   const groups = getProjectGroups();
-  const names  = Object.keys(groups);
+  let names  = Object.keys(groups);
 
   document.getElementById('projects-count').textContent =
     `${names.length} project${names.length !== 1 ? 's' : ''} · ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}`;
 
+  const inProgCount = sheets.filter(s => {
+    const rec = Storage.get(s.fileKey, 'sheet');
+    return rec && rec.status === 'in-progress';
+  }).length;
+  const completeCount = sheets.filter(s => {
+    const rec = Storage.get(s.fileKey, 'sheet');
+    return rec && rec.status === 'complete';
+  }).length;
+  const statsBarEl = document.getElementById('stats-bar');
+  statsBarEl.innerHTML = `
+    <div class="stat-tile"><div class="stat-tile-value">${names.length}</div><div class="stat-tile-label">Project${names.length !== 1 ? 's' : ''}</div></div>
+    <div class="stat-tile"><div class="stat-tile-value">${sheets.length}</div><div class="stat-tile-label">Sheet${sheets.length !== 1 ? 's' : ''}</div></div>
+    <div class="stat-tile stat-tile--gold"><div class="stat-tile-value">${inProgCount}</div><div class="stat-tile-label">In Progress</div></div>
+    <div class="stat-tile stat-tile--green"><div class="stat-tile-value">${completeCount}</div><div class="stat-tile-label">Complete</div></div>`;
+
   if (!names.length) {
     container.innerHTML = '<div class="empty-state">No projects loaded.</div>';
+    return;
+  }
+
+  const query = (projectSearchEl?.value || '').trim().toLowerCase();
+  if (query) names = names.filter(n => n.toLowerCase().includes(query));
+
+  const sortMode = projectSortEl?.value || 'recent';
+  if (sortMode === 'name') {
+    names.sort((a, b) => a.localeCompare(b));
+  } else if (sortMode === 'progress') {
+    names.sort((a, b) => projectProgressPct(groups[b]) - projectProgressPct(groups[a]));
+  }
+  // 'recent' keeps natural (upload) order
+
+  if (!names.length) {
+    container.innerHTML = '<div class="empty-state">No projects match your search.</div>';
     return;
   }
 
@@ -328,14 +377,23 @@ function buildProjectCard(jobName, projectSheets) {
   const body = document.createElement('div');
   body.className = 'project-card-body';
 
-  /* Progress row */
+  /* Progress row (ring) */
   const barWrap = document.createElement('div');
   barWrap.className = 'project-progress-wrap';
+  const circumference = 2 * Math.PI * 24;
+  const offset = circumference * (1 - pct / 100);
   barWrap.innerHTML = `
-    <div class="project-progress-track">
-      <div class="project-progress-fill" style="width:${pct}%"></div>
-    </div>
-    <span class="project-progress-label">${complete} of ${total} complete</span>`;
+    <div class="project-ring-wrap">
+      <div class="project-ring">
+        <svg width="56" height="56" viewBox="0 0 56 56">
+          <circle class="project-ring-track" cx="28" cy="28" r="24" fill="none" stroke-width="5"/>
+          <circle class="project-ring-fill" cx="28" cy="28" r="24" fill="none" stroke-width="5"
+            stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"/>
+        </svg>
+        <div class="project-ring-label">${pct}%</div>
+      </div>
+      <span class="project-ring-caption">${complete} of ${total} complete</span>
+    </div>`;
 
   /* Stats + open button */
   const bottom = document.createElement('div');
@@ -412,97 +470,136 @@ function isCompleted(sheet) {
   return !!rec && rec.status !== 'in-progress';
 }
 
+function sheetStatusClass(sheet) {
+  const rec = Storage.get(sheet.fileKey, 'sheet');
+  if (rec && rec.status === 'complete') return 'is-complete';
+  if (rec && rec.status === 'in-progress') return 'is-progress';
+  return 'is-pending';
+}
+
 function renderAllSheets() {
   const displaySheets = getDisplaySheets();
-  sheetsContainer.innerHTML = '';
+
+  if (!displaySheets.length) {
+    sheetNavEl.innerHTML = '';
+    sheetDetailEl.innerHTML = '<div class="detail-empty">No sheets loaded.</div>';
+    updateOverallProgress(displaySheets);
+    return;
+  }
+
+  if (!selectedSheetKey || !displaySheets.find(s => s.fileKey === selectedSheetKey)) {
+    const firstActive = displaySheets.find(s => !isCompleted(s));
+    selectedSheetKey = (firstActive || displaySheets[0]).fileKey;
+  }
 
   const active   = displaySheets.filter(s => !isCompleted(s));
   const complete = displaySheets.filter(s =>  isCompleted(s));
 
-  active.forEach((sheet, idx) => sheetsContainer.appendChild(buildSheetCard(sheet, idx)));
-
+  sheetNavEl.innerHTML = '';
+  active.forEach((sheet) => {
+    const idx = displaySheets.indexOf(sheet);
+    sheetNavEl.appendChild(buildSheetNavRow(sheet, idx));
+  });
   if (complete.length) {
-    const section = document.createElement('div');
-    section.className = 'complete-section';
-
-    const hdr = document.createElement('div');
-    hdr.className = 'complete-section-header';
-    hdr.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
-      Complete (${complete.length})`;
-    section.appendChild(hdr);
-
-    complete.forEach((sheet, idx) => section.appendChild(buildSheetCard(sheet, active.length + idx)));
-    sheetsContainer.appendChild(section);
+    const label = document.createElement('div');
+    label.className = 'sheet-nav-section-label';
+    label.textContent = `Complete (${complete.length})`;
+    sheetNavEl.appendChild(label);
+    complete.forEach((sheet) => {
+      const idx = displaySheets.indexOf(sheet);
+      sheetNavEl.appendChild(buildSheetNavRow(sheet, idx));
+    });
   }
+
+  const selectedSheet = displaySheets.find(s => s.fileKey === selectedSheetKey);
+  const selectedIdx   = displaySheets.indexOf(selectedSheet);
+  sheetDetailEl.innerHTML = '';
+  sheetDetailEl.className = `sheet-detail ${sheetStatusClass(selectedSheet)}`;
+  sheetDetailEl.appendChild(buildSheetDetail(selectedSheet, selectedIdx));
 
   updateOverallProgress(displaySheets);
 }
 
-function buildSheetCard(sheet, idx) {
-  const card = document.createElement('div');
-  card.className = 'sheet-card';
-  card.dataset.sheetKey = sheet.fileKey;
-
-  /* ── Header ── */
-  const header = document.createElement('div');
-  header.className = 'sheet-header';
+function buildSheetNavRow(sheet, idx) {
+  const row = document.createElement('div');
+  row.className = `sheet-nav-row ${sheetStatusClass(sheet)}${sheet.fileKey === selectedSheetKey ? ' selected' : ''}`;
+  row.dataset.sheetKey = sheet.fileKey;
 
   const numEl = document.createElement('div');
-  numEl.className = 'sheet-num';
+  numEl.className = 'nav-row-num';
   numEl.textContent = idx + 1;
 
   const textWrap = document.createElement('div');
-  textWrap.className = 'sheet-header-text';
-
+  textWrap.className = 'nav-row-text';
   const titleEl = document.createElement('div');
-  titleEl.className = 'sheet-title';
+  titleEl.className = 'nav-row-title';
   titleEl.textContent = sheet.sheetTitle || sheet.fileName;
+  const subEl = document.createElement('div');
+  subEl.className = 'nav-row-sub';
+  subEl.textContent = sheet.totalTime ? `${sheet.totalTime} total` : sheet.fileName.replace(/\.html?$/i, '');
+  textWrap.appendChild(titleEl);
+  textWrap.appendChild(subEl);
+
+  const dotEl = document.createElement('span');
+  dotEl.className = 'nav-row-dot';
+
+  row.appendChild(numEl);
+  row.appendChild(textWrap);
+  row.appendChild(dotEl);
+
+  row.addEventListener('click', () => {
+    selectedSheetKey = sheet.fileKey;
+    renderAllSheets();
+  });
+
+  return row;
+}
+
+function buildSheetDetail(sheet, idx) {
+  const wrap = document.createElement('div');
+
+  /* ── Hero header ── */
+  const hero = document.createElement('div');
+  hero.className = `detail-hero ${sheetStatusClass(sheet)}`;
+
+  const heroTop = document.createElement('div');
+  heroTop.className = 'detail-hero-top';
+
+  const numEl = document.createElement('div');
+  numEl.className = 'detail-num';
+  numEl.textContent = idx + 1;
+
+  const titlesEl = document.createElement('div');
+  titlesEl.className = 'detail-titles';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'detail-title';
+  titleEl.textContent = sheet.sheetTitle || sheet.fileName;
+  const fileEl = document.createElement('div');
+  fileEl.className = 'detail-filename';
+  fileEl.textContent = sheet.fileName.replace(/\.html?$/i, '');
+  titlesEl.appendChild(titleEl);
+  titlesEl.appendChild(fileEl);
+
+  heroTop.appendChild(numEl);
+  heroTop.appendChild(titlesEl);
+  hero.appendChild(heroTop);
 
   const metaEl = document.createElement('div');
-  metaEl.className = 'sheet-meta';
+  metaEl.className = 'detail-hero-meta';
   if (sheet.totalTime) {
-    metaEl.innerHTML = `
-      <span class="sheet-time-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        ${escHtml(sheet.totalTime)} total
-      </span>`;
+    const pill = document.createElement('span');
+    pill.className = 'detail-status-pill';
+    pill.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      ${escHtml(sheet.totalTime)} total`;
+    metaEl.appendChild(pill);
   }
-
-  const fileNameEl = document.createElement('div');
-  fileNameEl.className = 'sheet-filename';
-  fileNameEl.textContent = sheet.fileName.replace(/\.html?$/i, '');
-
-  textWrap.appendChild(titleEl);
-  textWrap.appendChild(fileNameEl);
-  textWrap.appendChild(metaEl);
-
-  const rightEl = document.createElement('div');
-  rightEl.className = 'sheet-right';
-
-  const badge = document.createElement('span');
-  badge.className = 'sheet-badge';
-  badge.dataset.badgeFor = sheet.fileKey;
-
-  const toggleEl = document.createElement('span');
-  toggleEl.className = 'sheet-toggle';
-  toggleEl.textContent = '▶';
-
-  rightEl.appendChild(badge);
-  rightEl.appendChild(toggleEl);
-
-  header.appendChild(numEl);
-  header.appendChild(textWrap);
-  header.appendChild(rightEl);
+  hero.appendChild(metaEl);
+  wrap.appendChild(hero);
 
   /* ── Body ── */
-  const body = document.createElement('div');
-  body.className = 'sheet-body';
-
   if (sheet.materialInfo?.length) {
     const strip = document.createElement('div');
     strip.className = 'material-strip';
@@ -514,7 +611,7 @@ function buildSheetCard(sheet, idx) {
         <span class="material-chip-value">${escHtml(value || '—')}</span>`;
       strip.appendChild(chip);
     }
-    body.appendChild(strip);
+    wrap.appendChild(strip);
   }
 
   if (sheet.layoutSvg) {
@@ -529,7 +626,7 @@ function buildSheetCard(sheet, idx) {
       scrollEl.className = 'layout-svg-scroll';
       scrollEl.innerHTML = sheet.layoutSvg;
       svgWrap.appendChild(scrollEl);
-      body.appendChild(svgWrap);
+      wrap.appendChild(svgWrap);
     } catch (err) {
       console.error('SVG render failed:', err);
     }
@@ -539,12 +636,12 @@ function buildSheetCard(sheet, idx) {
     const list = document.createElement('div');
     list.className = 'toolpaths-list';
     sheet.toolpaths.forEach(item => list.appendChild(buildItemRow(item)));
-    body.appendChild(list);
+    wrap.appendChild(list);
   } else {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.textContent = 'No toolpaths found in this sheet.';
-    body.appendChild(empty);
+    wrap.appendChild(empty);
   }
 
   /* ── Footer ── */
@@ -577,21 +674,11 @@ function buildSheetCard(sheet, idx) {
   footer.appendChild(statusEl);
   footer.appendChild(clearBtn);
   footer.appendChild(actionBtn);
-  body.appendChild(footer);
+  wrap.appendChild(footer);
 
-  /* ── Toggle ── */
-  header.addEventListener('click', () => {
-    const isOpen = body.classList.contains('open');
-    body.classList.toggle('open', !isOpen);
-    header.classList.toggle('open', !isOpen);
-  });
+  applySheetCompletion(sheet, wrap, actionBtn, clearBtn, statusEl);
 
-  card.appendChild(header);
-  card.appendChild(body);
-
-  applySheetCompletion(sheet, card, actionBtn, clearBtn, statusEl);
-
-  return card;
+  return wrap;
 }
 
 function buildItemRow(item) {
