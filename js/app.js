@@ -545,6 +545,12 @@ function buildSheetNavRow(sheet, idx) {
 
   row.appendChild(numEl);
   row.appendChild(textWrap);
+  if (Storage.getSheetNote(sheet.fileKey)) {
+    const noteIcon = document.createElement('span');
+    noteIcon.className = 'nav-row-note';
+    noteIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+    row.appendChild(noteIcon);
+  }
   row.appendChild(dotEl);
 
   row.addEventListener('click', () => {
@@ -598,6 +604,21 @@ function buildSheetDetail(sheet, idx) {
   }
   hero.appendChild(metaEl);
   wrap.appendChild(hero);
+
+  /* ── Instruction note (read-only, written from the project card) ── */
+  const noteText = Storage.getSheetNote(sheet.fileKey);
+  if (noteText) {
+    const callout = document.createElement('div');
+    callout.className = 'sheet-note-callout';
+    callout.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <div class="sheet-note-callout-body">
+        <div class="sheet-note-callout-label">Note</div>
+        <div class="sheet-note-callout-text"></div>
+      </div>`;
+    callout.querySelector('.sheet-note-callout-text').textContent = noteText;
+    wrap.appendChild(callout);
+  }
 
   /* ── Body ── */
   if (sheet.materialInfo?.length) {

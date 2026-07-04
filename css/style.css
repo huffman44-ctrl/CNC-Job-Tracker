@@ -1376,6 +1376,51 @@ body {
   margin-top: 3px;
 }
 
+/* ── Sheet instruction note callout (read-only) ── */
+.sheet-note-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--gold-light);
+  border-bottom: 1px solid var(--gray-200);
+  border-left: 4px solid var(--gold);
+}
+.sheet-note-callout > svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--gold);
+  margin-top: 2px;
+}
+.sheet-note-callout-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 2px;
+}
+.sheet-note-callout-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* ── Sidebar note icon ── */
+.nav-row-note {
+  display: flex;
+  flex-shrink: 0;
+}
+.nav-row-note svg {
+  width: 13px;
+  height: 13px;
+  color: var(--gold);
+}
+
 .detail-hero-meta {
   display: flex;
   align-items: center;
