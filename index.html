@@ -6,7 +6,7 @@
   <title>CNC Job Sheet Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -222,9 +222,29 @@
     </div>
   </div>
 
-  <script src="js/firebase-config.js?v=6"></script>
-  <script src="js/storage.js?v=6"></script>
-  <script src="js/parser.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <!-- ══════════════════════════════════
+       SHEET NOTE MODAL
+  ══════════════════════════════════ -->
+  <div id="sheet-note-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 class="modal-title">Sheet Note</h2>
+      <p id="sheet-note-modal-subtitle" class="modal-subtitle"></p>
+      <div class="modal-form">
+        <div class="form-group">
+          <label class="form-label" for="sheet-note-modal-text">Note</label>
+          <textarea id="sheet-note-modal-text" class="form-input form-textarea form-textarea--tall" placeholder="Add a note for this sheet…"></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="sheet-note-modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="sheet-note-modal-save">Save Note</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/firebase-config.js?v=7"></script>
+  <script src="js/storage.js?v=7"></script>
+  <script src="js/parser.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>
