@@ -637,7 +637,7 @@ function buildSheetDetail(sheet, idx) {
   hero.appendChild(metaEl);
   wrap.appendChild(hero);
 
-  /* ── Instruction note (read-only, written from the project card) ── */
+  /* ── Instruction note (read-only here; edited from the project card modal or the Add/Edit Note button above) ── */
   const noteText = Storage.getSheetNote(sheet.fileKey);
   if (noteText) {
     const callout = document.createElement('div');
