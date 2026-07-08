@@ -1376,6 +1376,12 @@ body {
   margin-top: 3px;
 }
 
+.detail-delete-btn:hover {
+  background: rgba(225,29,47,0.55);
+  border-color: rgba(225,29,47,0.7);
+  color: #fca5a5;
+}
+
 /* ── Sheet instruction note callout (read-only) ── */
 .sheet-note-callout {
   display: flex;

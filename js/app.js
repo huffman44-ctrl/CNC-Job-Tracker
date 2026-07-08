@@ -654,6 +654,16 @@ function buildSheetDetail(sheet, idx) {
   });
   heroTop.appendChild(noteBtn);
 
+  const deleteSheetBtn = document.createElement('button');
+  deleteSheetBtn.type = 'button';
+  deleteSheetBtn.className = 'btn btn-ghost btn-sm detail-delete-btn';
+  deleteSheetBtn.textContent = 'Delete Sheet';
+  deleteSheetBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    deleteSheetFromProject(sheet);
+  });
+  heroTop.appendChild(deleteSheetBtn);
+
   hero.appendChild(heroTop);
 
   const metaEl = document.createElement('div');
