@@ -6,7 +6,7 @@ Browser-only (no build step, no framework) single-page app. Operators upload VCa
 ## File structure
 ```
 CNC_WebApp/
-├── index.html                 — 4 screens (loading, projects directory, upload, content) + 3 modals (mark complete, clear confirm, project notes)
+├── index.html                 — 4 screens (loading, projects directory, upload, content) + 4 modals (mark complete, clear confirm, project notes, sheet note)
 ├── css/style.css               — all styles; CSS custom properties for color tokens; dark mode via [data-theme]
 ├── js/parser.js                 — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }; simpleHash(str)
 ├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/ collections) with in-memory cache for sync reads
@@ -37,7 +37,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
   - `sheets/{fileKey}` — parsed sheet data (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`)
   - `completions/{fileKey}` — completion record `{ status: 'in-progress'|'complete', completedAt, operator, notes }` (`get`/`set`/`clear`/`loadCompletions`/`onCompletionChange` realtime listener)
   - `projectNotes/{hash(jobName)}` — free-text per-project notes (`getNote`/`setNote`/`loadNotes`/`onNoteChange`)
-  - `sheetNotes/{fileKey}` — per-sheet instruction note `{ text }`, written by Travis from the project card's notes modal; rendered read-only in the sheet detail (callout) and sheet nav (icon) (`getSheetNote`/`setSheetNote`/`loadSheetNotes`/`onSheetNoteChange`)
+  - `sheetNotes/{fileKey}` — per-sheet instruction note `{ text }`, written either from the project card's notes modal or from an Add Note/Edit Note button in the sheet detail header; rendered read-only in the sheet nav (icon) (`getSheetNote`/`setSheetNote`/`loadSheetNotes`/`onSheetNoteChange`)
   - `fileKey` = `simpleHash(filename)` (djb2-style, from parser.js) — namespaces all three collections per uploaded file
 - **Sheet ordering** — `getDisplaySheets()` (app.js ~line 232) sorts by `sheetNumber(fileName)`, which regex-matches `/sheet\s*0*(\d+)/i` out of the filename (handles `Sheet 9`, `Sheet01`, etc.) so display order is always numeric regardless of FileReader/upload completion order. Files without a parseable sheet number sort to the end.
 - **Project grouping** — `projectKey(sheet)` = `sheet.jobName || sheet.fileName`; `getProjectGroups()` buckets all loaded sheets by that key for the directory screen.
@@ -60,7 +60,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - SVG insertion in `buildSheetCard` is wrapped in try-catch so any SVG error doesn't prevent toolpaths from rendering
 - Project card header text wrapper has `min-width: 0` + `.project-card-name` has `overflow-wrap: break-word` — without this, a long job name with no spaces (no soft wrap point) forces the flex header row wider than the card, pushing the delete button past the card's `overflow: hidden` edge and making it disappear
 
-## Current status (as of 2026-06-30)
+## Current status (as of 2026-07-08)
 ### Working
 - File upload (drag-drop + browse), multi-file support, "Add More Sheets" within a project
 - Projects directory screen: progress %, stat chips, per-project notes, delete project
@@ -70,7 +70,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - Progress bar per project; live cross-device sync via Firestore for sheets, completions, and notes
 - Dark mode toggle (persisted locally per device)
 - Export CSV, Reset All, New Job / back-to-projects navigation
-- Per-sheet instruction notes (Travis → operator, read-only in sheet view) + job-note banner in sheet view; both live-synced
+- Per-sheet instruction notes, editable from either the project card modal or an Add Note/Edit Note button in the sheet detail header (read-only callout + sidebar icon for the operator) + job-note banner in sheet view; both live-synced
 
 ### Operators configured in modal
 - Collin (default)
