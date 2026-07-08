@@ -27,6 +27,8 @@ CNC_WebApp/
 
 If you ever suspect a test run touched production, check the `sheets` collection for unexpected docs by filename and delete them immediately — don't leave fake data mixed into real operator records.
 
+**`master` is live-deployed.** This repo is published via GitHub Pages directly from the `master` branch at https://huffman44-ctrl.github.io/CNC-Job-Tracker/ — there is no build/CI step in between. Pushing to `master` is a real deploy to whatever real operators have open, not just a git bookkeeping update. Merge and verify locally before pushing.
+
 ## Architecture
 - **Screens** (`index.html`, toggled via `hidden` attribute, driven by `showProjectsScreen()` / `goToUpload()` / `showContentScreen()` in app.js):
   1. **Loading** — shown while Firebase connects
