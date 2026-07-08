@@ -62,6 +62,10 @@ const modalOperatorOther    = document.getElementById('modal-operator-other');
 const modalOperatorOtherGrp = document.getElementById('modal-operator-other-group');
 const modalNotes            = document.getElementById('modal-notes');
 
+const sheetNoteOverlay      = document.getElementById('sheet-note-overlay');
+const sheetNoteSubtitle     = document.getElementById('sheet-note-modal-subtitle');
+const sheetNoteText         = document.getElementById('sheet-note-modal-text');
+
 const clearOverlay  = document.getElementById('clear-overlay');
 const clearSubtitle = document.getElementById('clear-subtitle');
 
@@ -115,6 +119,10 @@ const notesOverlay = document.getElementById('notes-overlay');
 notesOverlay.addEventListener('click', e => { if (e.target === notesOverlay) closeNotesModal(); });
 document.getElementById('notes-modal-cancel').addEventListener('click', closeNotesModal);
 document.getElementById('notes-modal-save').addEventListener('click', saveNote);
+
+sheetNoteOverlay.addEventListener('click', e => { if (e.target === sheetNoteOverlay) closeSheetNoteModal(); });
+document.getElementById('sheet-note-modal-cancel').addEventListener('click', closeSheetNoteModal);
+document.getElementById('sheet-note-modal-save').addEventListener('click', saveSheetNote);
 
 modalOperator.addEventListener('change', () => {
   const isOther = modalOperator.value === '__other__';
@@ -601,6 +609,17 @@ function buildSheetDetail(sheet, idx) {
 
   heroTop.appendChild(numEl);
   heroTop.appendChild(titlesEl);
+
+  const noteBtn = document.createElement('button');
+  noteBtn.type = 'button';
+  noteBtn.className = 'btn btn-ghost btn-sm';
+  noteBtn.textContent = Storage.getSheetNote(sheet.fileKey) ? 'Edit Note' : 'Add Note';
+  noteBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    openSheetNoteModal(sheet);
+  });
+  heroTop.appendChild(noteBtn);
+
   hero.appendChild(heroTop);
 
   const metaEl = document.createElement('div');
@@ -888,6 +907,29 @@ function openNotesModal(jobName) {
 function closeNotesModal() {
   notesOverlay.classList.add('hidden');
   notesCtx = null;
+}
+
+let sheetNoteCtx = null;
+
+function openSheetNoteModal(sheet) {
+  sheetNoteCtx = { sheet };
+  sheetNoteSubtitle.textContent = sheet.sheetTitle || sheet.fileName;
+  sheetNoteText.value = Storage.getSheetNote(sheet.fileKey) || '';
+  sheetNoteOverlay.classList.remove('hidden');
+  setTimeout(() => sheetNoteText.focus(), 50);
+}
+
+function closeSheetNoteModal() {
+  sheetNoteOverlay.classList.add('hidden');
+  sheetNoteCtx = null;
+}
+
+async function saveSheetNote() {
+  if (!sheetNoteCtx) return;
+  const { sheet } = sheetNoteCtx;
+  await Storage.setSheetNote(sheet.fileKey, sheetNoteText.value);
+  closeSheetNoteModal();
+  renderAllSheets();
 }
 
 async function saveNote() {
