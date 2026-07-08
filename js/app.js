@@ -62,6 +62,10 @@ const modalOperatorOther    = document.getElementById('modal-operator-other');
 const modalOperatorOtherGrp = document.getElementById('modal-operator-other-group');
 const modalNotes            = document.getElementById('modal-notes');
 
+const sheetNoteOverlay      = document.getElementById('sheet-note-overlay');
+const sheetNoteSubtitle     = document.getElementById('sheet-note-modal-subtitle');
+const sheetNoteText         = document.getElementById('sheet-note-modal-text');
+
 const clearOverlay  = document.getElementById('clear-overlay');
 const clearSubtitle = document.getElementById('clear-subtitle');
 
@@ -115,6 +119,10 @@ const notesOverlay = document.getElementById('notes-overlay');
 notesOverlay.addEventListener('click', e => { if (e.target === notesOverlay) closeNotesModal(); });
 document.getElementById('notes-modal-cancel').addEventListener('click', closeNotesModal);
 document.getElementById('notes-modal-save').addEventListener('click', saveNote);
+
+sheetNoteOverlay.addEventListener('click', e => { if (e.target === sheetNoteOverlay) closeSheetNoteModal(); });
+document.getElementById('sheet-note-modal-cancel').addEventListener('click', closeSheetNoteModal);
+document.getElementById('sheet-note-modal-save').addEventListener('click', saveSheetNote);
 
 modalOperator.addEventListener('change', () => {
   const isOther = modalOperator.value === '__other__';
@@ -174,7 +182,11 @@ function handleFiles(fileList, isFirstLoad) {
 
 async function resetToUpload() {
   if (!confirm('Start a new job? This clears all loaded sheets and completion records for everyone.')) return;
-  await Promise.all([Storage.clearSheets(), Storage.clearAllCompletions()]);
+  await Promise.all([
+    Storage.clearSheets(),
+    Storage.clearAllCompletions(),
+    ...sheets.map(s => Storage.setSheetNote(s.fileKey, '')),
+  ]);
   sheets         = [];
   currentProject = null;
   sheetNavEl.innerHTML = '';
@@ -218,7 +230,15 @@ function showContentScreen() {
   headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
   document.getElementById('back-to-projects-btn').hidden = false;
 
+  updateJobNoteBanner();
   renderAllSheets();
+}
+
+function updateJobNoteBanner() {
+  const banner = document.getElementById('job-note-banner');
+  const note   = currentProject ? Storage.getNote(noteKey(currentProject)) : null;
+  banner.hidden = !note;
+  if (note) document.getElementById('job-note-banner-text').textContent = note;
 }
 
 /* ══════════════════════════════════════════
@@ -320,6 +340,7 @@ async function deleteProject(jobName) {
   await Promise.all(projectSheets.flatMap(s => [
     Storage.deleteSheet(s.fileKey),
     Storage.clear(s.fileKey, 'sheet'),
+    Storage.setSheetNote(s.fileKey, ''),
   ]));
   sheets = sheets.filter(s => projectKey(s) !== jobName);
   if (!sheets.length) {
@@ -545,6 +566,12 @@ function buildSheetNavRow(sheet, idx) {
 
   row.appendChild(numEl);
   row.appendChild(textWrap);
+  if (Storage.getSheetNote(sheet.fileKey)) {
+    const noteIcon = document.createElement('span');
+    noteIcon.className = 'nav-row-note';
+    noteIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+    row.appendChild(noteIcon);
+  }
   row.appendChild(dotEl);
 
   row.addEventListener('click', () => {
@@ -582,6 +609,17 @@ function buildSheetDetail(sheet, idx) {
 
   heroTop.appendChild(numEl);
   heroTop.appendChild(titlesEl);
+
+  const noteBtn = document.createElement('button');
+  noteBtn.type = 'button';
+  noteBtn.className = 'btn btn-ghost btn-sm';
+  noteBtn.textContent = Storage.getSheetNote(sheet.fileKey) ? 'Edit Note' : 'Add Note';
+  noteBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    openSheetNoteModal(sheet);
+  });
+  heroTop.appendChild(noteBtn);
+
   hero.appendChild(heroTop);
 
   const metaEl = document.createElement('div');
@@ -598,6 +636,21 @@ function buildSheetDetail(sheet, idx) {
   }
   hero.appendChild(metaEl);
   wrap.appendChild(hero);
+
+  /* ── Instruction note (read-only here; edited from the project card modal or the Add/Edit Note button above) ── */
+  const noteText = Storage.getSheetNote(sheet.fileKey);
+  if (noteText) {
+    const callout = document.createElement('div');
+    callout.className = 'sheet-note-callout';
+    callout.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <div class="sheet-note-callout-body">
+        <div class="sheet-note-callout-label">Note</div>
+        <div class="sheet-note-callout-text"></div>
+      </div>`;
+    callout.querySelector('.sheet-note-callout-text').textContent = noteText;
+    wrap.appendChild(callout);
+  }
 
   /* ── Body ── */
   if (sheet.materialInfo?.length) {
@@ -819,6 +872,34 @@ function openNotesModal(jobName) {
   notesCtx = { jobName };
   document.getElementById('notes-modal-subtitle').textContent = jobName;
   document.getElementById('notes-modal-text').value = Storage.getNote(noteKey(jobName)) || '';
+
+  const sheetsWrap = document.getElementById('notes-modal-sheets');
+  sheetsWrap.innerHTML = '';
+  const projectSheets = sheets
+    .filter(s => projectKey(s) === jobName)
+    .sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
+  if (projectSheets.length) {
+    const heading = document.createElement('div');
+    heading.className = 'notes-modal-section-label';
+    heading.textContent = 'Sheet Notes';
+    sheetsWrap.appendChild(heading);
+  }
+  for (const sheet of projectSheets) {
+    const group = document.createElement('div');
+    group.className = 'form-group';
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.textContent = sheet.sheetTitle || sheet.fileName;
+    const ta = document.createElement('textarea');
+    ta.className = 'form-input form-textarea';
+    ta.placeholder = 'Add a note for this sheet…';
+    ta.dataset.fileKey = sheet.fileKey;
+    ta.value = Storage.getSheetNote(sheet.fileKey) || '';
+    group.appendChild(label);
+    group.appendChild(ta);
+    sheetsWrap.appendChild(group);
+  }
+
   notesOverlay.classList.remove('hidden');
   setTimeout(() => document.getElementById('notes-modal-text').focus(), 50);
 }
@@ -828,10 +909,40 @@ function closeNotesModal() {
   notesCtx = null;
 }
 
+let sheetNoteCtx = null;
+
+function openSheetNoteModal(sheet) {
+  sheetNoteCtx = { sheet };
+  sheetNoteSubtitle.textContent = sheet.sheetTitle || sheet.fileName;
+  sheetNoteText.value = Storage.getSheetNote(sheet.fileKey) || '';
+  sheetNoteOverlay.classList.remove('hidden');
+  setTimeout(() => sheetNoteText.focus(), 50);
+}
+
+function closeSheetNoteModal() {
+  sheetNoteOverlay.classList.add('hidden');
+  sheetNoteCtx = null;
+}
+
+async function saveSheetNote() {
+  if (!sheetNoteCtx) return;
+  const { sheet } = sheetNoteCtx;
+  await Storage.setSheetNote(sheet.fileKey, sheetNoteText.value);
+  closeSheetNoteModal();
+  renderAllSheets();
+}
+
 async function saveNote() {
   if (!notesCtx) return;
   const text = document.getElementById('notes-modal-text').value;
-  await Storage.setNote(noteKey(notesCtx.jobName), text);
+  const writes = [Storage.setNote(noteKey(notesCtx.jobName), text)];
+  document.querySelectorAll('#notes-modal-sheets textarea').forEach(ta => {
+    const existing = Storage.getSheetNote(ta.dataset.fileKey) || '';
+    if (ta.value.trim() !== existing) {
+      writes.push(Storage.setSheetNote(ta.dataset.fileKey, ta.value));
+    }
+  });
+  await Promise.all(writes);
   closeNotesModal();
   renderProjects();
 }
@@ -958,6 +1069,7 @@ async function initApp() {
       Storage.loadSheets(),
       Storage.loadCompletions(),
       Storage.loadNotes(),
+      Storage.loadSheetNotes(),
     ]);
 
     if (storedSheets.length > 0) {
@@ -972,6 +1084,12 @@ async function initApp() {
 
     Storage.onNoteChange(() => {
       if (!projectsScreen.hidden) renderProjects();
+      if (!contentScreen.hidden)  updateJobNoteBanner();
+    });
+
+    Storage.onSheetNoteChange(() => {
+      if (!projectsScreen.hidden) renderProjects();
+      if (!contentScreen.hidden)  renderAllSheets();
     });
 
   } catch (err) {

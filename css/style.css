@@ -1205,6 +1205,25 @@ body {
 
 .form-textarea--tall { min-height: 130px; }
 
+/* ── Notes modal: per-sheet note fields ── */
+.notes-modal-form {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.notes-modal-section-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gray-400);
+  border-top: 1px solid var(--gray-200);
+  padding-top: 14px;
+  margin-bottom: 10px;
+}
+#notes-modal-sheets .form-group { margin-bottom: 12px; }
+#notes-modal-sheets .form-textarea { min-height: 48px; }
+
 /* ══════════════════════════════════════════
    WORKSPACE (Content Screen — master/detail)
 ══════════════════════════════════════════ */
@@ -1355,6 +1374,76 @@ body {
   font-size: 12px;
   color: rgba(255,255,255,0.45);
   margin-top: 3px;
+}
+
+/* ── Sheet instruction note callout (read-only) ── */
+.sheet-note-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--gold-light);
+  border-bottom: 1px solid var(--gray-200);
+  border-left: 4px solid var(--gold);
+}
+.sheet-note-callout > svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--gold);
+  margin-top: 2px;
+}
+.sheet-note-callout-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 2px;
+}
+.sheet-note-callout-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* ── Sidebar note icon ── */
+.nav-row-note {
+  display: flex;
+  flex-shrink: 0;
+}
+.nav-row-note svg {
+  width: 13px;
+  height: 13px;
+  color: var(--gold);
+}
+
+/* ── Job note banner (content screen, read-only) ── */
+.job-note-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--orange-light);
+  border-bottom: 1px solid var(--gray-200);
+}
+.job-note-banner svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--orange);
+  margin-top: 2px;
+}
+#job-note-banner-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .detail-hero-meta {
