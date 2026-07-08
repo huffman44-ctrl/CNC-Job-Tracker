@@ -522,6 +522,7 @@ function sheetStatusClass(sheet) {
 
 function renderAllSheets() {
   const displaySheets = getDisplaySheets();
+  headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
 
   if (!displaySheets.length) {
     sheetNavEl.innerHTML = '';
