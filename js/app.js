@@ -350,6 +350,28 @@ async function deleteProject(jobName) {
   }
 }
 
+async function deleteSheetFromProject(sheet) {
+  const label = sheet.sheetTitle || sheet.fileName;
+  if (!confirm(`Delete "${label}"? This removes its completion record and note for everyone.`)) return;
+
+  await Promise.all([
+    Storage.deleteSheet(sheet.fileKey),
+    Storage.clear(sheet.fileKey, 'sheet'),
+    Storage.setSheetNote(sheet.fileKey, ''),
+  ]);
+
+  sheets = sheets.filter(s => s.fileKey !== sheet.fileKey);
+
+  const remaining = currentProject ? sheets.filter(s => projectKey(s) === currentProject) : sheets;
+  if (!remaining.length) {
+    showProjectsScreen();
+    return;
+  }
+
+  if (selectedSheetKey === sheet.fileKey) selectedSheetKey = null;
+  renderAllSheets();
+}
+
 function buildProjectCard(jobName, projectSheets) {
   const total    = projectSheets.length;
   const complete = projectSheets.filter(s => {
@@ -500,6 +522,7 @@ function sheetStatusClass(sheet) {
 
 function renderAllSheets() {
   const displaySheets = getDisplaySheets();
+  headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
 
   if (!displaySheets.length) {
     sheetNavEl.innerHTML = '';
@@ -574,6 +597,17 @@ function buildSheetNavRow(sheet, idx) {
   }
   row.appendChild(dotEl);
 
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'nav-row-delete';
+  deleteBtn.setAttribute('aria-label', 'Delete sheet');
+  deleteBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>`;
+  deleteBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    deleteSheetFromProject(sheet);
+  });
+  row.appendChild(deleteBtn);
+
   row.addEventListener('click', () => {
     selectedSheetKey = sheet.fileKey;
     renderAllSheets();
@@ -619,6 +653,16 @@ function buildSheetDetail(sheet, idx) {
     openSheetNoteModal(sheet);
   });
   heroTop.appendChild(noteBtn);
+
+  const deleteSheetBtn = document.createElement('button');
+  deleteSheetBtn.type = 'button';
+  deleteSheetBtn.className = 'btn btn-ghost btn-sm detail-delete-btn';
+  deleteSheetBtn.textContent = 'Delete Sheet';
+  deleteSheetBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    deleteSheetFromProject(sheet);
+  });
+  heroTop.appendChild(deleteSheetBtn);
 
   hero.appendChild(heroTop);
 

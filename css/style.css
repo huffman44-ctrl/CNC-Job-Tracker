@@ -1376,6 +1376,12 @@ body {
   margin-top: 3px;
 }
 
+.detail-delete-btn:hover {
+  background: rgba(225,29,47,0.55);
+  border-color: rgba(225,29,47,0.7);
+  color: #fca5a5;
+}
+
 /* ── Sheet instruction note callout (read-only) ── */
 .sheet-note-callout {
   display: flex;
@@ -1419,6 +1425,33 @@ body {
   width: 13px;
   height: 13px;
   color: var(--gold);
+}
+
+/* ── Sidebar delete button ── */
+.nav-row-delete {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--gray-300);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.nav-row-delete:hover {
+  background: rgba(225,29,47,0.12);
+  border-color: rgba(225,29,47,0.35);
+  color: var(--red);
+}
+.nav-row-delete svg {
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
 }
 
 /* ── Job note banner (content screen, read-only) ── */
