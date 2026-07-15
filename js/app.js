@@ -466,20 +466,20 @@ function buildProjectCard(jobName, projectSheets) {
     openNotesModal(jobName);
   });
 
-  const openBtn = document.createElement('button');
-  openBtn.type = 'button';
-  openBtn.className = 'btn btn-primary btn-sm';
-  openBtn.textContent = 'Open →';
-  openBtn.addEventListener('click', e => {
+  const exportBtn = document.createElement('button');
+  exportBtn.type = 'button';
+  exportBtn.className = 'btn btn-primary btn-sm';
+  exportBtn.textContent = 'Export CSV';
+  exportBtn.addEventListener('click', async e => {
     e.stopPropagation();
-    currentProject = jobName;
-    showContentScreen();
+    const jobSheets = [...projectSheets].sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
+    await exportJob(jobName, jobSheets);
   });
 
   const btnGroup = document.createElement('div');
   btnGroup.className = 'project-card-btn-group';
   btnGroup.appendChild(noteBtn);
-  btnGroup.appendChild(openBtn);
+  btnGroup.appendChild(exportBtn);
 
   body.appendChild(barWrap);
 
@@ -1068,11 +1068,10 @@ function printJobTicket(displaySheets) {
   }
 }
 
-async function doExport() {
-  const displaySheets = getDisplaySheets();
-  if (!displaySheets.length) { alert('No sheets loaded to export.'); return; }
+async function exportJob(jobName, jobSheets) {
+  if (!jobSheets.length) { alert('No sheets loaded to export.'); return; }
   const rows = [['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes']];
-  for (const sheet of displaySheets) {
+  for (const sheet of jobSheets) {
     const rec = Storage.get(sheet.fileKey, 'sheet');
     rows.push([
       sheet.sheetTitle || sheet.fileName,
@@ -1089,7 +1088,7 @@ async function doExport() {
   const out  = rows.map(r => r.map(c => `"${escape(c)}"`).join(',')).join('\r\n');
   const blob = new Blob([out], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
-  const baseName = (displaySheets[0]?.fileName || 'cnc-job')
+  const baseName = (jobSheets[0]?.fileName || 'cnc-job')
     .replace(/\.html?$/i, '')
     .replace(/_summary.*/i, '');
   const a = document.createElement('a');
@@ -1098,13 +1097,16 @@ async function doExport() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
-  printJobTicket(displaySheets);
+  printJobTicket(jobSheets);
 
-  const jobName = currentProject;
   if (!jobName) return;
-  if (!confirm(`Delete "${jobName}"? This removes all ${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''} and completion records for everyone.`)) return;
+  if (!confirm(`Delete "${jobName}"? This removes all ${jobSheets.length} sheet${jobSheets.length !== 1 ? 's' : ''} and completion records for everyone.`)) return;
   await deleteProject(jobName);
   if (sheets.length) showProjectsScreen();
+}
+
+async function doExport() {
+  await exportJob(currentProject, getDisplaySheets());
 }
 
 async function doResetAll() {
