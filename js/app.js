@@ -1037,10 +1037,10 @@ function sheetHasVbit(sheet) {
 /* ══════════════════════════════════════════
    Export / Reset
 ══════════════════════════════════════════ */
-function printJobTicket(displaySheets) {
+function printJobTicket(jobName, displaySheets) {
   const ticket = document.getElementById('job-ticket');
   if (!ticket || !displaySheets.length) return;
-  const jobName = currentProject
+  const name = jobName
     || displaySheets[0]?.jobName
     || (displaySheets[0]?.fileName || 'CNC Job').replace(/\.html?$/i, '');
   let latest = null;
@@ -1055,7 +1055,7 @@ function printJobTicket(displaySheets) {
     month: 'short', day: 'numeric', year: 'numeric',
   });
   const n = displaySheets.length;
-  document.getElementById('job-ticket-name').textContent = jobName;
+  document.getElementById('job-ticket-name').textContent = name;
   document.getElementById('job-ticket-meta').textContent =
     `${n} sheet${n !== 1 ? 's' : ''} — completed ${dateStr}`;
   ticket.hidden = false;
@@ -1097,7 +1097,7 @@ async function exportJob(jobName, jobSheets) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
-  printJobTicket(jobSheets);
+  printJobTicket(jobName, jobSheets);
 
   if (!jobName) return;
   if (!confirm(`Delete "${jobName}"? This removes all ${jobSheets.length} sheet${jobSheets.length !== 1 ? 's' : ''} and completion records for everyone.`)) return;
