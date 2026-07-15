@@ -1027,19 +1027,28 @@ function updateOverallProgress(displaySheets) {
   progressLabel.textContent = `${done} of ${total} sheet${total !== 1 ? 's' : ''} complete (${pct}%)`;
 }
 
+const VBIT_KEYWORDS = ['V-Carve', 'V-carve', 'V Carve', 'VCarve', 'V-Groove', 'V-groove', 'V Groove'];
+
+function sheetHasVbit(sheet) {
+  const toolpaths = sheet.toolpaths || [];
+  return toolpaths.some(tp => VBIT_KEYWORDS.some(kw => new RegExp(kw, 'i').test(tp.name || '')));
+}
+
 /* ══════════════════════════════════════════
    Export / Reset
 ══════════════════════════════════════════ */
 async function doExport() {
   const displaySheets = getDisplaySheets();
   if (!displaySheets.length) { alert('No sheets loaded to export.'); return; }
-  const rows = [['Sheet', 'Job', 'Total Time', 'Completed At', 'Operator', 'Notes']];
+  const rows = [['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes']];
   for (const sheet of displaySheets) {
     const rec = Storage.get(sheet.fileKey, 'sheet');
     rows.push([
       sheet.sheetTitle || sheet.fileName,
       sheet.jobName    || '',
       sheet.totalTime  || '',
+      sheet.toolpaths ? sheet.toolpaths.length : '',
+      sheetHasVbit(sheet) ? 'Y' : 'N',
       rec?.completedAt ? formatDT(new Date(rec.completedAt)) : '',
       rec?.operator || '',
       rec?.notes    || '',
