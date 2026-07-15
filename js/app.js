@@ -1037,6 +1037,37 @@ function sheetHasVbit(sheet) {
 /* ══════════════════════════════════════════
    Export / Reset
 ══════════════════════════════════════════ */
+function printJobTicket(displaySheets) {
+  const ticket = document.getElementById('job-ticket');
+  if (!ticket || !displaySheets.length) return;
+  const jobName = currentProject
+    || displaySheets[0]?.jobName
+    || (displaySheets[0]?.fileName || 'CNC Job').replace(/\.html?$/i, '');
+  let latest = null;
+  for (const sheet of displaySheets) {
+    const rec = Storage.get(sheet.fileKey, 'sheet');
+    if (rec?.completedAt) {
+      const d = new Date(rec.completedAt);
+      if (!latest || d > latest) latest = d;
+    }
+  }
+  const dateStr = (latest || new Date()).toLocaleDateString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
+  const n = displaySheets.length;
+  document.getElementById('job-ticket-name').textContent = jobName;
+  document.getElementById('job-ticket-meta').textContent =
+    `${n} sheet${n !== 1 ? 's' : ''} — completed ${dateStr}`;
+  ticket.hidden = false;
+  document.body.classList.add('printing-ticket');
+  try {
+    window.print();
+  } finally {
+    document.body.classList.remove('printing-ticket');
+    ticket.hidden = true;
+  }
+}
+
 async function doExport() {
   const displaySheets = getDisplaySheets();
   if (!displaySheets.length) { alert('No sheets loaded to export.'); return; }
@@ -1066,6 +1097,8 @@ async function doExport() {
   a.download = `${baseName}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
+
+  printJobTicket(displaySheets);
 
   const jobName = currentProject;
   if (!jobName) return;

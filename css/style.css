@@ -1530,3 +1530,23 @@ body {
   }
   .sheet-nav-row.selected { border-top-color: var(--orange); border-left: none; }
 }
+
+/* ── Job ticket — printed at CSV export, 4x6 thermal (Rollo) ────────────── */
+.job-ticket { display: none; }
+
+@page { size: 4in 6in; margin: 0.25in; }
+
+@media print {
+  body.printing-ticket { background: #fff !important; }
+  body.printing-ticket > *:not(.job-ticket) { display: none !important; }
+  body.printing-ticket .job-ticket {
+    display: block !important;
+    color: #000;
+    background: #fff;
+    font-family: Arial, sans-serif;
+  }
+  .job-ticket__name { font-size: 26pt; font-weight: 900; line-height: 1.15; word-break: break-word; }
+  .job-ticket__meta { font-size: 13pt; margin-top: 12pt; }
+  .job-ticket__writein { margin-top: 30pt; }
+  .job-ticket__rule { border-bottom: 1px solid #888; height: 34pt; }
+}

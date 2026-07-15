@@ -6,7 +6,7 @@
   <title>CNC Job Sheet Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -242,9 +242,20 @@
     </div>
   </div>
 
+  <div id="job-ticket" class="job-ticket" hidden>
+    <div class="job-ticket__name" id="job-ticket-name"></div>
+    <div class="job-ticket__meta" id="job-ticket-meta"></div>
+    <div class="job-ticket__writein">
+      <div class="job-ticket__rule"></div>
+      <div class="job-ticket__rule"></div>
+      <div class="job-ticket__rule"></div>
+      <div class="job-ticket__rule"></div>
+    </div>
+  </div>
+
   <script src="js/firebase-config.js?v=7"></script>
   <script src="js/storage.js?v=7"></script>
   <script src="js/parser.js?v=7"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>
