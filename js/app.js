@@ -1075,10 +1075,9 @@ function printJobTicket(jobName, displaySheets) {
 
 async function exportJob(jobName, jobSheets) {
   if (!jobSheets.length) { alert('No sheets loaded to export.'); return; }
-  const rows = [['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes']];
-  for (const sheet of jobSheets) {
+  const dataRows = jobSheets.map(sheet => {
     const rec = Storage.get(sheet.fileKey, 'sheet');
-    rows.push([
+    return [
       sheet.sheetTitle || sheet.fileName,
       sheet.jobName    || '',
       sheet.totalTime  || '',
@@ -1087,8 +1086,11 @@ async function exportJob(jobName, jobSheets) {
       rec?.completedAt ? formatDT(new Date(rec.completedAt)) : '',
       rec?.operator || '',
       rec?.notes    || '',
-    ]);
-  }
+    ];
+  });
+
+  // CSV download: unchanged 8-column format (Estimating App import contract).
+  const rows = [['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes'], ...dataRows];
   const escape = c => String(c).replace(/"/g, '""').replace(/[\r\n]+/g, ' ');
   const out  = rows.map(r => r.map(c => `"${escape(c)}"`).join(',')).join('\r\n');
   const blob = new Blob([out], { type: 'text/csv' });
@@ -1102,7 +1104,22 @@ async function exportJob(jobName, jobSheets) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
+  // Master Job Log: same rows plus the archive link as column 9.
+  let logged = false;
+  try {
+    logged = await Endpoint.appendLogRows(
+      dataRows.map((r, i) => [...r, jobSheets[i].archiveUrl || ''])
+    );
+  } catch (err) {
+    console.warn('Master Job Log append failed:', err);
+  }
+
   printJobTicket(jobName, jobSheets);
+
+  if (!logged) {
+    alert('Master Job Log was NOT updated (endpoint unreachable). The CSV still downloaded. The job was kept so you can export it again later.');
+    return;
+  }
 
   if (!jobName) return;
   if (!confirm(`Delete "${jobName}"? This removes all ${jobSheets.length} sheet${jobSheets.length !== 1 ? 's' : ''} and completion records for everyone.`)) return;
