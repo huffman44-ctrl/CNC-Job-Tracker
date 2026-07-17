@@ -36,7 +36,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
   3. **Upload** — drag-drop or browse for HTML files
   4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Export CSV, Reset All, New Job
 - **Storage** (`js/storage.js`) — thin wrapper over Firestore with a synchronous local cache so the UI never blocks on network:
-  - `sheets/{fileKey}` — parsed sheet data (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`)
+  - `sheets/{fileKey}` — parsed sheet data (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`/`onSheetsChange` realtime listener — added 2026-07-17 after shop-computer CSV exports missed sheets uploaded while the page sat open; the listener sorts client-side by `uploadedAt` instead of query `orderBy`, which would silently drop docs missing the field)
   - `completions/{fileKey}` — completion record `{ status: 'in-progress'|'complete', completedAt, operator, notes }` (`get`/`set`/`clear`/`loadCompletions`/`onCompletionChange` realtime listener)
   - `projectNotes/{hash(jobName)}` — free-text per-project notes (`getNote`/`setNote`/`loadNotes`/`onNoteChange`)
   - `sheetNotes/{fileKey}` — per-sheet instruction note `{ text }`, written either from the project card's notes modal or from an Add Note/Edit Note button in the sheet detail header; rendered read-only in the sheet detail (callout) and the sheet nav (icon) (`getSheetNote`/`setSheetNote`/`loadSheetNotes`/`onSheetNoteChange`)

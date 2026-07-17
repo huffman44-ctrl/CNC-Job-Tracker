@@ -1165,6 +1165,24 @@ async function initApp() {
       showProjectsScreen();
     }
 
+    Storage.onSheetsChange(newSheets => {
+      sheets = newSheets;
+      if (!projectsScreen.hidden) renderProjects();
+      if (!contentScreen.hidden) {
+        const remaining = currentProject
+          ? sheets.filter(s => projectKey(s) === currentProject)
+          : sheets;
+        if (!remaining.length) {
+          showProjectsScreen();
+          return;
+        }
+        if (selectedSheetKey && !remaining.some(s => s.fileKey === selectedSheetKey)) {
+          selectedSheetKey = null;
+        }
+        showContentScreen();
+      }
+    });
+
     Storage.onCompletionChange(() => {
       if (!projectsScreen.hidden) renderProjects();
       if (!contentScreen.hidden)  renderAllSheets();

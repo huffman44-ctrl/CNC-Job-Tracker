@@ -184,6 +184,22 @@ const Storage = (() => {
     }
   }
 
+  function onSheetsChange(callback) {
+    if (!db) return;
+    db.collection('sheets').onSnapshot(snap => {
+      // Sort client-side rather than orderBy('uploadedAt') — a query orderBy
+      // silently excludes docs missing the field (and pending serverTimestamps
+      // on the writing device); nulls sort last here instead of disappearing.
+      const docs = snap.docs.map(doc => doc.data());
+      docs.sort((a, b) => {
+        const ta = a.uploadedAt?.toMillis?.() ?? Infinity;
+        const tb = b.uploadedAt?.toMillis?.() ?? Infinity;
+        return ta - tb;
+      });
+      callback(docs);
+    }, err => console.warn('Firestore sheets listener error:', err));
+  }
+
   async function deleteSheet(fileKey) {
     if (!db) return;
     try {
@@ -220,5 +236,5 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, loadSheets, deleteSheet, clearSheets, clearAllCompletions };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions };
 })();
