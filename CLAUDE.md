@@ -65,7 +65,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - SVG insertion in `buildSheetDetail` is wrapped in try-catch so any SVG error doesn't prevent toolpaths from rendering
 - Project card header text wrapper has `min-width: 0` + `.project-card-name` has `overflow-wrap: break-word` — without this, a long job name with no spaces (no soft wrap point) forces the flex header row wider than the card, pushing the delete button past the card's `overflow: hidden` edge and making it disappear
 
-## Current status (as of 2026-07-08)
+## Current status (as of 2026-07-17)
 ### Working
 - File upload (drag-drop + browse), multi-file support, "Add More Sheets" within a project
 - Projects directory screen: progress %, stat chips, per-project notes, delete project

@@ -16,6 +16,7 @@ const Endpoint = (() => {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: ENDPOINT_CONFIG.token, ...payload }),
       redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'endpoint error');

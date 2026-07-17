@@ -16,15 +16,22 @@ function doPost(e) {
   } catch (err) {
     return jsonOut({ ok: false, error: 'invalid JSON' });
   }
+  if (TOKEN.startsWith('PASTE')) {
+    return jsonOut({ ok: false, error: 'endpoint not configured: TOKEN is still a placeholder' });
+  }
   if (!body || body.token !== TOKEN) {
     return jsonOut({ ok: false, error: 'bad token' });
   }
+  const lock = LockService.getScriptLock();
   try {
+    lock.waitLock(30000);
     if (body.action === 'archive')    return jsonOut(archiveSheet(body));
     if (body.action === 'appendRows') return jsonOut(appendRows(body));
     return jsonOut({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
   }
 }
 
