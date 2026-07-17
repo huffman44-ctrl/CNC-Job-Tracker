@@ -173,6 +173,18 @@ const Storage = (() => {
     }
   }
 
+  async function setArchiveUrl(fileKey, url) {
+    if (!db) return;
+    try {
+      // update() (not merge-set) so a sheet deleted while the archive POST
+      // was in flight doesn't get resurrected as a ghost doc with only
+      // an archiveUrl field.
+      await db.collection('sheets').doc(fileKey).update({ archiveUrl: url });
+    } catch (e) {
+      console.warn('Firestore setArchiveUrl failed:', e);
+    }
+  }
+
   async function loadSheets() {
     if (!db) return [];
     try {
@@ -236,5 +248,5 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions };
 })();

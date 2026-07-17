@@ -166,6 +166,11 @@ function handleFiles(fileList, isFirstLoad) {
         if (!firstNewJobName) firstNewJobName = projectKey(sheet);
         sheets.push(sheet);
         Storage.saveSheet(sheet);
+        // Fire-and-forget: the raw HTML only exists in-hand right now.
+        // Failure just means a blank Archive Link cell later.
+        Endpoint.archiveSheet(file.name, sheet.jobName || '', e.target.result)
+          .then(url => { if (url) Storage.setArchiveUrl(key, url); })
+          .catch(err => console.warn('Archive upload failed:', err));
       }
       loadedCount++;
       if (loadedCount === htmlFiles.length && sheets.length) {
