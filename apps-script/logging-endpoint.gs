@@ -22,16 +22,12 @@ function doPost(e) {
   if (!body || body.token !== TOKEN) {
     return jsonOut({ ok: false, error: 'bad token' });
   }
-  const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(30000);
     if (body.action === 'archive')    return jsonOut(archiveSheet(body));
-    if (body.action === 'appendRows') return jsonOut(appendRows(body));
+    if (body.action === 'appendRows') return jsonOut(appendRowsLocked(body));
     return jsonOut({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
-  } finally {
-    try { lock.releaseLock(); } catch (_) {}
   }
 }
 
@@ -39,10 +35,21 @@ function archiveSheet(body) {
   if (!body.fileName || !body.html) {
     return { ok: false, error: 'missing fileName or html' };
   }
-  const root      = DriveApp.getFolderById(ARCHIVE_FOLDER_ID);
-  const jobName   = String(body.jobName || '').trim() || 'Unknown Job';
-  const folders   = root.getFoldersByName(jobName);
-  const jobFolder = folders.hasNext() ? folders.next() : root.createFolder(jobName);
+  const root    = DriveApp.getFolderById(ARCHIVE_FOLDER_ID);
+  const jobName = String(body.jobName || '').trim() || 'Unknown Job';
+  // Lock only the find-or-create-folder step — the only part that races when
+  // multiple sheets from the same job upload in parallel. The file write
+  // itself (the slow part) runs unlocked so a big batch upload doesn't queue
+  // every sheet behind one global lock and blow the client's 20s timeout.
+  const lock = LockService.getScriptLock();
+  let jobFolder;
+  try {
+    lock.waitLock(30000);
+    const folders = root.getFoldersByName(jobName);
+    jobFolder = folders.hasNext() ? folders.next() : root.createFolder(jobName);
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
   // Overwrite in place so the Drive file ID (and any links already exported
   // into old log rows) survives a re-upload of the same sheet.
   const existing = jobFolder.getFilesByName(body.fileName);
@@ -58,6 +65,18 @@ function archiveSheet(body) {
   // open them as a page. This link downloads the file instead; opening the
   // download does render correctly (the sheets are self-contained HTML).
   return { ok: true, url: 'https://drive.google.com/uc?export=download&id=' + file.getId() };
+}
+
+function appendRowsLocked(body) {
+  // Full-duration lock here, unlike archiveSheet — concurrent exports must
+  // not race on the same getLastRow()/setValues() range.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    return appendRows(body);
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
 }
 
 function appendRows(body) {
