@@ -1550,3 +1550,41 @@ body {
   .job-ticket__writein { margin-top: 30pt; }
   .job-ticket__rule { border-bottom: 1px solid #888; height: 34pt; }
 }
+
+/* ── Ticket History ── */
+.ticket-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ticket-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+}
+.ticket-history-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ticket-history-row-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-800);
+  overflow-wrap: break-word;
+}
+.ticket-history-row-meta {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.ticket-history-empty {
+  color: var(--gray-500);
+  padding: 24px 4px;
+  text-align: center;
+}

@@ -6,7 +6,7 @@
   <title>CNC Job Sheet Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=9">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -46,6 +46,7 @@
       </div>
       <div class="header-right">
         <button class="dark-toggle" id="projects-dark-btn" aria-label="Toggle dark mode"></button>
+        <button class="btn btn-ghost btn-sm" id="ticket-history-btn">Ticket History</button>
         <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
       </div>
     </header>
@@ -63,6 +64,32 @@
         </select>
       </div>
       <div id="projects-container" class="projects-grid"></div>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════
+       TICKET HISTORY SCREEN
+  ══════════════════════════════════ -->
+  <div id="ticket-history-screen" hidden>
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn btn-ghost btn-sm" id="ticket-history-back-btn">← Projects</button>
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span class="header-file-title">Ticket History</span>
+          <span id="ticket-history-count" class="header-job-name"></span>
+        </div>
+      </div>
+    </header>
+    <main class="content-main">
+      <div class="filter-row">
+        <div class="filter-search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="ticket-history-search" class="filter-search" placeholder="Search job name…">
+        </div>
+      </div>
+      <div id="ticket-history-list" class="ticket-history-list"></div>
     </main>
   </div>
 
