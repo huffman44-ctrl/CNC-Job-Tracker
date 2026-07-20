@@ -38,9 +38,10 @@ let selectedSheetKey = null;
 /* ══════════════════════════════════════════
    DOM refs
 ══════════════════════════════════════════ */
-const uploadScreen   = document.getElementById('upload-screen');
-const projectsScreen = document.getElementById('projects-screen');
-const contentScreen  = document.getElementById('content-screen');
+const uploadScreen        = document.getElementById('upload-screen');
+const projectsScreen      = document.getElementById('projects-screen');
+const contentScreen       = document.getElementById('content-screen');
+const ticketHistoryScreen = document.getElementById('ticket-history-screen');
 const dropZone       = document.getElementById('drop-zone');
 const fileInput      = document.getElementById('file-input');
 const addFileInput   = document.getElementById('add-file-input');
@@ -106,6 +107,9 @@ document.getElementById('back-to-projects-btn').addEventListener('click', () => 
   showProjectsScreen();
 });
 document.getElementById('upload-new-btn').addEventListener('click', goToUpload);
+document.getElementById('ticket-history-btn').addEventListener('click', showTicketHistoryScreen);
+document.getElementById('ticket-history-back-btn').addEventListener('click', showProjectsScreen);
+document.getElementById('ticket-history-search').addEventListener('input', renderTicketHistoryList);
 
 const projectSearchEl = document.getElementById('project-search');
 const projectSortEl   = document.getElementById('project-sort');
@@ -219,9 +223,10 @@ function hideUploadError()    { uploadErrorEl.hidden = true; }
    Screen Navigation
 ══════════════════════════════════════════ */
 function showProjectsScreen() {
-  uploadScreen.hidden   = true;
-  contentScreen.hidden  = true;
-  projectsScreen.hidden = false;
+  uploadScreen.hidden        = true;
+  contentScreen.hidden       = true;
+  ticketHistoryScreen.hidden = true;
+  projectsScreen.hidden      = false;
   renderProjects();
 }
 
@@ -244,6 +249,65 @@ function updateJobNoteBanner() {
   const note   = currentProject ? Storage.getNote(noteKey(currentProject)) : null;
   banner.hidden = !note;
   if (note) document.getElementById('job-note-banner-text').textContent = note;
+}
+
+/* ══════════════════════════════════════════
+   Ticket History
+══════════════════════════════════════════ */
+let ticketHistoryRecords    = [];
+let ticketHistoryLoadFailed = false;
+
+async function showTicketHistoryScreen() {
+  uploadScreen.hidden        = true;
+  projectsScreen.hidden      = true;
+  contentScreen.hidden       = true;
+  ticketHistoryScreen.hidden = false;
+  document.getElementById('ticket-history-search').value = '';
+  const loaded = await Storage.loadTicketHistory();
+  ticketHistoryLoadFailed = loaded === null;
+  ticketHistoryRecords    = loaded || [];
+  renderTicketHistoryList();
+}
+
+function renderTicketHistoryList() {
+  const container = document.getElementById('ticket-history-list');
+
+  if (ticketHistoryLoadFailed) {
+    document.getElementById('ticket-history-count').textContent = '';
+    container.innerHTML = '<p class="ticket-history-empty">Couldn’t load ticket history.</p>';
+    return;
+  }
+
+  const query = document.getElementById('ticket-history-search').value.trim().toLowerCase();
+  const filtered = query
+    ? ticketHistoryRecords.filter(r => (r.jobName || '').toLowerCase().includes(query))
+    : ticketHistoryRecords;
+
+  document.getElementById('ticket-history-count').textContent =
+    `${filtered.length} ticket${filtered.length !== 1 ? 's' : ''}`;
+
+  if (!filtered.length) {
+    container.innerHTML = '<p class="ticket-history-empty">No ticket history yet.</p>';
+    return;
+  }
+
+  container.innerHTML = filtered.map((r, i) => `
+    <div class="ticket-history-row">
+      <div class="ticket-history-row-info">
+        <span class="ticket-history-row-name">${escHtml(r.jobName)}</span>
+        <span class="ticket-history-row-meta">${r.sheetCount} sheet${r.sheetCount !== 1 ? 's' : ''} — completed ${escHtml(r.completedDate)}</span>
+      </div>
+      <button class="btn btn-ghost btn-sm ticket-history-print-btn" data-index="${i}">Print</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.ticket-history-print-btn').forEach(btn => {
+    btn.addEventListener('click', () => reprintTicket(filtered[Number(btn.dataset.index)]));
+  });
+}
+
+function reprintTicket(record) {
+  showTicketAndPrint(record);
 }
 
 /* ══════════════════════════════════════════
