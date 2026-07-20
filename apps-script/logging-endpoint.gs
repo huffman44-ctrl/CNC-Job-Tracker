@@ -53,7 +53,11 @@ function archiveSheet(body) {
   } else {
     file = jobFolder.createFile(body.fileName, body.html, 'text/html');
   }
-  return { ok: true, url: file.getUrl() };
+  // Direct-download link, not file.getUrl() — Drive's preview page shows HTML
+  // files as source code rather than rendering them, so a "view" link can't
+  // open them as a page. This link downloads the file instead; opening the
+  // download does render correctly (the sheets are self-contained HTML).
+  return { ok: true, url: 'https://drive.google.com/uc?export=download&id=' + file.getId() };
 }
 
 function appendRows(body) {
