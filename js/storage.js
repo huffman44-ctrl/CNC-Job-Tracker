@@ -248,5 +248,34 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions };
+  /* ── Ticket History (reprintable job tickets) ── */
+
+  async function saveTicketRecord(record) {
+    if (!db) return;
+    try {
+      await db.collection('ticketHistory').add({
+        jobName:       record.jobName       || '',
+        sheetCount:    record.sheetCount    || 0,
+        completedDate: record.completedDate || '',
+        exportedAt:    firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn('Firestore saveTicketRecord failed:', e);
+    }
+  }
+
+  async function loadTicketHistory() {
+    // Returns [] for "no records" but null for "failed to load" — callers
+    // need to tell these apart to show the right empty-state message.
+    if (!db) return [];
+    try {
+      const snap = await db.collection('ticketHistory').orderBy('exportedAt', 'desc').get();
+      return snap.docs.map(doc => doc.data());
+    } catch (e) {
+      console.warn('Firestore loadTicketHistory failed:', e);
+      return null;
+    }
+  }
+
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory };
 })();
