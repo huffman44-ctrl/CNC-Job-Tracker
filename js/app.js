@@ -1042,9 +1042,7 @@ function sheetHasVbit(sheet) {
 /* ══════════════════════════════════════════
    Export / Reset
 ══════════════════════════════════════════ */
-function printJobTicket(jobName, displaySheets) {
-  const ticket = document.getElementById('job-ticket');
-  if (!ticket || !displaySheets.length) return;
+function ticketMeta(jobName, displaySheets) {
   const name = jobName
     || displaySheets[0]?.jobName
     || (displaySheets[0]?.fileName || 'CNC Job').replace(/\.html?$/i, '');
@@ -1056,13 +1054,18 @@ function printJobTicket(jobName, displaySheets) {
       if (!latest || d > latest) latest = d;
     }
   }
-  const dateStr = (latest || new Date()).toLocaleDateString(undefined, {
+  const completedDate = (latest || new Date()).toLocaleDateString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
   });
-  const n = displaySheets.length;
-  document.getElementById('job-ticket-name').textContent = name;
+  return { jobName: name, sheetCount: displaySheets.length, completedDate };
+}
+
+function showTicketAndPrint(meta) {
+  const ticket = document.getElementById('job-ticket');
+  if (!ticket) return;
+  document.getElementById('job-ticket-name').textContent = meta.jobName;
   document.getElementById('job-ticket-meta').textContent =
-    `${n} sheet${n !== 1 ? 's' : ''} — completed ${dateStr}`;
+    `${meta.sheetCount} sheet${meta.sheetCount !== 1 ? 's' : ''} — completed ${meta.completedDate}`;
   ticket.hidden = false;
   document.body.classList.add('printing-ticket');
   try {
@@ -1071,6 +1074,11 @@ function printJobTicket(jobName, displaySheets) {
     document.body.classList.remove('printing-ticket');
     ticket.hidden = true;
   }
+}
+
+function printJobTicket(jobName, displaySheets) {
+  if (!displaySheets.length) return;
+  showTicketAndPrint(ticketMeta(jobName, displaySheets));
 }
 
 async function exportJob(jobName, jobSheets) {
@@ -1104,6 +1112,13 @@ async function exportJob(jobName, jobSheets) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
+  // Print (and save to reprintable history) BEFORE the network await below —
+  // window.print() must run within the click's "fresh" window or Chrome
+  // silently drops it once enough time has passed since the triggering click.
+  const meta = ticketMeta(jobName, jobSheets);
+  showTicketAndPrint(meta);
+  Storage.saveTicketRecord(meta);
+
   // Master Job Log: same rows plus the archive link as column 9.
   let logged = false;
   try {
@@ -1113,8 +1128,6 @@ async function exportJob(jobName, jobSheets) {
   } catch (err) {
     console.warn('Master Job Log append failed:', err);
   }
-
-  printJobTicket(jobName, jobSheets);
 
   if (!logged) {
     alert('Master Job Log was NOT updated (endpoint unreachable). The CSV still downloaded. The job was kept so you can export it again later.');
