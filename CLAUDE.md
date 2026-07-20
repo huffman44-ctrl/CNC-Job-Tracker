@@ -86,3 +86,4 @@ If you ever suspect a test run touched production, check the `sheets` collection
 ## Sample test files
 - `260520_gmc_savana_3500_155wb_ew_cargo_Order_1195_Summary_Sheet 9.html` (repo root, tracked in git) — GMC Savana 3500 cargo van, 1 Job Layout Sheet (with SVG), 1 Material Setup section, 1 Toolpaths Summary section with 5 toolpath rows
 - `samples/` — gitignored scratch folder for additional local test files (e.g. `260623_Sprinter_2108_Order_1201_Summary_Sheet01.html`); add files here freely, they won't be committed
+
