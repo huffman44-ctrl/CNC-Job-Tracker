@@ -1176,6 +1176,14 @@ async function exportJob(jobName, jobSheets) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
+  // Yield one tick before printing. window.print() opens a blocking modal;
+  // without a gap here it can open in the same tick as the CSV a.click()
+  // above and pre-empt the download before Chrome finishes dispatching it
+  // (silently — no blocked-download notice, the file just never appears).
+  // A zero-delay setTimeout is nowhere near long enough to lose the click's
+  // "fresh" user-activation window that window.print() below still needs.
+  await new Promise(resolve => setTimeout(resolve, 0));
+
   // Print (and save to reprintable history) BEFORE the network await below —
   // window.print() must run within the click's "fresh" window or Chrome
   // silently drops it once enough time has passed since the triggering click.
