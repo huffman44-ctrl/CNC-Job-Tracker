@@ -34,6 +34,9 @@ let currentProject = null; // jobName string when inside a project, null on dire
 let modalCtx       = null;
 let clearCtx       = null;
 let selectedSheetKey = null;
+// fileKey -> decompressed SVG string. Decompressing a large drawing costs
+// ~100ms, and re-selecting a sheet is common, so keep the result.
+const svgCache = new Map();
 
 /* ══════════════════════════════════════════
    DOM refs
@@ -780,7 +783,20 @@ function buildSheetDetail(sheet, idx) {
     wrap.appendChild(strip);
   }
 
-  if (sheet.layoutSvg) {
+  if (sheet.layoutOversize) {
+    const notice = document.createElement('div');
+    notice.className = 'layout-svg-oversize';
+    notice.textContent = 'Layout preview is too large to store. ';
+    if (sheet.archiveUrl) {
+      const link = document.createElement('a');
+      link.href = sheet.archiveUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Open the original sheet';
+      notice.appendChild(link);
+    }
+    wrap.appendChild(notice);
+  } else if (sheet.layoutSvg || sheet.layoutSvgGz) {
     try {
       const svgWrap = document.createElement('div');
       svgWrap.className = 'layout-svg-wrap';
@@ -790,9 +806,31 @@ function buildSheetDetail(sheet, idx) {
       svgWrap.appendChild(label);
       const scrollEl = document.createElement('div');
       scrollEl.className = 'layout-svg-scroll';
-      scrollEl.innerHTML = sheet.layoutSvg;
       svgWrap.appendChild(scrollEl);
       wrap.appendChild(svgWrap);
+
+      if (sheet.layoutSvg) {
+        scrollEl.innerHTML = sheet.layoutSvg;
+      } else if (svgCache.has(sheet.fileKey)) {
+        scrollEl.innerHTML = svgCache.get(sheet.fileKey);
+      } else {
+        // Async: the panel is already in the DOM, fill the drawing in when
+        // it decodes. Guard against the operator selecting another sheet
+        // mid-decompress.
+        const renderingKey = sheet.fileKey;
+        scrollEl.textContent = 'Loading layout…';
+        SvgCodec.decompressSvg(sheet.layoutSvgGz)
+          .then(svg => {
+            svgCache.set(renderingKey, svg);
+            if (selectedSheetKey !== renderingKey) return;
+            if (!scrollEl.isConnected) return;
+            scrollEl.innerHTML = svg;
+          })
+          .catch(err => {
+            console.error('SVG decompress failed:', err);
+            scrollEl.textContent = 'Layout preview could not be loaded.';
+          });
+      }
     } catch (err) {
       console.error('SVG render failed:', err);
     }
