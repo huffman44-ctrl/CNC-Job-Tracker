@@ -19,6 +19,13 @@
 </head>
 <body>
 
+  <!-- Screen-independent save-failure banner: uploads can start from the
+       upload, projects, or content screen, so this can't live inside one. -->
+  <div id="save-banner" class="save-banner" hidden>
+    <span id="save-banner-text"></span>
+    <button type="button" id="save-banner-close" class="save-banner-close" aria-label="Dismiss">&times;</button>
+  </div>
+
   <!-- ══════════════════════════════════
        LOADING SCREEN
   ══════════════════════════════════ -->
