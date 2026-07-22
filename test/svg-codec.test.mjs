@@ -39,3 +39,49 @@ test('exposes the exact Firestore field limit', () => {
   assert.equal(SvgCodec.FIRESTORE_FIELD_LIMIT, 1048487);
   assert.equal(SvgCodec.SAFE_FIELD_BYTES, 943638);
 });
+
+test('gzip round-trip is lossless', async () => {
+  const svg = '<svg viewBox="0 0 48 96"><path d="M 1.5 2.5 L 3.5 4.5"/></svg>';
+  const packed = await SvgCodec.compressSvg(svg);
+  assert.equal(typeof packed, 'string');
+  assert.equal(await SvgCodec.decompressSvg(packed), svg);
+});
+
+test('packLayoutSvg keeps small drawings as plain text', async () => {
+  const svg = '<svg viewBox="0 0 48 96"><path d="M 1.50000000 2.50000000"/></svg>';
+  const r = await SvgCodec.packLayoutSvg(svg);
+  assert.equal(r.mode, 'plain');
+  assert.equal(r.layoutSvg, '<svg viewBox="0 0 48 96"><path d="M 1.5 2.5"/></svg>');
+  assert.equal(r.layoutSvgGz, '');
+});
+
+test('packLayoutSvg gzips drawings that exceed the safe budget', async () => {
+  // ~1.6 MB of highly-compressible path data
+  const big = '<svg viewBox="0 0 48 96">'
+    + '<path d="' + 'M 12.34567890 45.67890123 '.repeat(60000) + '"/></svg>';
+  assert.ok(Buffer.byteLength(big) > SvgCodec.SAFE_FIELD_BYTES);
+  const r = await SvgCodec.packLayoutSvg(big);
+  assert.equal(r.mode, 'gzip');
+  assert.equal(r.layoutSvg, '');
+  assert.ok(r.storedBytes < SvgCodec.SAFE_FIELD_BYTES);
+  // and it must survive the trip back
+  const back = await SvgCodec.decompressSvg(r.layoutSvgGz);
+  assert.ok(back.startsWith('<svg viewBox="0 0 48 96">'));
+  assert.ok(back.includes('M 12.346 45.679'));
+});
+
+test('packLayoutSvg reports oversize when even gzip will not fit', async () => {
+  // Incompressible: random hex defeats gzip, so base64 stays over budget.
+  let noise = '';
+  while (noise.length < 3_000_000) noise += Math.random().toString(16).slice(2);
+  const r = await SvgCodec.packLayoutSvg('<svg>' + noise + '</svg>');
+  assert.equal(r.mode, 'oversize');
+  assert.equal(r.layoutSvg, '');
+  assert.equal(r.layoutSvgGz, '');
+});
+
+test('packLayoutSvg handles empty input', async () => {
+  const r = await SvgCodec.packLayoutSvg('');
+  assert.equal(r.mode, 'plain');
+  assert.equal(r.layoutSvg, '');
+});
