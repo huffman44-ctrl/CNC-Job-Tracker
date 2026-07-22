@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "CNC Job Setup Sheet processor",
   "scripts": {
-    "serve": "npx serve ."
+    "serve": "npx serve .",
+    "test": "node --test"
   }
 }

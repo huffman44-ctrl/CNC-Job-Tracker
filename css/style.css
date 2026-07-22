@@ -1588,3 +1588,37 @@ body {
   padding: 24px 4px;
   text-align: center;
 }
+
+/* ── Oversized layout notice ──
+   Shown in place of the Material Border when a drawing is too large to
+   store in Firestore even after rounding + gzip. */
+.layout-svg-oversize {
+  padding: 12px 14px;
+  margin: 12px 0;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius);
+  color: var(--gray-500);
+  font-size: 13px;
+}
+.layout-svg-oversize a { color: var(--orange); }
+
+/* ── Save-failure banner ──
+   Fixed to the viewport so it is visible regardless of which screen the
+   operator uploaded from. */
+.save-banner {
+  position: fixed;
+  top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 9999;
+  max-width: min(560px, calc(100vw - 32px));
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--red); color: var(--text-inverse);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px; line-height: 1.4;
+}
+.save-banner[hidden] { display: none; }
+.save-banner-close {
+  background: none; border: none; color: inherit;
+  font-size: 20px; line-height: 1; cursor: pointer; padding: 0;
+}

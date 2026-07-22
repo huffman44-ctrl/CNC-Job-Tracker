@@ -34,6 +34,9 @@ let currentProject = null; // jobName string when inside a project, null on dire
 let modalCtx       = null;
 let clearCtx       = null;
 let selectedSheetKey = null;
+// fileKey -> decompressed SVG string. Decompressing a large drawing costs
+// ~100ms, and re-selecting a sheet is common, so keep the result.
+const svgCache = new Map();
 
 /* ══════════════════════════════════════════
    DOM refs
@@ -142,6 +145,7 @@ function handleFiles(fileList, isFirstLoad) {
   }
 
   hideUploadError();
+  hideSaveBanner();
 
   if (isFirstLoad) {
     fileListEl.innerHTML = '';
@@ -162,16 +166,27 @@ function handleFiles(fileList, isFirstLoad) {
   let firstNewJobName = null;
   for (const file of htmlFiles) {
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = async e => {
       const parsed = parseJobSheet(e.target.result);
       const key    = simpleHash(file.name);
       if (!sheets.find(s => s.fileKey === key)) {
         const sheet = { fileKey: key, fileName: file.name, ...parsed };
         if (!firstNewJobName) firstNewJobName = projectKey(sheet);
         sheets.push(sheet);
-        Storage.saveSheet(sheet);
-        // Fire-and-forget: the raw HTML only exists in-hand right now.
-        // Failure just means a blank Archive Link cell later.
+
+        const result = await Storage.saveSheet(sheet);
+        if (!result.ok) {
+          // The sheets listener will drop this sheet from the screen on the
+          // next snapshot — say why, so it isn't a silent disappearance.
+          const idx = sheets.findIndex(s => s.fileKey === key);
+          if (idx !== -1) sheets.splice(idx, 1);
+          showSaveBanner(`Couldn't save "${file.name}" — ${result.error?.message || 'unknown error'}. The file was still archived to Drive.`);
+        } else if (result.mode === 'oversize') {
+          showSaveBanner(`"${file.name}" was saved, but its layout drawing is too large to store. Everything else tracks normally — use the archive link to view the drawing.`);
+        }
+
+        // Archive after the save resolves, so setArchiveUrl's update() has a
+        // document to attach to.
         Endpoint.archiveSheet(file.name, sheet.jobName || '', e.target.result)
           .then(url => { if (url) Storage.setArchiveUrl(key, url); })
           .catch(err => console.warn('Archive upload failed:', err));
@@ -218,6 +233,13 @@ function goToUpload() {
 
 function showUploadError(msg) { uploadErrorEl.textContent = msg; uploadErrorEl.hidden = false; }
 function hideUploadError()    { uploadErrorEl.hidden = true; }
+
+const saveBannerEl     = document.getElementById('save-banner');
+const saveBannerTextEl = document.getElementById('save-banner-text');
+document.getElementById('save-banner-close').addEventListener('click', hideSaveBanner);
+
+function showSaveBanner(msg) { saveBannerTextEl.textContent = msg; saveBannerEl.hidden = false; }
+function hideSaveBanner()    { saveBannerEl.hidden = true; }
 
 /* ══════════════════════════════════════════
    Screen Navigation
@@ -780,7 +802,20 @@ function buildSheetDetail(sheet, idx) {
     wrap.appendChild(strip);
   }
 
-  if (sheet.layoutSvg) {
+  if (sheet.layoutOversize) {
+    const notice = document.createElement('div');
+    notice.className = 'layout-svg-oversize';
+    notice.textContent = 'Layout preview is too large to store. ';
+    if (sheet.archiveUrl) {
+      const link = document.createElement('a');
+      link.href = sheet.archiveUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Open the original sheet';
+      notice.appendChild(link);
+    }
+    wrap.appendChild(notice);
+  } else if (sheet.layoutSvg || sheet.layoutSvgGz) {
     try {
       const svgWrap = document.createElement('div');
       svgWrap.className = 'layout-svg-wrap';
@@ -790,9 +825,31 @@ function buildSheetDetail(sheet, idx) {
       svgWrap.appendChild(label);
       const scrollEl = document.createElement('div');
       scrollEl.className = 'layout-svg-scroll';
-      scrollEl.innerHTML = sheet.layoutSvg;
       svgWrap.appendChild(scrollEl);
       wrap.appendChild(svgWrap);
+
+      if (sheet.layoutSvg) {
+        scrollEl.innerHTML = sheet.layoutSvg;
+      } else if (svgCache.has(sheet.fileKey)) {
+        scrollEl.innerHTML = svgCache.get(sheet.fileKey);
+      } else {
+        // Async: the panel is already in the DOM, fill the drawing in when
+        // it decodes. Guard against the operator selecting another sheet
+        // mid-decompress.
+        const renderingKey = sheet.fileKey;
+        scrollEl.textContent = 'Loading layout…';
+        SvgCodec.decompressSvg(sheet.layoutSvgGz)
+          .then(svg => {
+            svgCache.set(renderingKey, svg);
+            if (selectedSheetKey !== renderingKey) return;
+            if (!scrollEl.isConnected) return;
+            scrollEl.innerHTML = svg;
+          })
+          .catch(err => {
+            console.error('SVG decompress failed:', err);
+            scrollEl.textContent = 'Layout preview could not be loaded.';
+          });
+      }
     } catch (err) {
       console.error('SVG render failed:', err);
     }

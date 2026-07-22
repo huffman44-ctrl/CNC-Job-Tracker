@@ -155,7 +155,17 @@ const Storage = (() => {
   /* ── Sheets ── */
 
   async function saveSheet(sheet) {
-    if (!db) return;
+    if (!db) return { ok: true, mode: 'plain', storedBytes: 0, error: null };
+
+    let packed;
+    try {
+      packed = await SvgCodec.packLayoutSvg(sheet.layoutSvg || '');
+    } catch (e) {
+      console.warn('SVG packing failed, storing sheet without drawing:', e);
+      packed = { mode: 'oversize', layoutSvg: '', layoutSvgGz: '',
+                 originalBytes: 0, storedBytes: 0 };
+    }
+
     try {
       await db.collection('sheets').doc(sheet.fileKey).set({
         fileKey:      sheet.fileKey,
@@ -165,11 +175,17 @@ const Storage = (() => {
         totalTime:    sheet.totalTime    || '',
         toolpaths:    sheet.toolpaths    || [],
         materialInfo: sheet.materialInfo || [],
-        layoutSvg:    sheet.layoutSvg    || '',
+        layoutSvg:    packed.layoutSvg,
+        layoutSvgGz:  packed.layoutSvgGz,
+        // Tells the render path to show the "too large" notice instead of
+        // silently rendering nothing.
+        layoutOversize: packed.mode === 'oversize',
         uploadedAt:   firebase.firestore.FieldValue.serverTimestamp(),
       });
+      return { ok: true, mode: packed.mode, storedBytes: packed.storedBytes, error: null };
     } catch (e) {
       console.warn('Firestore saveSheet failed:', e);
+      return { ok: false, mode: packed.mode, storedBytes: packed.storedBytes, error: e };
     }
   }
 

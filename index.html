@@ -19,6 +19,13 @@
 </head>
 <body>
 
+  <!-- Screen-independent save-failure banner: uploads can start from the
+       upload, projects, or content screen, so this can't live inside one. -->
+  <div id="save-banner" class="save-banner" hidden>
+    <span id="save-banner-text"></span>
+    <button type="button" id="save-banner-close" class="save-banner-close" aria-label="Dismiss">&times;</button>
+  </div>
+
   <!-- ══════════════════════════════════
        LOADING SCREEN
   ══════════════════════════════════ -->
@@ -283,8 +290,9 @@
   <script src="js/firebase-config.js?v=7"></script>
   <script src="js/endpoint-config.js?v=1"></script>
   <script src="js/endpoint.js?v=1"></script>
-  <script src="js/storage.js?v=9"></script>
+  <script src="js/svg-codec.js?v=1"></script>
+  <script src="js/storage.js?v=10"></script>
   <script src="js/parser.js?v=7"></script>
-  <script src="js/app.js?v=11"></script>
+  <script src="js/app.js?v=12"></script>
 </body>
 </html>
