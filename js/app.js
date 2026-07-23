@@ -73,6 +73,9 @@ const sheetNoteText         = document.getElementById('sheet-note-modal-text');
 const clearOverlay  = document.getElementById('clear-overlay');
 const clearSubtitle = document.getElementById('clear-subtitle');
 
+const noticeOverlay = document.getElementById('notice-overlay');
+const noticeTextEl  = document.getElementById('notice-modal-text');
+
 /* ══════════════════════════════════════════
    Upload / File Handling
 ══════════════════════════════════════════ */
@@ -129,6 +132,9 @@ projectSortEl.addEventListener('change', renderProjects);
 
 modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
 clearOverlay.addEventListener('click', e => { if (e.target === clearOverlay) closeClearModal(); });
+
+document.getElementById('notice-ok').addEventListener('click', closeNotice);
+noticeOverlay.addEventListener('click', e => { if (e.target === noticeOverlay) closeNotice(); });
 
 const notesOverlay = document.getElementById('notes-overlay');
 notesOverlay.addEventListener('click', e => { if (e.target === notesOverlay) closeNotesModal(); });
@@ -216,7 +222,7 @@ function handleFiles(fileList, isFirstLoad) {
           const msg = alreadyLoaded.length === 1
             ? `"${alreadyLoaded[0]}" is already loaded — it's on the board, so nothing was changed.`
             : `${alreadyLoaded.length} sheets were already loaded, so they were left unchanged.`;
-          showSaveBanner(msg, 'info');
+          showNotice(msg);
         }
       }
     };
@@ -258,12 +264,7 @@ const saveBannerEl     = document.getElementById('save-banner');
 const saveBannerTextEl = document.getElementById('save-banner-text');
 document.getElementById('save-banner-close').addEventListener('click', hideSaveBanner);
 
-function showSaveBanner(msg, variant) {
-  saveBannerTextEl.textContent = msg;
-  // 'info' → calm cyan (e.g. "already loaded"); default → red (a real failure).
-  saveBannerEl.classList.toggle('info', variant === 'info');
-  saveBannerEl.hidden = false;
-}
+function showSaveBanner(msg) { saveBannerTextEl.textContent = msg; saveBannerEl.hidden = false; }
 function hideSaveBanner()    { saveBannerEl.hidden = true; }
 
 /* ══════════════════════════════════════════
@@ -1060,6 +1061,10 @@ function openClearModal(sheet, completeBtn, statusEl) {
 
 function closeModal()      { modalOverlay.classList.add('hidden'); modalCtx = null; }
 function closeClearModal() { clearOverlay.classList.add('hidden'); clearCtx = null; }
+
+// Blocking pop-up (must be dismissed) for "this sheet is already loaded".
+function showNotice(msg) { noticeTextEl.textContent = msg; noticeOverlay.classList.remove('hidden'); }
+function closeNotice()   { noticeOverlay.classList.add('hidden'); }
 
 let notesCtx = null;
 

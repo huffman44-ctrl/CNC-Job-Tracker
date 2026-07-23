@@ -1618,7 +1618,8 @@ body {
   font-size: 14px; line-height: 1.4;
 }
 .save-banner[hidden] { display: none; }
-.save-banner.info { background: var(--cyan); }
+.notice-modal-card { border-top: 5px solid var(--red); }
+.notice-modal-title { color: var(--red); }
 .save-banner-close {
   background: none; border: none; color: inherit;
   font-size: 20px; line-height: 1; cursor: pointer; padding: 0;

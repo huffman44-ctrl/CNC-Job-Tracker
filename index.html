@@ -6,7 +6,7 @@
   <title>CNC Job Sheet Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -236,6 +236,19 @@
   </div>
 
   <!-- ══════════════════════════════════
+       ALREADY-LOADED NOTICE MODAL
+  ══════════════════════════════════ -->
+  <div id="notice-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card--sm notice-modal-card">
+      <h2 class="modal-title notice-modal-title">Already Loaded</h2>
+      <p id="notice-modal-text" class="modal-body-text"></p>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="notice-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
        PROJECT NOTES MODAL
   ══════════════════════════════════ -->
   <div id="notes-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
@@ -293,6 +306,6 @@
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/storage.js?v=10"></script>
   <script src="js/parser.js?v=7"></script>
-  <script src="js/app.js?v=14"></script>
+  <script src="js/app.js?v=15"></script>
 </body>
 </html>
