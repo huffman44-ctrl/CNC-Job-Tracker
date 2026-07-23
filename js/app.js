@@ -172,6 +172,7 @@ function handleFiles(fileList, isFirstLoad) {
 
   let loadedCount    = 0;
   let firstNewJobName = null;
+  const alreadyLoaded = [];   // files skipped because a sheet with that name is already loaded
   for (const file of htmlFiles) {
     const reader = new FileReader();
     reader.onload = async e => {
@@ -198,6 +199,11 @@ function handleFiles(fileList, isFirstLoad) {
         Endpoint.archiveSheet(file.name, sheet.jobName || '', e.target.result)
           .then(url => { if (url) Storage.setArchiveUrl(key, url); })
           .catch(err => console.warn('Archive upload failed:', err));
+      } else {
+        // A sheet with this exact filename is already loaded. Record it so we
+        // can tell the operator, instead of silently doing nothing (which reads
+        // as "the import is broken").
+        alreadyLoaded.push(file.name);
       }
       loadedCount++;
       if (loadedCount === htmlFiles.length && sheets.length) {
@@ -205,6 +211,12 @@ function handleFiles(fileList, isFirstLoad) {
           showProjectsScreen();
         } else {
           renderAllSheets();
+        }
+        if (alreadyLoaded.length) {
+          const msg = alreadyLoaded.length === 1
+            ? `"${alreadyLoaded[0]}" is already loaded — it's on the board, so nothing was changed.`
+            : `${alreadyLoaded.length} sheets were already loaded, so they were left unchanged.`;
+          showSaveBanner(msg, 'info');
         }
       }
     };
@@ -246,7 +258,12 @@ const saveBannerEl     = document.getElementById('save-banner');
 const saveBannerTextEl = document.getElementById('save-banner-text');
 document.getElementById('save-banner-close').addEventListener('click', hideSaveBanner);
 
-function showSaveBanner(msg) { saveBannerTextEl.textContent = msg; saveBannerEl.hidden = false; }
+function showSaveBanner(msg, variant) {
+  saveBannerTextEl.textContent = msg;
+  // 'info' → calm cyan (e.g. "already loaded"); default → red (a real failure).
+  saveBannerEl.classList.toggle('info', variant === 'info');
+  saveBannerEl.hidden = false;
+}
 function hideSaveBanner()    { saveBannerEl.hidden = true; }
 
 /* ══════════════════════════════════════════
