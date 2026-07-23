@@ -76,7 +76,15 @@ const clearSubtitle = document.getElementById('clear-subtitle');
 /* ══════════════════════════════════════════
    Upload / File Handling
 ══════════════════════════════════════════ */
-dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('click', e => {
+  // The "Browse Files" label opens the picker natively. Without this guard the
+  // same click also bubbles up here and calls fileInput.click() a second time;
+  // Chrome blocks that second open ("File chooser dialog can only be shown with
+  // a user activation") and the dialog never appears. Skip when the click came
+  // from the label or the input itself so only a single open happens.
+  if (e.target.closest('label[for="file-input"], #file-input')) return;
+  fileInput.click();
+});
 dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
 dropZone.addEventListener('dragenter', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
