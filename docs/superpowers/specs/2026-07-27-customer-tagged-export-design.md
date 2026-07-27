@@ -20,8 +20,16 @@ This is a new modal following the same overlay/`openXModal`/`closeXModal` patter
 
 ### Storage: two new Firestore-backed pieces in `storage.js`
 
-1. **`customers` collection** — the growing, shared directory of customer names (doc id = `simpleHash(name)`, data `{ name }`), loaded into an in-memory cache the same way `notesCache` works today. `getCustomers()` (all, for the picker), `addCustomer(name)`.
+1. **`customers` collection** — the growing, shared directory of customer names (doc id = `simpleHash(name)`, data `{ name }`), loaded into an in-memory cache the same way `notesCache` works today. `getCustomers()` (all, for the picker), `addCustomer(name)`, `renameCustomer(oldName, newName)`, `removeCustomer(name)`.
 2. **`projectCustomer/{noteKey(jobName)}` collection** — which customer a specific job is tagged with, exact same shape as `projectNotes` (`getProjectCustomer(jobName)` / `setProjectCustomer(jobName, name)`). This is what makes the picker pre-select on a re-export.
+
+### Managing the customer directory
+
+A **"Manage Customers"** button sits next to "Ticket History" in the Projects directory header (`index.html` ~line 56), opening a new full screen following the same pattern as `ticket-history-screen` (`index.html` ~line 80) — a back button, its own header, a simple list body:
+
+- Every customer from the `customers` collection, alphabetical, each row with an inline **Rename** (edit the text, confirm to save) and **Delete** (same `confirm()` pattern as project/job deletion) action.
+- An "+ Add Customer" input at the top, so a customer can be added here directly instead of only via `__other__` during an export.
+- `renameCustomer`/`removeCustomer` only ever touch the `customers` directory (the picker's list of names) — they do **not** cascade to `projectCustomer` tags already set on jobs, and never touch anything already exported (matches the "no backfill" stance below; a name change here is forward-looking only). If a job's stored tag no longer matches any current directory entry (renamed or deleted since), the export picker still shows that job's last-used value pre-filled in the `__other__` text field rather than failing to pre-select anything — so a rename/delete never corrupts or blocks a re-export, it just stops offering that exact string as a dropdown option going forward.
 
 ### Threading the customer through export
 
@@ -49,10 +57,10 @@ Per this repo's rules (no framework; never test against real Firebase; `master` 
 
 1. Isolated temp copy with `projectId: "PASTE_DISABLED"`, throwaway Playwright driver (from the estimator's `.verify/` install, not committed).
 2. Assert: Export CSV opens the customer picker before any download; picking an existing customer vs. typing `__other__` both work; Cancel produces zero downloads and zero Master Log calls; the downloaded CSV's header ends with `Customer` and the value matches what was picked; re-exporting the same job pre-selects the previously used customer.
-3. Commit; push only on Travis's go — and confirm with Travis that the live Apps Script + Google Sheet header have been updated by hand before considering the Master Log side "live."
+3. Assert the Manage Customers screen: renaming updates the picker's dropdown option going forward without touching an already-tagged job's stored value; deleting removes it from the dropdown but a job previously tagged with that name still pre-fills it (as free text) on its next export rather than silently reverting to blank.
+4. Commit; push only on Travis's go — and confirm with Travis that the live Apps Script + Google Sheet header have been updated by hand before considering the Master Log side "live."
 
 ## Not in scope
 
 - Any change to job ticket printing, archive linking, or the Operator/Notes fields.
-- Backfilling customer names onto rows already in the Master Job Log before this ships.
-- A UI to browse/edit/delete the customer directory — additions only, via `__other__`.
+- Backfilling customer names onto rows already in the Master Job Log before this ships, or cascading a rename/delete in the directory onto jobs already tagged with the old name.
