@@ -84,13 +84,13 @@ function appendRows(body) {
   if (!Array.isArray(rows) || !rows.length) {
     return { ok: false, error: 'no rows' };
   }
-  if (!rows.every(function (r) { return Array.isArray(r) && r.length === 9; })) {
-    return { ok: false, error: 'rows must be 9 columns' };
+  if (!rows.every(function (r) { return Array.isArray(r) && r.length === 10; })) {
+    return { ok: false, error: 'rows must be 10 columns' };
   }
   const sheet = SpreadsheetApp.openById(LOG_SPREADSHEET_ID).getSheetByName(LOG_SHEET_NAME);
   if (!sheet) return { ok: false, error: 'log sheet not found' };
   const values = rows.map(function (r) { return r.map(String); });
-  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, 9).setValues(values);
+  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, 10).setValues(values);
   return { ok: true, appended: values.length };
 }
 
