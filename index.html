@@ -289,6 +289,33 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════
+       CUSTOMER PICKER MODAL (export)
+  ══════════════════════════════════ -->
+  <div id="customer-picker-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h2 class="modal-title">Who's this job for?</h2>
+      <p id="customer-picker-subtitle" class="modal-subtitle"></p>
+      <div class="modal-form">
+        <div class="form-group">
+          <label class="form-label" for="customer-picker-select">Customer</label>
+          <select id="customer-picker-select" class="form-input">
+            <option value="" disabled>Select customer…</option>
+            <option value="__other__">+ New customer…</option>
+          </select>
+        </div>
+        <div class="form-group" id="customer-picker-other-group" hidden>
+          <label class="form-label" for="customer-picker-other">Customer Name</label>
+          <input type="text" id="customer-picker-other" class="form-input" placeholder="Customer name">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="customer-picker-cancel">Cancel</button>
+        <button class="btn btn-primary" id="customer-picker-confirm" disabled>Export</button>
+      </div>
+    </div>
+  </div>
+
   <div id="job-ticket" class="job-ticket" hidden>
     <div class="job-ticket__name" id="job-ticket-name"></div>
     <div class="job-ticket__meta" id="job-ticket-meta"></div>

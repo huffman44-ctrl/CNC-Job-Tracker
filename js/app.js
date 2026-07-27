@@ -70,6 +70,13 @@ const sheetNoteOverlay      = document.getElementById('sheet-note-overlay');
 const sheetNoteSubtitle     = document.getElementById('sheet-note-modal-subtitle');
 const sheetNoteText         = document.getElementById('sheet-note-modal-text');
 
+const customerPickerOverlay  = document.getElementById('customer-picker-overlay');
+const customerPickerSubtitle = document.getElementById('customer-picker-subtitle');
+const customerPickerSelect   = document.getElementById('customer-picker-select');
+const customerPickerOther    = document.getElementById('customer-picker-other');
+const customerPickerOtherGrp = document.getElementById('customer-picker-other-group');
+const customerPickerConfirm  = document.getElementById('customer-picker-confirm');
+
 const clearOverlay  = document.getElementById('clear-overlay');
 const clearSubtitle = document.getElementById('clear-subtitle');
 
@@ -590,7 +597,9 @@ function buildProjectCard(jobName, projectSheets) {
   exportBtn.addEventListener('click', async e => {
     e.stopPropagation();
     const jobSheets = [...projectSheets].sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
-    await exportJob(jobName, jobSheets);
+    const customerName = await openCustomerPicker(jobName);
+    if (!customerName) return;
+    await exportJob(jobName, jobSheets, customerName);
   });
 
   const btnGroup = document.createElement('div');
@@ -1132,6 +1141,87 @@ async function saveSheetNote() {
   renderAllSheets();
 }
 
+/* ══════════════════════════════════════════
+   Customer Picker (prompted at export)
+══════════════════════════════════════════ */
+function customerKey(name) {
+  return 'cust_' + simpleHash(name.trim());
+}
+
+let customerPickerCtx = null; // { jobName, resolve }
+
+function openCustomerPicker(jobName) {
+  return new Promise(resolve => {
+    customerPickerCtx = { jobName, resolve };
+    customerPickerSubtitle.textContent = jobName;
+    customerPickerOtherGrp.hidden = true;
+    customerPickerOther.value = '';
+
+    const known = Storage.getCustomers();
+    customerPickerSelect.innerHTML = '<option value="" disabled>Select customer…</option>' +
+      known.map(c => `<option value="${escHtml(c.key)}">${escHtml(c.name)}</option>`).join('') +
+      '<option value="__other__">+ New customer…</option>';
+
+    const priorName = Storage.getProjectCustomer(noteKey(jobName));
+    const priorMatch = priorName && known.find(c => c.name === priorName);
+    if (priorMatch) {
+      customerPickerSelect.value = priorMatch.key;
+    } else if (priorName) {
+      // Tagged before, but that exact name isn't in the directory anymore
+      // (renamed/deleted since) — keep it visible as free text rather than
+      // silently losing the tag.
+      customerPickerSelect.value = '__other__';
+      customerPickerOtherGrp.hidden = false;
+      customerPickerOther.value = priorName;
+    } else {
+      customerPickerSelect.value = '';
+    }
+
+    updateCustomerPickerConfirmState();
+    customerPickerOverlay.classList.remove('hidden');
+  });
+}
+
+function updateCustomerPickerConfirmState() {
+  const valid = customerPickerSelect.value === '__other__'
+    ? customerPickerOther.value.trim().length > 0
+    : customerPickerSelect.value !== '';
+  customerPickerConfirm.disabled = !valid;
+}
+
+customerPickerSelect.addEventListener('change', () => {
+  customerPickerOtherGrp.hidden = customerPickerSelect.value !== '__other__';
+  updateCustomerPickerConfirmState();
+});
+customerPickerOther.addEventListener('input', updateCustomerPickerConfirmState);
+
+function closeCustomerPicker(result) {
+  customerPickerOverlay.classList.add('hidden');
+  const ctx = customerPickerCtx;
+  customerPickerCtx = null;
+  if (ctx) ctx.resolve(result);
+}
+
+document.getElementById('customer-picker-cancel').addEventListener('click', () => closeCustomerPicker(null));
+customerPickerOverlay.addEventListener('click', e => { if (e.target === customerPickerOverlay) closeCustomerPicker(null); });
+
+customerPickerConfirm.addEventListener('click', async () => {
+  const ctx = customerPickerCtx;
+  if (!ctx) return;
+  let name;
+  if (customerPickerSelect.value === '__other__') {
+    name = customerPickerOther.value.trim();
+    if (!name) return;
+    await Storage.addCustomer(customerKey(name), name);
+  } else {
+    const match = Storage.getCustomers().find(c => c.key === customerPickerSelect.value);
+    if (!match) return;
+    name = match.name;
+  }
+  await Storage.setProjectCustomer(noteKey(ctx.jobName), name);
+  closeCustomerPicker(name);
+});
+
 async function saveNote() {
   if (!notesCtx) return;
   const text = document.getElementById('notes-modal-text').value;
@@ -1232,7 +1322,7 @@ function printJobTicket(jobName, displaySheets) {
   showTicketAndPrint(ticketMeta(jobName, displaySheets));
 }
 
-async function exportJob(jobName, jobSheets) {
+async function exportJob(jobName, jobSheets, customerName) {
   if (!jobSheets.length) { alert('No sheets loaded to export.'); return; }
   const dataRows = jobSheets.map(sheet => {
     const rec = Storage.get(sheet.fileKey, 'sheet');
@@ -1248,8 +1338,11 @@ async function exportJob(jobName, jobSheets) {
     ];
   });
 
-  // CSV download: unchanged 8-column format (Estimating App import contract).
-  const rows = [['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes'], ...dataRows];
+  // CSV download: 9 columns now (Customer appended — Estimating App import contract).
+  const rows = [
+    ['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes', 'Customer'],
+    ...dataRows.map(r => [...r, customerName || '']),
+  ];
   const escape = c => String(c).replace(/"/g, '""').replace(/[\r\n]+/g, ' ');
   const out  = rows.map(r => r.map(c => `"${escape(c)}"`).join(',')).join('\r\n');
   const blob = new Blob([out], { type: 'text/csv' });
@@ -1259,7 +1352,7 @@ async function exportJob(jobName, jobSheets) {
     .replace(/_summary.*/i, '');
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${baseName}.csv`;
+  a.download = `CNC Job Exports/${sanitizeForPath(customerName)}/${baseName}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
@@ -1270,11 +1363,11 @@ async function exportJob(jobName, jobSheets) {
   showTicketAndPrint(meta);
   Storage.saveTicketRecord(meta);
 
-  // Master Job Log: same rows plus the archive link as column 9.
+  // Master Job Log: same rows plus the archive link as column 9, Customer as column 10.
   let logged = false;
   try {
     logged = await Endpoint.appendLogRows(
-      dataRows.map((r, i) => [...r, jobSheets[i].archiveUrl || ''])
+      dataRows.map((r, i) => [...r, jobSheets[i].archiveUrl || '', customerName || ''])
     );
   } catch (err) {
     console.warn('Master Job Log append failed:', err);
@@ -1292,7 +1385,9 @@ async function exportJob(jobName, jobSheets) {
 }
 
 async function doExport() {
-  await exportJob(currentProject, getDisplaySheets());
+  const customerName = await openCustomerPicker(currentProject);
+  if (!customerName) return;
+  await exportJob(currentProject, getDisplaySheets(), customerName);
 }
 
 async function doResetAll() {
@@ -1344,6 +1439,8 @@ async function initApp() {
       Storage.loadCompletions(),
       Storage.loadNotes(),
       Storage.loadSheetNotes(),
+      Storage.loadCustomers(),
+      Storage.loadProjectCustomers(),
     ]);
 
     if (storedSheets.length > 0) {
@@ -1382,6 +1479,13 @@ async function initApp() {
     Storage.onSheetNoteChange(() => {
       if (!projectsScreen.hidden) renderProjects();
       if (!contentScreen.hidden)  renderAllSheets();
+    });
+
+    Storage.onCustomersChange(() => {
+      // No screen currently renders the customer list live outside the
+      // export picker and Manage Customers screen (Task 4), both of which
+      // read Storage.getCustomers() fresh each time they open — nothing
+      // to re-render here.
     });
 
   } catch (err) {
