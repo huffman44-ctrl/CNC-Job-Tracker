@@ -1205,20 +1205,20 @@ function closeCustomerPicker(result) {
 document.getElementById('customer-picker-cancel').addEventListener('click', () => closeCustomerPicker(null));
 customerPickerOverlay.addEventListener('click', e => { if (e.target === customerPickerOverlay) closeCustomerPicker(null); });
 
-customerPickerConfirm.addEventListener('click', async () => {
+customerPickerConfirm.addEventListener('click', () => {
   const ctx = customerPickerCtx;
   if (!ctx) return;
   let name;
   if (customerPickerSelect.value === '__other__') {
     name = customerPickerOther.value.trim();
     if (!name) return;
-    await Storage.addCustomer(customerKey(name), name);
+    Storage.addCustomer(customerKey(name), name);
   } else {
     const match = Storage.getCustomers().find(c => c.key === customerPickerSelect.value);
     if (!match) return;
     name = match.name;
   }
-  await Storage.setProjectCustomer(noteKey(ctx.jobName), name);
+  Storage.setProjectCustomer(noteKey(ctx.jobName), name);
   closeCustomerPicker(name);
 });
 
