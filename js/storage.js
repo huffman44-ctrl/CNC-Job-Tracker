@@ -10,6 +10,8 @@ const Storage = (() => {
   const completionsCache = {}; // { [fileKey]: { completedAt, operator, notes } }
   const notesCache = {};       // { [noteKey]: string }
   const sheetNotesCache = {};  // { [fileKey]: string }
+  const customersCache = {};        // { [key]: name }
+  const projectCustomerCache = {};  // { [noteKey]: name }
 
   function init(firestore) {
     db = firestore;
@@ -150,6 +152,100 @@ const Storage = (() => {
       snap.forEach(doc => { sheetNotesCache[doc.id] = doc.data().text; });
       callback();
     }, err => console.warn('Firestore sheetNotes listener error:', err));
+  }
+
+  /* ── Customer Directory ── */
+
+  function getCustomers() {
+    return Object.keys(customersCache)
+      .map(key => ({ key, name: customersCache[key] }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async function addCustomer(key, name) {
+    customersCache[key] = name;
+    if (!db) return;
+    try {
+      await db.collection('customers').doc(key).set({ name });
+    } catch (e) {
+      console.warn('Firestore addCustomer failed:', e);
+    }
+  }
+
+  async function renameCustomer(oldKey, newKey, newName) {
+    delete customersCache[oldKey];
+    customersCache[newKey] = newName;
+    if (!db) return;
+    try {
+      await db.collection('customers').doc(oldKey).delete();
+      await db.collection('customers').doc(newKey).set({ name: newName });
+    } catch (e) {
+      console.warn('Firestore renameCustomer failed:', e);
+    }
+  }
+
+  async function removeCustomer(key) {
+    delete customersCache[key];
+    if (!db) return;
+    try {
+      await db.collection('customers').doc(key).delete();
+    } catch (e) {
+      console.warn('Firestore removeCustomer failed:', e);
+    }
+  }
+
+  async function loadCustomers() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('customers').get();
+      snap.forEach(doc => { customersCache[doc.id] = doc.data().name; });
+    } catch (e) {
+      console.warn('Firestore loadCustomers failed:', e);
+    }
+  }
+
+  function onCustomersChange(callback) {
+    if (!db) return;
+    db.collection('customers').onSnapshot(snap => {
+      Object.keys(customersCache).forEach(k => delete customersCache[k]);
+      snap.forEach(doc => { customersCache[doc.id] = doc.data().name; });
+      callback();
+    }, err => console.warn('Firestore customers listener error:', err));
+  }
+
+  /* ── Project Customer (which customer a job is tagged with) ── */
+
+  function getProjectCustomer(noteKey) {
+    return projectCustomerCache[noteKey] || null;
+  }
+
+  async function setProjectCustomer(noteKey, name) {
+    const trimmed = (name || '').trim();
+    if (trimmed) {
+      projectCustomerCache[noteKey] = trimmed;
+    } else {
+      delete projectCustomerCache[noteKey];
+    }
+    if (!db) return;
+    try {
+      if (trimmed) {
+        await db.collection('projectCustomer').doc(noteKey).set({ name: trimmed });
+      } else {
+        await db.collection('projectCustomer').doc(noteKey).delete();
+      }
+    } catch (e) {
+      console.warn('Firestore setProjectCustomer failed:', e);
+    }
+  }
+
+  async function loadProjectCustomers() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('projectCustomer').get();
+      snap.forEach(doc => { projectCustomerCache[doc.id] = doc.data().name; });
+    } catch (e) {
+      console.warn('Firestore loadProjectCustomers failed:', e);
+    }
   }
 
   /* ── Sheets ── */
@@ -293,5 +389,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory };
 })();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Storage;
