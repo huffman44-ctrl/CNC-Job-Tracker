@@ -6,10 +6,11 @@ Browser-only (no build step, no framework) single-page app. Operators upload VCa
 ## File structure
 ```
 CNC_WebApp/
-├── index.html                 — 4 screens (loading, projects directory, upload, content) + 4 modals (mark complete, clear confirm, project notes, sheet note)
+├── index.html                 — 4 screens (loading, projects directory, upload, content) + secondary screens (Ticket History, Manage Customers) + 4 modals (mark complete, clear confirm, project notes, sheet note)
 ├── css/style.css               — all styles; CSS custom properties for color tokens; dark mode via [data-theme]
 ├── js/parser.js                 — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }; simpleHash(str)
-├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/ collections) with in-memory cache for sync reads
+├── js/path-utils.js             — sanitizeForPath(name) helper; builds safe folder names for customer-named export paths
+├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/ collections) with in-memory cache for sync reads
 ├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
 ├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
 ├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, appends rows to the Master Job Log on export
@@ -38,12 +39,15 @@ If you ever suspect a test run touched production, check the `sheets` collection
   2. **Projects directory** — grid of project cards (one per distinct `jobName`), each showing progress %, complete/in-progress/incomplete stat chips, an optional note preview, Add Note / Open / Delete (trash icon) actions
   3. **Upload** — drag-drop or browse for HTML files
   4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Export CSV, Reset All, New Job
+  - Secondary screens reached from the Projects directory header: **Ticket History** (searchable list of past export/print records) and **Manage Customers** (`showManageCustomersScreen()`/`renderCustomersList()` — add, rename, delete customer directory entries)
 - **Storage** (`js/storage.js`) — thin wrapper over Firestore with a synchronous local cache so the UI never blocks on network:
   - `sheets/{fileKey}` — parsed sheet data plus `archiveUrl` (Drive link to the archived HTML, set post-upload) (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`/`setArchiveUrl`/`onSheetsChange` realtime listener — added 2026-07-17 after shop-computer CSV exports missed sheets uploaded while the page sat open; the listener sorts client-side by `uploadedAt` instead of query `orderBy`, which would silently drop docs missing the field)
   - `completions/{fileKey}` — completion record `{ status: 'in-progress'|'complete', completedAt, operator, notes }` (`get`/`set`/`clear`/`loadCompletions`/`onCompletionChange` realtime listener)
   - `projectNotes/{hash(jobName)}` — free-text per-project notes (`getNote`/`setNote`/`loadNotes`/`onNoteChange`)
   - `sheetNotes/{fileKey}` — per-sheet instruction note `{ text }`, written either from the project card's notes modal or from an Add Note/Edit Note button in the sheet detail header; rendered read-only in the sheet detail (callout) and the sheet nav (icon) (`getSheetNote`/`setSheetNote`/`loadSheetNotes`/`onSheetNoteChange`)
-  - `fileKey` = `simpleHash(filename)` (djb2-style, from parser.js) — namespaces all four collections per uploaded file
+  - `customers/{key}` — shared customer directory `{ name }`, `key = customerKey(name)` (`getCustomers`/`addCustomer`/`renameCustomer`/`removeCustomer`/`loadCustomers`/`onCustomersChange`); managed from the Manage Customers screen and offered as choices in the export-time customer picker
+  - `projectCustomer/{hash(jobName)}` — the customer name a project is tagged with, set from the export-time customer picker (`getProjectCustomer`/`setProjectCustomer`/`loadProjectCustomers`)
+  - `fileKey` = `simpleHash(filename)` (djb2-style, from parser.js) — namespaces the sheets/completions/sheetNotes collections per uploaded file
 - **Sheet ordering** — `getDisplaySheets()` (app.js ~line 232) sorts by `sheetNumber(fileName)`, which regex-matches `/sheet\s*0*(\d+)/i` out of the filename (handles `Sheet 9`, `Sheet01`, etc.) so display order is always numeric regardless of FileReader/upload completion order. Files without a parseable sheet number sort to the end.
 - **Project grouping** — `projectKey(sheet)` = `sheet.jobName || sheet.fileName`; `getProjectGroups()` buckets all loaded sheets by that key for the directory screen.
 - **3-state completion** — no record = Incomplete; `{status:'in-progress'}` = In Progress; `{status:'complete', completedAt, operator, notes}` = Complete. Driven by `applySheetCompletion()` (app.js ~line 659); clicking the action button advances the state, the modal only appears for the In Progress → Complete transition.
@@ -76,7 +80,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - Dark mode toggle (persisted locally per device)
 - Export CSV, Reset All, New Job / back-to-projects navigation
 - Per-sheet instruction notes, editable from either the project card modal or an Add Note/Edit Note button in the sheet detail header (read-only callout + sidebar icon for the operator) + job-note banner in sheet view; both live-synced
-- Export CSV appends rows directly to the Master Job Log (9th column links each row's archived HTML in Drive); uploads are archived to Job Sheet Archive/<job>/ — both via the Apps Script endpoint, active only once `endpoint-config.js` has real values
+- Export CSV prompts for a customer (Manage Customers-backed picker, `openCustomerPicker`), tags the project with it, and writes a 9-column per-job CSV to `CNC Job Exports/<sanitized customer name>/...csv` (adds a `Customer` column, via `js/path-utils.js`); the Master Job Log append is 10 columns (same 9 plus the archive-link column — column 9 links each row's archived HTML in Drive, column 10 is Customer); uploads are archived to Job Sheet Archive/<job>/ (still job-only, not customer-scoped) — both via the Apps Script endpoint, active only once `endpoint-config.js` has real values
 
 ### Operators configured in modal
 - Collin (default)

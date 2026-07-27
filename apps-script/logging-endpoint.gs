@@ -84,13 +84,17 @@ function appendRows(body) {
   if (!Array.isArray(rows) || !rows.length) {
     return { ok: false, error: 'no rows' };
   }
-  if (!rows.every(function (r) { return Array.isArray(r) && r.length === 10; })) {
-    return { ok: false, error: 'rows must be 10 columns' };
+  if (!rows.every(function (r) { return Array.isArray(r) && (r.length === 9 || r.length === 10); })) {
+    return { ok: false, error: 'rows must be 9 or 10 columns' };
   }
   const sheet = SpreadsheetApp.openById(LOG_SPREADSHEET_ID).getSheetByName(LOG_SHEET_NAME);
   if (!sheet) return { ok: false, error: 'log sheet not found' };
   const values = rows.map(function (r) { return r.map(String); });
-  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, 10).setValues(values);
+  // Width derived from the actual payload rather than hardcoded — this file is
+  // pasted manually and may be deployed before or after the front-end that
+  // sends rows, so it must tolerate either the old (9-col) or new (10-col,
+  // Customer added) row shape without an outage window.
+  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, values[0].length).setValues(values);
   return { ok: true, appended: values.length };
 }
 

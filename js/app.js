@@ -406,31 +406,31 @@ function renderCustomersList() {
 
   container.querySelectorAll('.customers-rename-btn').forEach(btn => {
     const row = btn.closest('.ticket-history-row');
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       const oldKey = row.dataset.key;
       const newName = row.querySelector('.customers-rename-input').value.trim();
       if (!newName) return;
-      await Storage.renameCustomer(oldKey, customerKey(newName), newName);
+      Storage.renameCustomer(oldKey, customerKey(newName), newName);
       renderCustomersList();
     });
   });
 
   container.querySelectorAll('.customers-delete-btn').forEach(btn => {
     const row = btn.closest('.ticket-history-row');
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       const entry = entries.find(c => c.key === row.dataset.key);
       if (!confirm(`Remove "${entry.name}" from the customer list? This does not affect any job already tagged with this name.`)) return;
-      await Storage.removeCustomer(row.dataset.key);
+      Storage.removeCustomer(row.dataset.key);
       renderCustomersList();
     });
   });
 }
 
-document.getElementById('customers-add-btn').addEventListener('click', async () => {
+document.getElementById('customers-add-btn').addEventListener('click', () => {
   const input = document.getElementById('customers-add-input');
   const name = input.value.trim();
   if (!name) return;
-  await Storage.addCustomer(customerKey(name), name);
+  Storage.addCustomer(customerKey(name), name);
   input.value = '';
   renderCustomersList();
 });
@@ -1243,6 +1243,7 @@ function openCustomerPicker(jobName) {
       customerPickerSelect.value = '__other__';
       customerPickerOtherGrp.hidden = false;
       customerPickerOther.value = priorName;
+      customerPickerCtx.staleName = priorName;
     } else {
       customerPickerSelect.value = '';
     }
@@ -1282,7 +1283,9 @@ customerPickerConfirm.addEventListener('click', () => {
   if (customerPickerSelect.value === '__other__') {
     name = customerPickerOther.value.trim();
     if (!name) return;
-    Storage.addCustomer(customerKey(name), name);
+    if (name !== ctx.staleName) {
+      Storage.addCustomer(customerKey(name), name);
+    }
   } else {
     const match = Storage.getCustomers().find(c => c.key === customerPickerSelect.value);
     if (!match) return;
@@ -1552,10 +1555,11 @@ async function initApp() {
     });
 
     Storage.onCustomersChange(() => {
-      // No screen currently renders the customer list live outside the
-      // export picker and Manage Customers screen (Task 4), both of which
-      // read Storage.getCustomers() fresh each time they open — nothing
-      // to re-render here.
+      // The export picker is a modal that reads Storage.getCustomers() fresh
+      // each time it opens, so it needs no live re-render here. But the
+      // Manage Customers screen can be left open on one device while another
+      // device adds/renames/removes a customer, so it does need one.
+      if (!customersScreen.hidden) renderCustomersList();
     });
 
   } catch (err) {
