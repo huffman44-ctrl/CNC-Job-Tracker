@@ -54,6 +54,7 @@
       <div class="header-right">
         <button class="dark-toggle" id="projects-dark-btn" aria-label="Toggle dark mode"></button>
         <button class="btn btn-ghost btn-sm" id="ticket-history-btn">Ticket History</button>
+        <button class="btn btn-ghost btn-sm" id="manage-customers-btn">Manage Customers</button>
         <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
       </div>
     </header>
@@ -97,6 +98,30 @@
         </div>
       </div>
       <div id="ticket-history-list" class="ticket-history-list"></div>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════
+       MANAGE CUSTOMERS SCREEN
+  ══════════════════════════════════ -->
+  <div id="customers-screen" hidden>
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn btn-ghost btn-sm" id="customers-back-btn">← Projects</button>
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span class="header-file-title">Manage Customers</span>
+          <span id="customers-count" class="header-job-name"></span>
+        </div>
+      </div>
+    </header>
+    <main class="content-main">
+      <div class="filter-row">
+        <input type="text" id="customers-add-input" class="filter-search" placeholder="New customer name…">
+        <button class="btn btn-primary btn-sm" id="customers-add-btn">+ Add</button>
+      </div>
+      <div id="customers-list" class="ticket-history-list"></div>
     </main>
   </div>
 

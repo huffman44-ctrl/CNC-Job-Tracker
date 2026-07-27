@@ -45,6 +45,7 @@ const uploadScreen        = document.getElementById('upload-screen');
 const projectsScreen      = document.getElementById('projects-screen');
 const contentScreen       = document.getElementById('content-screen');
 const ticketHistoryScreen = document.getElementById('ticket-history-screen');
+const customersScreen     = document.getElementById('customers-screen');
 const dropZone       = document.getElementById('drop-zone');
 const fileInput      = document.getElementById('file-input');
 const addFileInput   = document.getElementById('add-file-input');
@@ -131,6 +132,8 @@ document.getElementById('upload-new-btn').addEventListener('click', goToUpload);
 document.getElementById('ticket-history-btn').addEventListener('click', showTicketHistoryScreen);
 document.getElementById('ticket-history-back-btn').addEventListener('click', showProjectsScreen);
 document.getElementById('ticket-history-search').addEventListener('input', renderTicketHistoryList);
+document.getElementById('manage-customers-btn').addEventListener('click', showManageCustomersScreen);
+document.getElementById('customers-back-btn').addEventListener('click', showProjectsScreen);
 
 const projectSearchEl = document.getElementById('project-search');
 const projectSortEl   = document.getElementById('project-sort');
@@ -281,6 +284,7 @@ function showProjectsScreen() {
   uploadScreen.hidden        = true;
   contentScreen.hidden       = true;
   ticketHistoryScreen.hidden = true;
+  customersScreen.hidden     = true;
   projectsScreen.hidden      = false;
   renderProjects();
 }
@@ -364,6 +368,72 @@ function renderTicketHistoryList() {
 function reprintTicket(record) {
   showTicketAndPrint(record);
 }
+
+/* ══════════════════════════════════════════
+   Manage Customers
+══════════════════════════════════════════ */
+function showManageCustomersScreen() {
+  uploadScreen.hidden        = true;
+  projectsScreen.hidden      = true;
+  contentScreen.hidden       = true;
+  ticketHistoryScreen.hidden = true;
+  customersScreen.hidden     = false;
+  document.getElementById('customers-add-input').value = '';
+  renderCustomersList();
+}
+
+function renderCustomersList() {
+  const container = document.getElementById('customers-list');
+  const entries = Storage.getCustomers();
+
+  document.getElementById('customers-count').textContent =
+    `${entries.length} customer${entries.length !== 1 ? 's' : ''}`;
+
+  if (!entries.length) {
+    container.innerHTML = '<p class="ticket-history-empty">No customers yet — add one above.</p>';
+    return;
+  }
+
+  container.innerHTML = entries.map(c => `
+    <div class="ticket-history-row" data-key="${escHtml(c.key)}">
+      <div class="ticket-history-row-info">
+        <input type="text" class="form-input customers-rename-input" value="${escHtml(c.name)}">
+      </div>
+      <button class="btn btn-ghost btn-sm customers-rename-btn">Rename</button>
+      <button class="btn btn-danger btn-sm customers-delete-btn">Delete</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.customers-rename-btn').forEach(btn => {
+    const row = btn.closest('.ticket-history-row');
+    btn.addEventListener('click', async () => {
+      const oldKey = row.dataset.key;
+      const newName = row.querySelector('.customers-rename-input').value.trim();
+      if (!newName) return;
+      await Storage.renameCustomer(oldKey, customerKey(newName), newName);
+      renderCustomersList();
+    });
+  });
+
+  container.querySelectorAll('.customers-delete-btn').forEach(btn => {
+    const row = btn.closest('.ticket-history-row');
+    btn.addEventListener('click', async () => {
+      const entry = entries.find(c => c.key === row.dataset.key);
+      if (!confirm(`Remove "${entry.name}" from the customer list? This does not affect any job already tagged with this name.`)) return;
+      await Storage.removeCustomer(row.dataset.key);
+      renderCustomersList();
+    });
+  });
+}
+
+document.getElementById('customers-add-btn').addEventListener('click', async () => {
+  const input = document.getElementById('customers-add-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await Storage.addCustomer(customerKey(name), name);
+  input.value = '';
+  renderCustomersList();
+});
 
 /* ══════════════════════════════════════════
    Projects Directory
