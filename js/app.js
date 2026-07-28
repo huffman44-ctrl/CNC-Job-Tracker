@@ -246,6 +246,7 @@ async function resetToUpload() {
     Storage.clearSheets(),
     Storage.clearAllCompletions(),
     ...sheets.map(s => Storage.setSheetNote(s.fileKey, '')),
+    ...sheets.map(s => Storage.setAnnotations(s.fileKey, [])),
   ]);
   sheets         = [];
   currentProject = null;
@@ -535,6 +536,7 @@ async function deleteProject(jobName) {
     Storage.deleteSheet(s.fileKey),
     Storage.clear(s.fileKey, 'sheet'),
     Storage.setSheetNote(s.fileKey, ''),
+    Storage.setAnnotations(s.fileKey, []),
   ]));
   sheets = sheets.filter(s => projectKey(s) !== jobName);
   if (!sheets.length) {
@@ -552,6 +554,7 @@ async function deleteSheetFromProject(sheet) {
     Storage.deleteSheet(sheet.fileKey),
     Storage.clear(sheet.fileKey, 'sheet'),
     Storage.setSheetNote(sheet.fileKey, ''),
+    Storage.setAnnotations(sheet.fileKey, []),
   ]);
 
   sheets = sheets.filter(s => s.fileKey !== sheet.fileKey);
@@ -1326,6 +1329,7 @@ function confirmComplete() {
     operator,
     notes: modalNotes.value.trim(),
   });
+  Storage.setAnnotations(sheet.fileKey, []);
   closeModal();
   renderAllSheets();
 }
