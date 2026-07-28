@@ -935,8 +935,10 @@ function buildSheetDetail(sheet, idx) {
 
       if (sheet.layoutSvg) {
         scrollEl.innerHTML = sheet.layoutSvg;
+        Markup.mount(svgWrap, scrollEl, sheet);
       } else if (svgCache.has(sheet.fileKey)) {
         scrollEl.innerHTML = svgCache.get(sheet.fileKey);
+        Markup.mount(svgWrap, scrollEl, sheet);
       } else {
         // Async: the panel is already in the DOM, fill the drawing in when
         // it decodes. Guard against the operator selecting another sheet
@@ -949,6 +951,7 @@ function buildSheetDetail(sheet, idx) {
             if (selectedSheetKey !== renderingKey) return;
             if (!scrollEl.isConnected) return;
             scrollEl.innerHTML = svg;
+            Markup.mount(svgWrap, scrollEl, sheet);
           })
           .catch(err => {
             console.error('SVG decompress failed:', err);
@@ -1552,6 +1555,10 @@ async function initApp() {
     Storage.onSheetNoteChange(() => {
       if (!projectsScreen.hidden) renderProjects();
       if (!contentScreen.hidden)  renderAllSheets();
+    });
+
+    Storage.onAnnotationsChange(() => {
+      if (!contentScreen.hidden) renderAllSheets();
     });
 
     Storage.onCustomersChange(() => {

@@ -702,6 +702,56 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
+/* ── Layout Markup (highlight overlay) ── */
+.layout-svg-canvas {
+  position: relative;
+  display: inline-block;
+}
+
+.layout-svg-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.layout-markup-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.markup-tool-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.markup-tool-btn.active {
+  border-color: var(--orange);
+  background: var(--orange-light);
+}
+
+.markup-color-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.markup-color-swatch.active {
+  border-color: var(--gray-400);
+}
+
 /* ── Sheet completed state ── */
 .sheet-card.completed .sheet-header {
   background: linear-gradient(90deg, #0d5c33 0%, var(--green) 100%);
