@@ -676,18 +676,13 @@ body {
 }
 
 .layout-svg-scroll {
-  overflow-y: auto;
-  max-height: 420px;
-  display: flex;
-  justify-content: center;
-  padding-bottom: 14px;
+  position: relative;
+  height: 420px;
+  overflow: hidden;
 }
 
 .layout-svg-wrap svg {
   display: block;
-  width: 280px;
-  height: auto;
-  flex-shrink: 0;
 }
 
 /* Stroke-width in viewBox units is ~0.03, which is sub-pixel at display size.
@@ -702,19 +697,26 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
-/* ── Layout Markup (highlight overlay) ── */
+/* ── Layout Markup (highlight overlay) ──
+   markup.js sets explicit pixel width/height on the canvas's two children
+   (the base SVG and the overlay) to fit the sheet to .layout-svg-scroll,
+   then pans/zooms by transforming this canvas element itself. */
 .layout-svg-canvas {
-  position: relative;
-  display: inline-block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
 }
 
 .layout-svg-overlay {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
 }
+
+.layout-svg-overlay.markup-drawing { cursor: crosshair; }
+.layout-svg-overlay.markup-pannable { cursor: grab; }
+.layout-svg-overlay.markup-pannable.markup-panning { cursor: grabbing; }
 
 .layout-markup-toolbar {
   display: flex;
