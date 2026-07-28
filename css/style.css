@@ -752,6 +752,18 @@ body {
   border-color: var(--gray-400);
 }
 
+.markup-resize-handle {
+  fill: var(--white);
+  stroke: var(--gray-400);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.markup-resize-handle[data-corner="nw"],
+.markup-resize-handle[data-corner="se"] { cursor: nwse-resize; }
+.markup-resize-handle[data-corner="ne"],
+.markup-resize-handle[data-corner="sw"] { cursor: nesw-resize; }
+
 /* ── Sheet completed state ── */
 .sheet-card.completed .sheet-header {
   background: linear-gradient(90deg, #0d5c33 0%, var(--green) 100%);

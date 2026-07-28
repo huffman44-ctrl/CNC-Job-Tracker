@@ -28,3 +28,21 @@ test('normalizeDrag returns zero width/height for a click with no movement', () 
 test('COLORS lists exactly the three supported keys', () => {
   assert.deepEqual(Markup.COLORS, ['red', 'gold', 'green']);
 });
+
+const SHAPE = { x: 2, y: 3, w: 4, h: 5 }; // corners: nw(2,3) ne(6,3) sw(2,8) se(6,8)
+
+test('resizeAnchor: dragging the nw handle anchors at the opposite (se) corner', () => {
+  assert.deepEqual(Markup.resizeAnchor(SHAPE, 'nw'), { x: 6, y: 8 });
+});
+
+test('resizeAnchor: dragging the ne handle anchors at the opposite (sw) corner', () => {
+  assert.deepEqual(Markup.resizeAnchor(SHAPE, 'ne'), { x: 2, y: 8 });
+});
+
+test('resizeAnchor: dragging the sw handle anchors at the opposite (ne) corner', () => {
+  assert.deepEqual(Markup.resizeAnchor(SHAPE, 'sw'), { x: 6, y: 3 });
+});
+
+test('resizeAnchor: dragging the se handle anchors at the opposite (nw) corner', () => {
+  assert.deepEqual(Markup.resizeAnchor(SHAPE, 'se'), { x: 2, y: 3 });
+});
