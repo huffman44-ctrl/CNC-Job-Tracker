@@ -34,6 +34,14 @@ let currentProject = null; // jobName string when inside a project, null on dire
 let modalCtx       = null;
 let clearCtx       = null;
 let selectedSheetKey = null;
+// fileKey of the sheet whose detail panel is currently painted into
+// sheetDetailEl (as of the last renderAllSheets() call). Used to tell a
+// same-sheet redraw (e.g. triggered by this tab's own annotation write)
+// apart from a switch to a different sheet or a deletion of the selected
+// one — only the former should preserve the layout diagram's scroll
+// position; the other two should render fresh at the top like they always
+// have.
+let lastRenderedSheetKey = null;
 // fileKey -> decompressed SVG string. Decompressing a large drawing costs
 // ~100ms, and re-selecting a sheet is common, so keep the result.
 const svgCache = new Map();
@@ -726,6 +734,7 @@ function renderAllSheets() {
   if (!displaySheets.length) {
     sheetNavEl.innerHTML = '';
     sheetDetailEl.innerHTML = '<div class="detail-empty">No sheets loaded.</div>';
+    lastRenderedSheetKey = null;
     updateOverallProgress(displaySheets);
     return;
   }
@@ -756,12 +765,22 @@ function renderAllSheets() {
 
   const selectedSheet = displaySheets.find(s => s.fileKey === selectedSheetKey);
   const selectedIdx   = displaySheets.indexOf(selectedSheet);
-  const prevScroll = sheetDetailEl.querySelector('.layout-svg-scroll')?.scrollTop || 0;
+  // Only carry the scroll position over when this render is repainting the
+  // SAME sheet that was already on screen (e.g. a redraw triggered by this
+  // tab's own annotation write echoing back through Firestore). A nav click
+  // to a different sheet, or the selected sheet being deleted out from
+  // under us, both land on a different fileKey than what was last
+  // rendered — those should start the new diagram fresh at the top.
+  const sameSheet  = !!selectedSheet && selectedSheet.fileKey === lastRenderedSheetKey;
+  const prevScroll = sameSheet ? (sheetDetailEl.querySelector('.layout-svg-scroll')?.scrollTop || 0) : 0;
   sheetDetailEl.innerHTML = '';
   sheetDetailEl.className = `sheet-detail ${sheetStatusClass(selectedSheet)}`;
   sheetDetailEl.appendChild(buildSheetDetail(selectedSheet, selectedIdx));
-  const newScrollEl = sheetDetailEl.querySelector('.layout-svg-scroll');
-  if (newScrollEl) newScrollEl.scrollTop = prevScroll;
+  if (sameSheet) {
+    const newScrollEl = sheetDetailEl.querySelector('.layout-svg-scroll');
+    if (newScrollEl) newScrollEl.scrollTop = prevScroll;
+  }
+  lastRenderedSheetKey = selectedSheet ? selectedSheet.fileKey : null;
 
   updateOverallProgress(displaySheets);
 }
