@@ -10,6 +10,7 @@ const Storage = (() => {
   const completionsCache = {}; // { [fileKey]: { completedAt, operator, notes } }
   const notesCache = {};       // { [noteKey]: string }
   const sheetNotesCache = {};  // { [fileKey]: string }
+  const annotationsCache = {}; // { [fileKey]: Array<{type,x,y,w,h,color}> }
   const customersCache = {};        // { [key]: name }
   const projectCustomerCache = {};  // { [noteKey]: name }
 
@@ -152,6 +153,49 @@ const Storage = (() => {
       snap.forEach(doc => { sheetNotesCache[doc.id] = doc.data().text; });
       callback();
     }, err => console.warn('Firestore sheetNotes listener error:', err));
+  }
+
+  /* ── Sheet Annotations (layout diagram markup) ── */
+
+  function getAnnotations(fileKey) {
+    return annotationsCache[fileKey] || [];
+  }
+
+  async function setAnnotations(fileKey, shapes) {
+    if (shapes && shapes.length) {
+      annotationsCache[fileKey] = shapes;
+    } else {
+      delete annotationsCache[fileKey];
+    }
+    if (!db) return;
+    try {
+      if (shapes && shapes.length) {
+        await db.collection('sheetAnnotations').doc(fileKey).set({ shapes });
+      } else {
+        await db.collection('sheetAnnotations').doc(fileKey).delete();
+      }
+    } catch (e) {
+      console.warn('Firestore setAnnotations failed:', e);
+    }
+  }
+
+  async function loadAnnotations() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('sheetAnnotations').get();
+      snap.forEach(doc => { annotationsCache[doc.id] = doc.data().shapes; });
+    } catch (e) {
+      console.warn('Firestore loadAnnotations failed:', e);
+    }
+  }
+
+  function onAnnotationsChange(callback) {
+    if (!db) return;
+    db.collection('sheetAnnotations').onSnapshot(snap => {
+      Object.keys(annotationsCache).forEach(k => delete annotationsCache[k]);
+      snap.forEach(doc => { annotationsCache[doc.id] = doc.data().shapes; });
+      callback();
+    }, err => console.warn('Firestore sheetAnnotations listener error:', err));
   }
 
   /* ── Customer Directory ── */
@@ -389,7 +433,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;
