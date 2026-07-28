@@ -756,9 +756,12 @@ function renderAllSheets() {
 
   const selectedSheet = displaySheets.find(s => s.fileKey === selectedSheetKey);
   const selectedIdx   = displaySheets.indexOf(selectedSheet);
+  const prevScroll = sheetDetailEl.querySelector('.layout-svg-scroll')?.scrollTop || 0;
   sheetDetailEl.innerHTML = '';
   sheetDetailEl.className = `sheet-detail ${sheetStatusClass(selectedSheet)}`;
   sheetDetailEl.appendChild(buildSheetDetail(selectedSheet, selectedIdx));
+  const newScrollEl = sheetDetailEl.querySelector('.layout-svg-scroll');
+  if (newScrollEl) newScrollEl.scrollTop = prevScroll;
 
   updateOverallProgress(displaySheets);
 }
@@ -1521,6 +1524,7 @@ async function initApp() {
       Storage.loadSheetNotes(),
       Storage.loadCustomers(),
       Storage.loadProjectCustomers(),
+      Storage.loadAnnotations(),
     ]);
 
     if (storedSheets.length > 0) {

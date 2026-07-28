@@ -6,6 +6,10 @@
 const Markup = (() => {
   const COLORS = ['red', 'gold', 'green'];
 
+  // Below this size (in viewBox inches), a drag is treated as an accidental
+  // click/jitter rather than a deliberate mark, and is discarded.
+  const MIN_DRAG_SIZE = 0.25;
+
   // Drag can start from any corner; always normalize to a top-left
   // origin with positive width/height so stored shapes are consistent
   // regardless of which direction the operator dragged.
@@ -38,7 +42,6 @@ const Markup = (() => {
       el.style.fill = `var(--${shape.color})`;
       el.style.fillOpacity = '0.3';
       el.style.stroke = `var(--${shape.color})`;
-      el.style.strokeWidth = '0.15';
       overlaySvg.appendChild(el);
     }
   }
@@ -137,6 +140,7 @@ const Markup = (() => {
     if (!baseSvg) return;
 
     const viewBox = baseSvg.getAttribute('viewBox');
+    if (!viewBox) return;
 
     const canvas = document.createElement('div');
     canvas.className = 'layout-svg-canvas';
@@ -193,7 +197,7 @@ const Markup = (() => {
       const p = screenToPoint(overlay, evt);
       const shape = { type: state.tool, color: state.color, ...normalizeDrag(dragStart.x, dragStart.y, p.x, p.y) };
       dragStart = null;
-      if (shape.w < 0.25 || shape.h < 0.25) return; // jitter click, not a deliberate drag — discard
+      if (shape.w < MIN_DRAG_SIZE || shape.h < MIN_DRAG_SIZE) return; // jitter click, not a deliberate drag — discard
       state.shapes = [...state.shapes, shape];
       renderShapes(overlay, state.shapes);
       Storage.setAnnotations(state.fileKey, state.shapes);
