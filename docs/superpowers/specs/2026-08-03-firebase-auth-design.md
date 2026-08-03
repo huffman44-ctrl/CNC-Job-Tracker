@@ -4,7 +4,7 @@
 
 `js/firebase-config.js` points at the real, shared production Firestore project (`cnc-job-tracker`), and every collection's security rules are currently `allow read, write: if true`. There is no auth code anywhere in the app — no `firebase-auth` SDK, no login screen, no session check in `js/storage.js` or `js/app.js`. Anyone who finds the site URL (or just the Firebase project ID/API key, visible in the page's own source) can read or write the shared job/customer/completions database directly, bypassing the webpage entirely. The Apps Script endpoint's token is explicitly a junk filter, not auth, and doesn't help here.
 
-Two people need access — Travis (enters jobs) and Colin (marks started/finished, runs the CSV export) — on two shared shop-floor computers plus Colin's phone occasionally. Travis wants two separate accounts, not one shared login, so access can be revoked independently and switching users on a shared computer is clean.
+Two people need access — Travis (enters jobs) and Collin (marks started/finished, runs the CSV export) — on two shared shop-floor computers plus Collin's phone occasionally. Travis wants two separate accounts, not one shared login, so access can be revoked independently and switching users on a shared computer is clean.
 
 ## Design
 
@@ -13,7 +13,7 @@ Two people need access — Travis (enters jobs) and Colin (marks started/finishe
 Two Firebase Authentication accounts, Email/Password provider (the app already uses Firebase for Firestore, so no new backend/service):
 
 - `huffman44@gmail.com` — Travis
-- `777litch777@gmail.com` — Colin
+- `777litch777@gmail.com` — Collin
 
 Created manually in the Firebase Console — not something app code or this repo can automate. Real, checkable email addresses (not placeholders) are used specifically so Firebase's free "forgot password" self-service reset-by-email flow works.
 
@@ -47,7 +47,7 @@ This locks down both read and write — the current exposure isn't just "anyone 
 Chosen specifically to avoid locking an operator out mid-shift on a machine that's picked up stale JS (this app has hit that exact class of bug before — see the oversized-sheet fix in `Brain/Projects/CNC Job Tracker.md`, where the shop PC kept running old code until manually hard-refreshed):
 
 1. **Code deploy.** Push the login screen + auth SDK to `master` (live GitHub Pages deploy) while Firestore rules stay at `allow read, write: if true`. The app behaves exactly as it does today, login screen included, but nothing is enforced yet.
-2. **Verify.** Hard-refresh both shop PCs. Travis and Colin each sign in and confirm the app works normally. Because rules are still open at this point, there is zero data-loss risk even if login is broken — this step doubles as the live test; no separate staging Firebase project is needed.
+2. **Verify.** Hard-refresh both shop PCs. Travis and Collin each sign in and confirm the app works normally. Because rules are still open at this point, there is zero data-loss risk even if login is broken — this step doubles as the live test; no separate staging Firebase project is needed.
 3. **Enforce.** Only once both logins are confirmed working, paste the restrictive rules (above) into the Firebase Console. This is the moment read/write actually starts requiring auth.
 
 ### Rollback
@@ -65,7 +65,7 @@ If anything breaks after step 3 — a typo in the rules, someone locked out, une
 Per this repo's rules (no framework; never test writes against real Firestore data; `master` deploys live):
 
 1. The existing `PASTE_DISABLED` local-only fallback (`initApp()`, app.js ~line 850) skips Firebase entirely, so it can't exercise real Firebase Auth — not useful for this feature's core path.
-2. Instead, testing the login screen *is* the rollout's step 2 (see above): because Firestore rules stay open until step 3, Travis and Colin can sign in against the real Firebase Auth project with zero risk to job data regardless of whether login succeeds, fails, or behaves unexpectedly.
+2. Instead, testing the login screen *is* the rollout's step 2 (see above): because Firestore rules stay open until step 3, Travis and Collin can sign in against the real Firebase Auth project with zero risk to job data regardless of whether login succeeds, fails, or behaves unexpectedly.
 3. Before step 3 (enforcing rules), confirm manually in the Firebase Console: both accounts exist and can sign in; the rules text is valid (Console's rules editor flags syntax errors before publish) and matches the allowlist above exactly (typo-checked against the two real email addresses).
 4. After step 3, confirm an incognito/signed-out tab hitting the live URL sees only the login screen and no data loads.
 
