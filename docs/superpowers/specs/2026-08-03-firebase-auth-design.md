@@ -34,6 +34,13 @@ allow read, write: if request.auth != null
 
 This locks down both read and write — the current exposure isn't just "anyone can edit," it's "anyone can see the whole job/customer database," so both need to close. Rules are pasted directly into the Firebase Console, same manual pattern already used on this project (they aren't tracked in the repo).
 
+### Adding or removing an account
+
+This is the mechanism behind "access can be revoked independently" — both changes happen entirely in the Firebase Console, no code deploy either way:
+
+- **Add:** create the new Email/Password account under Authentication, then add their email to the Firestore rules allowlist array (above) and Publish.
+- **Remove:** delete their email from the Firestore rules allowlist array and Publish. This is the step that actually matters for revocation — it takes effect immediately, rejecting every read/write from that account even if they're still sitting signed in somewhere. Optionally also disable or delete their Authentication account, which stops them from reaching the signed-in state at all — not required for security (the rules already block their data access without it), but a clean extra step when someone should lose access entirely rather than just today's session.
+
 ### App/UI changes
 
 - New login screen (email + password) becomes the true first screen the app shows, ahead of the existing "Loading" screen. Unauthenticated visitors see only this — no board, no data.
