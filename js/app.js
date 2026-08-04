@@ -1493,16 +1493,18 @@ async function exportJob(jobName, jobSheets, customerName) {
 
   // Master Job Log: same rows plus the archive link as column 9, Customer as column 10.
   let logged = false;
+  let failReason = ' (endpoint unreachable)';
   try {
     logged = await Endpoint.appendLogRows(
       dataRows.map((r, i) => [...r, jobSheets[i].archiveUrl || '', customerName || ''])
     );
   } catch (err) {
     console.warn('Master Job Log append failed:', err);
+    if (err && err.endpointError) failReason = `: ${err.message}`;
   }
 
   if (!logged) {
-    alert('Master Job Log was NOT updated (endpoint unreachable). The CSV still downloaded. The job was kept so you can export it again later.');
+    alert(`Master Job Log was NOT updated${failReason}. The CSV still downloaded. The job was kept so you can export it again later.`);
     return;
   }
 

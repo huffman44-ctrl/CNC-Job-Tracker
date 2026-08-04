@@ -19,7 +19,13 @@ const Endpoint = (() => {
       signal: AbortSignal.timeout(20000),
     });
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'endpoint error');
+    if (!data.ok) {
+      // The server answered — its message is the real reason, and callers
+      // (exportJob's alert) distinguish this from a network failure.
+      const err = new Error(data.error || 'endpoint error');
+      err.endpointError = true;
+      throw err;
+    }
     return data;
   }
 
