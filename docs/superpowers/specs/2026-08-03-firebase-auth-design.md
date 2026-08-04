@@ -12,8 +12,8 @@ Two people need access — Travis (enters jobs) and Collin (marks started/finish
 
 Two Firebase Authentication accounts, Email/Password provider (the app already uses Firebase for Firestore, so no new backend/service):
 
-- `huffman44@gmail.com` — Travis
-- `777litch777@gmail.com` — Collin
+- `<travis-account-email>` — Travis
+- `<collin-account-email>` — Collin
 
 Created manually in the Firebase Console — not something app code or this repo can automate. Real, checkable email addresses (not placeholders) are used specifically so Firebase's free "forgot password" self-service reset-by-email flow works.
 
@@ -29,7 +29,7 @@ to:
 
 ```
 allow read, write: if request.auth != null
-  && request.auth.token.email in ['huffman44@gmail.com', '777litch777@gmail.com'];
+  && request.auth.token.email in ['<travis-account-email>', '<collin-account-email>'];
 ```
 
 This locks down both read and write — the current exposure isn't just "anyone can edit," it's "anyone can see the whole job/customer database," so both need to close. Rules are pasted directly into the Firebase Console, same manual pattern already used on this project (they aren't tracked in the repo).

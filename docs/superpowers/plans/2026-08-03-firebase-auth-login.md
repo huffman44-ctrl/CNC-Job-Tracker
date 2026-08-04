@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Firestore rules allowlist, verbatim: `request.auth != null && request.auth.token.email in ['huffman44@gmail.com', '777litch777@gmail.com']` — applied to every collection (`sheets/`, `completions/`, `projectNotes/`, `sheetNotes/`, `customers/`, `projectCustomer/`).
-- Two accounts only: `huffman44@gmail.com` (Travis), `777litch777@gmail.com` (Collin — two L's).
+- Firestore rules allowlist, verbatim: `request.auth != null && request.auth.token.email in ['<travis-account-email>', '<collin-account-email>']` — applied to every collection (`sheets/`, `completions/`, `projectNotes/`, `sheetNotes/`, `customers/`, `projectCustomer/`).
+- Two accounts only: `<travis-account-email>` (Travis), `<collin-account-email>` (Collin — two L's).
 - `master` deploys live via GitHub Pages the instant it's pushed — no CI/build step in between.
 - Never test against production by writing fake data. This feature has no separate staging Firebase project; the staged rollout (Task 5) is itself the live test, safe specifically because Firestore rules stay open (`allow read, write: if true`) until Task 6.
 - No custom error-message mapping — surface Firebase Auth's own `err.message` text directly on the login form (spec's explicit call, avoids inventing scope).
@@ -31,11 +31,11 @@ Open the [Firebase Console](https://console.firebase.google.com/), select the `c
 
 - [ ] **Step 2: Add Travis's account**
 
-**Authentication** → **Users** tab → **Add user**. Email: `huffman44@gmail.com`. Password: pick one now (this is what you'll type into the login screen once it's live — a password manager suggestion is fine). Click **Add user**.
+**Authentication** → **Users** tab → **Add user**. Email: `<travis-account-email>`. Password: pick one now (this is what you'll type into the login screen once it's live — a password manager suggestion is fine). Click **Add user**.
 
 - [ ] **Step 3: Add Collin's account**
 
-Same **Add user** flow. Email: `777litch777@gmail.com`. Password: coordinate with Collin on what his should be, or set a temporary one and have him use "Forgot password" on first login. Click **Add user**.
+Same **Add user** flow. Email: `<collin-account-email>`. Password: coordinate with Collin on what his should be, or set a temporary one and have him use "Forgot password" on first login. Click **Add user**.
 
 - [ ] **Step 4: Confirm**
 
@@ -562,10 +562,10 @@ Run: `npm run serve`, open the printed local URL in a browser.
 
 Expected:
 - Login screen appears (not the projects/upload screen) — confirms unauthenticated visitors no longer see the board by default.
-- Entering a wrong password for `huffman44@gmail.com` shows a red error message inline (Firebase's own text) and the form stays usable.
-- Entering the real password for `huffman44@gmail.com` (from Task 1) signs in: login screen disappears, the app loads normally (projects or upload screen depending on existing data), and the bottom-right bar shows "huffman44@gmail.com · Sign out".
+- Entering a wrong password for `<travis-account-email>` shows a red error message inline (Firebase's own text) and the form stays usable.
+- Entering the real password for `<travis-account-email>` (from Task 1) signs in: login screen disappears, the app loads normally (projects or upload screen depending on existing data), and the bottom-right bar shows "<travis-account-email> · Sign out".
 - Clicking "Sign out" returns to the login screen and the bar disappears.
-- Signing in again with `777litch777@gmail.com` works the same way and shows that email in the bar.
+- Signing in again with `<collin-account-email>` works the same way and shows that email in the bar.
 - Reloading the page while signed in skips the login screen entirely (confirms `LOCAL` persistence — this is Firebase's default, nothing to configure).
 
 - [ ] **Step 5: Commit**
@@ -603,7 +603,7 @@ On Travis's computer and the shop-floor computer: hard refresh (Ctrl+Shift+R) th
 
 - [ ] **Step 4: Both operators sign in**
 
-Travis signs in with `huffman44@gmail.com` on his machine; Collin signs in with `777litch777@gmail.com` on the shop-floor machine (or his phone). Confirm for each: the app loads normally, the signed-in bar shows the right email, and existing job data is visible exactly as before (rules are still open, so nothing about data access has changed yet).
+Travis signs in with `<travis-account-email>` on his machine; Collin signs in with `<collin-account-email>` on the shop-floor machine (or his phone). Confirm for each: the app loads normally, the signed-in bar shows the right email, and existing job data is visible exactly as before (rules are still open, so nothing about data access has changed yet).
 
 - [ ] **Step 5: Only proceed once both are confirmed**
 
@@ -633,7 +633,7 @@ Replace each occurrence with (exact allowlist from the Global Constraints sectio
 
 ```
 allow read, write: if request.auth != null
-  && request.auth.token.email in ['huffman44@gmail.com', '777litch777@gmail.com'];
+  && request.auth.token.email in ['<travis-account-email>', '<collin-account-email>'];
 ```
 
 Apply to all six collections: `sheets/`, `completions/`, `projectNotes/`, `sheetNotes/`, `customers/`, `projectCustomer/`.
