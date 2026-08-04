@@ -1,5 +1,5 @@
 /**
- * CNC Job Tracker endpoint — paste into script.google.com, fill the four
+ * CNC Job Tracker endpoint — paste into script.google.com, fill the three
  * constants, then Deploy > New deployment > Web app:
  *   Execute as: Me   |   Who has access: Anyone
  * Redeploying creates a fresh URL (rotate if the endpoint is ever abused).
@@ -7,7 +7,12 @@
 const TOKEN              = 'PASTE_TOKEN';
 const ARCHIVE_FOLDER_ID  = 'PASTE_ARCHIVE_FOLDER_ID';
 const LOG_SPREADSHEET_ID = 'PASTE_LOG_SPREADSHEET_ID';
-const LOG_SHEET_NAME     = 'PASTE_LOG_SHEET_NAME';
+
+// Rows route to the tab named after each row's Customer (10th column),
+// created on first use. Rows with no customer land in UNASSIGNED_TAB.
+const LOG_HEADER = ['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit',
+  'Completed Time', 'Operator', 'Final Notes', 'Archive Link', 'Customer'];
+const UNASSIGNED_TAB = 'Unassigned';
 
 function doPost(e) {
   let body;
@@ -87,15 +92,52 @@ function appendRows(body) {
   if (!rows.every(function (r) { return Array.isArray(r) && (r.length === 9 || r.length === 10); })) {
     return { ok: false, error: 'rows must be 9 or 10 columns' };
   }
-  const sheet = SpreadsheetApp.openById(LOG_SPREADSHEET_ID).getSheetByName(LOG_SHEET_NAME);
-  if (!sheet) return { ok: false, error: 'log sheet not found' };
-  const values = rows.map(function (r) { return r.map(String); });
-  // Width derived from the actual payload rather than hardcoded — this file is
-  // pasted manually and may be deployed before or after the front-end that
-  // sends rows, so it must tolerate either the old (9-col) or new (10-col,
-  // Customer added) row shape without an outage window.
-  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, values[0].length).setValues(values);
-  return { ok: true, appended: values.length };
+  // Pad legacy 9-column rows (pre-Customer clients) to 10 so every group is
+  // rectangular for setValues; the Customer cell just stays blank.
+  const padded = rows.map(function (r) { return r.length === 9 ? r.concat(['']) : r; });
+  const ss = SpreadsheetApp.openById(LOG_SPREADSHEET_ID);
+  const groups = groupRowsByCustomer(padded);
+  let appended = 0;
+  Object.keys(groups).forEach(function (customer) {
+    const sheet = findOrCreateCustomerTab(ss, customer);
+    const values = groups[customer].map(function (r) { return r.map(String); });
+    sheet.getRange(sheet.getLastRow() + 1, 1, values.length, values[0].length).setValues(values);
+    appended += values.length;
+  });
+  return { ok: true, appended: appended };
+}
+
+function groupRowsByCustomer(rows) {
+  const groups = {};
+  rows.forEach(function (r) {
+    const customer = String(r[9] == null ? '' : r[9]).trim() || UNASSIGNED_TAB;
+    (groups[customer] || (groups[customer] = [])).push(r);
+  });
+  return groups;
+}
+
+function findOrCreateCustomerTab(ss, customer) {
+  // Match on the sanitized name: tabs only ever exist under sanitized names,
+  // so this also lets "A/B Sets" find a previously created "A-B Sets" tab.
+  const wanted = sanitizeTabName(customer);
+  const target = wanted.toLowerCase();
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName().trim().toLowerCase() === target) return sheets[i];
+  }
+  const sheet = ss.insertSheet(wanted, ss.getSheets().length);
+  sheet.getRange(1, 1, 1, LOG_HEADER.length).setValues([LOG_HEADER]);
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function sanitizeTabName(name) {
+  // Sheets forbids / \ ? * [ ] in tab names and a leading apostrophe; caps at 100 chars.
+  const cleaned = String(name)
+    .replace(/[\/\\?*\[\]]/g, '-')
+    .replace(/^'/, '-')
+    .trim();
+  return (cleaned || UNASSIGNED_TAB).slice(0, 100);
 }
 
 function jsonOut(obj) {
