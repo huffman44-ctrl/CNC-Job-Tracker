@@ -98,6 +98,7 @@ function appendRows(body) {
   const ss = SpreadsheetApp.openById(LOG_SPREADSHEET_ID);
   const groups = groupRowsByCustomer(padded);
   let appended = 0;
+  // Real exports carry one customer per batch (one group); multi-group writes are not atomic on failure.
   Object.keys(groups).forEach(function (customer) {
     const sheet = findOrCreateCustomerTab(ss, customer);
     const values = groups[customer].map(function (r) { return r.map(String); });
@@ -108,7 +109,7 @@ function appendRows(body) {
 }
 
 function groupRowsByCustomer(rows) {
-  const groups = {};
+  const groups = Object.create(null);
   rows.forEach(function (r) {
     const customer = String(r[9] == null ? '' : r[9]).trim() || UNASSIGNED_TAB;
     (groups[customer] || (groups[customer] = [])).push(r);
@@ -125,7 +126,7 @@ function findOrCreateCustomerTab(ss, customer) {
   for (let i = 0; i < sheets.length; i++) {
     if (sheets[i].getName().trim().toLowerCase() === target) return sheets[i];
   }
-  const sheet = ss.insertSheet(wanted, ss.getSheets().length);
+  const sheet = ss.insertSheet(wanted, sheets.length);
   sheet.getRange(1, 1, 1, LOG_HEADER.length).setValues([LOG_HEADER]);
   sheet.setFrozenRows(1);
   return sheet;
@@ -134,9 +135,9 @@ function findOrCreateCustomerTab(ss, customer) {
 function sanitizeTabName(name) {
   // Sheets forbids / \ ? * [ ] in tab names and a leading apostrophe; caps at 100 chars.
   const cleaned = String(name)
+    .trim()
     .replace(/[\/\\?*\[\]]/g, '-')
-    .replace(/^'/, '-')
-    .trim();
+    .replace(/^'/, '-');
   return (cleaned || UNASSIGNED_TAB).slice(0, 100);
 }
 

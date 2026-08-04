@@ -146,6 +146,7 @@ test('a customer whose sanitized name matches an existing tab reuses it (no dupl
 test('sanitizeTabName replaces a leading apostrophe and truncates to 100 chars', () => {
   const g = loadEndpoint(fakeSpreadsheet([]));
   assert.equal(g.sanitizeTabName("'Quoted"), '-Quoted');
+  assert.equal(g.sanitizeTabName("  'Quoted"), '-Quoted');
   assert.equal(g.sanitizeTabName('x'.repeat(150)).length, 100);
   assert.equal(g.sanitizeTabName('  '), 'Unassigned');
 });
