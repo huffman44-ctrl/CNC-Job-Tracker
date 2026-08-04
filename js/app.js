@@ -49,11 +49,23 @@ const svgCache = new Map();
 /* ══════════════════════════════════════════
    DOM refs
 ══════════════════════════════════════════ */
+const loadingScreen       = document.getElementById('loading-screen');
+const loginScreen         = document.getElementById('login-screen');
 const uploadScreen        = document.getElementById('upload-screen');
 const projectsScreen      = document.getElementById('projects-screen');
 const contentScreen       = document.getElementById('content-screen');
 const ticketHistoryScreen = document.getElementById('ticket-history-screen');
 const customersScreen     = document.getElementById('customers-screen');
+
+const loginForm     = document.getElementById('login-form');
+const loginEmail    = document.getElementById('login-email');
+const loginPassword = document.getElementById('login-password');
+const loginError    = document.getElementById('login-error');
+const loginSubmit   = document.getElementById('login-submit');
+
+const authBar         = document.getElementById('auth-bar');
+const authBarEmail    = document.getElementById('auth-bar-email');
+const authBarSignout  = document.getElementById('auth-bar-signout');
 const dropZone       = document.getElementById('drop-zone');
 const fileInput      = document.getElementById('file-input');
 const addFileInput   = document.getElementById('add-file-input');
@@ -296,6 +308,20 @@ function showProjectsScreen() {
   customersScreen.hidden     = true;
   projectsScreen.hidden      = false;
   renderProjects();
+}
+
+function showLoginScreen() {
+  loadingScreen.classList.add('hidden');
+  uploadScreen.hidden        = true;
+  projectsScreen.hidden      = true;
+  contentScreen.hidden       = true;
+  ticketHistoryScreen.hidden = true;
+  customersScreen.hidden     = true;
+  authBar.hidden              = true;
+  loginError.hidden           = true;
+  loginForm.reset();
+  loginScreen.hidden          = false;
+  loginEmail.focus();
 }
 
 function showContentScreen() {
@@ -1523,8 +1549,73 @@ function localIso(date) {
 /* ══════════════════════════════════════════
    Firebase Init
 ══════════════════════════════════════════ */
+let dataLoaded = false;
+
+async function loadDataAndShowApp() {
+  const [storedSheets] = await Promise.all([
+    Storage.loadSheets(),
+    Storage.loadCompletions(),
+    Storage.loadNotes(),
+    Storage.loadSheetNotes(),
+    Storage.loadCustomers(),
+    Storage.loadProjectCustomers(),
+    Storage.loadAnnotations(),
+  ]);
+
+  if (storedSheets.length > 0) {
+    sheets = storedSheets;
+    showProjectsScreen();
+  }
+
+  Storage.onSheetsChange(newSheets => {
+    sheets = newSheets;
+    if (!projectsScreen.hidden) renderProjects();
+    if (!contentScreen.hidden) {
+      const remaining = currentProject
+        ? sheets.filter(s => projectKey(s) === currentProject)
+        : sheets;
+      if (!remaining.length) {
+        showProjectsScreen();
+        return;
+      }
+      if (selectedSheetKey && !remaining.some(s => s.fileKey === selectedSheetKey)) {
+        selectedSheetKey = null;
+      }
+      showContentScreen();
+    }
+  });
+
+  Storage.onCompletionChange(() => {
+    if (!projectsScreen.hidden) renderProjects();
+    if (!contentScreen.hidden)  renderAllSheets();
+  });
+
+  Storage.onNoteChange(() => {
+    if (!projectsScreen.hidden) renderProjects();
+    if (!contentScreen.hidden)  updateJobNoteBanner();
+  });
+
+  Storage.onSheetNoteChange(() => {
+    if (!projectsScreen.hidden) renderProjects();
+    if (!contentScreen.hidden)  renderAllSheets();
+  });
+
+  Storage.onAnnotationsChange(() => {
+    if (!contentScreen.hidden) renderAllSheets();
+  });
+
+  Storage.onCustomersChange(() => {
+    // The export picker is a modal that reads Storage.getCustomers() fresh
+    // each time it opens, so it needs no live re-render here. But the
+    // Manage Customers screen can be left open on one device while another
+    // device adds/renames/removes a customer, so it does need one.
+    if (!customersScreen.hidden) renderCustomersList();
+  });
+
+  loadingScreen.classList.add('hidden');
+}
+
 async function initApp() {
-  const loadingScreen = document.getElementById('loading-screen');
   try {
     const configured = typeof FIREBASE_CONFIG !== 'undefined'
       && FIREBASE_CONFIG.projectId
@@ -1536,71 +1627,51 @@ async function initApp() {
     const db = firebase.firestore();
     Storage.init(db);
 
-    const [storedSheets] = await Promise.all([
-      Storage.loadSheets(),
-      Storage.loadCompletions(),
-      Storage.loadNotes(),
-      Storage.loadSheetNotes(),
-      Storage.loadCustomers(),
-      Storage.loadProjectCustomers(),
-      Storage.loadAnnotations(),
-    ]);
-
-    if (storedSheets.length > 0) {
-      sheets = storedSheets;
-      showProjectsScreen();
-    }
-
-    Storage.onSheetsChange(newSheets => {
-      sheets = newSheets;
-      if (!projectsScreen.hidden) renderProjects();
-      if (!contentScreen.hidden) {
-        const remaining = currentProject
-          ? sheets.filter(s => projectKey(s) === currentProject)
-          : sheets;
-        if (!remaining.length) {
-          showProjectsScreen();
-          return;
-        }
-        if (selectedSheetKey && !remaining.some(s => s.fileKey === selectedSheetKey)) {
-          selectedSheetKey = null;
-        }
-        showContentScreen();
+    Auth.onAuthChange(user => {
+      if (!user) {
+        showLoginScreen();
+        return;
       }
-    });
-
-    Storage.onCompletionChange(() => {
-      if (!projectsScreen.hidden) renderProjects();
-      if (!contentScreen.hidden)  renderAllSheets();
-    });
-
-    Storage.onNoteChange(() => {
-      if (!projectsScreen.hidden) renderProjects();
-      if (!contentScreen.hidden)  updateJobNoteBanner();
-    });
-
-    Storage.onSheetNoteChange(() => {
-      if (!projectsScreen.hidden) renderProjects();
-      if (!contentScreen.hidden)  renderAllSheets();
-    });
-
-    Storage.onAnnotationsChange(() => {
-      if (!contentScreen.hidden) renderAllSheets();
-    });
-
-    Storage.onCustomersChange(() => {
-      // The export picker is a modal that reads Storage.getCustomers() fresh
-      // each time it opens, so it needs no live re-render here. But the
-      // Manage Customers screen can be left open on one device while another
-      // device adds/renames/removes a customer, so it does need one.
-      if (!customersScreen.hidden) renderCustomersList();
+      authBarEmail.textContent = user.email;
+      authBar.hidden = false;
+      loginScreen.hidden = true;
+      if (!dataLoaded) {
+        dataLoaded = true;
+        loadDataAndShowApp();
+      } else {
+        // Signing back in mid-session (e.g. Travis -> Collin switch on a
+        // shared PC) - data + listeners are already live from the first
+        // sign-in, just get back to a sane screen instead of re-registering
+        // duplicate Firestore listeners.
+        loadingScreen.classList.add('hidden');
+        showProjectsScreen();
+      }
     });
 
   } catch (err) {
     console.warn('Running without Firebase:', err.message);
+    loadingScreen.classList.add('hidden');
   }
-
-  loadingScreen.classList.add('hidden');
 }
+
+loginForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  loginError.hidden = true;
+  loginSubmit.disabled = true;
+  try {
+    await Auth.signIn(loginEmail.value.trim(), loginPassword.value);
+    // Auth.onAuthChange's listener (registered in initApp) handles what
+    // happens next - nothing else to do here on success.
+  } catch (err) {
+    loginError.textContent = err.message;
+    loginError.hidden = false;
+  } finally {
+    loginSubmit.disabled = false;
+  }
+});
+
+authBarSignout.addEventListener('click', () => {
+  Auth.signOut();
+});
 
 initApp();
