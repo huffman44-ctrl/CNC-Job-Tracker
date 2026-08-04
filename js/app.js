@@ -1650,7 +1650,17 @@ async function initApp() {
 
   } catch (err) {
     console.warn('Running without Firebase:', err.message);
-    loadingScreen.classList.add('hidden');
+    if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
+      // Firebase SDK itself failed to load (e.g. flaky CDN) - fail closed
+      // rather than dropping the operator onto the ungated upload screen.
+      showLoginScreen();
+      loginError.textContent = 'Could not load sign-in. Check your connection and reload.';
+      loginError.hidden = false;
+    } else {
+      // Intentional local-testing fallback (FIREBASE_CONFIG.projectId is a
+      // "PASTE..." placeholder) - keep degrading open, unchanged.
+      loadingScreen.classList.add('hidden');
+    }
   }
 }
 
@@ -1671,7 +1681,9 @@ loginForm.addEventListener('submit', async e => {
 });
 
 authBarSignout.addEventListener('click', () => {
-  Auth.signOut();
+  Auth.signOut()
+    .then(() => location.reload())
+    .catch(err => showSaveBanner('Sign out failed: ' + err.message));
 });
 
 initApp();
