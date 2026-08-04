@@ -301,6 +301,75 @@ body {
 }
 
 /* ═══════════════════════════════════════════
+   LOGIN SCREEN
+═══════════════════════════════════════════ */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at 75% 15%, rgba(255,90,31,0.28) 0%, transparent 55%),
+    radial-gradient(ellipse at 15% 85%, rgba(6,182,212,0.16) 0%, transparent 55%),
+    linear-gradient(155deg, #0b0d10 0%, #181c22 55%, #101317 100%);
+}
+.login-screen[hidden] { display: none; }
+
+.login-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 52px 44px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 5px;
+  background: linear-gradient(90deg, var(--orange), var(--cyan));
+}
+.login-card h1 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 28px;
+}
+.login-form { text-align: left; }
+.login-submit { width: 100%; margin-top: 6px; }
+
+/* ── Signed-in bar ──
+   Fixed to the viewport, same reasoning as .save-banner: visible
+   regardless of which of the five screens is showing. Bottom-right
+   (not top-right) specifically to avoid overlapping the existing
+   header-right button clusters on the Projects/Content screens. */
+.auth-bar {
+  position: fixed;
+  bottom: 16px; right: 16px;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(20,24,29,0.9);
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.auth-bar[hidden] { display: none; }
+.auth-bar-email {
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════
    APP HEADER
 ═══════════════════════════════════════════ */
 .app-header {

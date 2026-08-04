@@ -6,7 +6,7 @@
   <title>CNC Job Sheet Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=14">
+  <link rel="stylesheet" href="css/style.css?v=15">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -16,6 +16,7 @@
   <!-- Firebase SDK (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 </head>
 <body>
 
@@ -24,6 +25,15 @@
   <div id="save-banner" class="save-banner" hidden>
     <span id="save-banner-text"></span>
     <button type="button" id="save-banner-close" class="save-banner-close" aria-label="Dismiss">&times;</button>
+  </div>
+
+  <!-- Screen-independent signed-in indicator: visible on every screen once
+       signed in. There's no single shared header across all five screens
+       (Ticket History / Manage Customers currently have none at all), so
+       this lives outside all of them instead of being duplicated five times. -->
+  <div id="auth-bar" class="auth-bar" hidden>
+    <span id="auth-bar-email" class="auth-bar-email"></span>
+    <button type="button" id="auth-bar-signout" class="btn btn-ghost btn-sm">Sign out</button>
   </div>
 
   <!-- ══════════════════════════════════
@@ -36,6 +46,31 @@
     </div>
     <div class="loading-spinner"></div>
     <p class="loading-text">Connecting…</p>
+  </div>
+
+  <!-- ══════════════════════════════════
+       LOGIN SCREEN
+  ══════════════════════════════════ -->
+  <div id="login-screen" class="login-screen" hidden>
+    <div class="login-card">
+      <div class="upload-brand">
+        <span class="upload-logo-badge">CNC</span>
+        <span class="upload-brand-name">Job Sheet Tracker</span>
+      </div>
+      <h1>Sign In</h1>
+      <form id="login-form" class="modal-form login-form">
+        <div class="form-group">
+          <label class="form-label" for="login-email">Email</label>
+          <input type="email" id="login-email" class="form-input" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Password</label>
+          <input type="password" id="login-password" class="form-input" autocomplete="current-password" required>
+        </div>
+        <p id="login-error" class="upload-error" hidden></p>
+        <button type="submit" class="btn btn-primary login-submit" id="login-submit">Sign In</button>
+      </form>
+    </div>
   </div>
 
   <!-- ══════════════════════════════════
@@ -360,6 +395,7 @@
   <script src="js/storage.js?v=12"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/markup.js?v=4"></script>
-  <script src="js/app.js?v=19"></script>
+  <script src="js/auth.js?v=1"></script>
+  <script src="js/app.js?v=20"></script>
 </body>
 </html>
