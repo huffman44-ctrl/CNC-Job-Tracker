@@ -482,15 +482,30 @@ function noteKey(jobName) {
 }
 
 function sheetNumber(fileName) {
-  const m = fileName.match(/sheet\s*0*(\d+)/i);
+  const m = fileName.match(/sheet\s*0*(\d+)/i) || fileName.match(/\[\s*0*(\d+)\s*\]/);
   return m ? parseInt(m[1], 10) : Infinity;
+}
+
+// Material label preceding a "[N]" sheet number, e.g. "0.25 MDF" in "0.25 MDF [1].html".
+// Empty string for filenames without that pattern (old "SheetN" naming), so those sheets
+// still sort purely by sheetNumber below, unaffected by material grouping.
+function sheetMaterial(fileName) {
+  const m = fileName.match(/^(.*?)\s*\[\s*\d+\s*\]/);
+  return m ? m[1].trim().toLowerCase() : '';
+}
+
+function compareSheets(a, b) {
+  const matA = sheetMaterial(a.fileName);
+  const matB = sheetMaterial(b.fileName);
+  if (matA !== matB) return matA.localeCompare(matB);
+  return sheetNumber(a.fileName) - sheetNumber(b.fileName);
 }
 
 function getDisplaySheets() {
   const result = currentProject
     ? sheets.filter(s => projectKey(s) === currentProject)
     : [...sheets];
-  return result.sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
+  return result.sort(compareSheets);
 }
 
 function getProjectGroups() {
@@ -703,7 +718,7 @@ function buildProjectCard(jobName, projectSheets) {
   exportBtn.textContent = 'Export CSV';
   exportBtn.addEventListener('click', async e => {
     e.stopPropagation();
-    const jobSheets = [...projectSheets].sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
+    const jobSheets = [...projectSheets].sort(compareSheets);
     const customerName = await openCustomerPicker(jobName);
     if (!customerName) return;
     await exportJob(jobName, jobSheets, customerName);
@@ -1210,7 +1225,7 @@ function openNotesModal(jobName) {
   sheetsWrap.innerHTML = '';
   const projectSheets = sheets
     .filter(s => projectKey(s) === jobName)
-    .sort((a, b) => sheetNumber(a.fileName) - sheetNumber(b.fileName));
+    .sort(compareSheets);
   if (projectSheets.length) {
     const heading = document.createElement('div');
     heading.className = 'notes-modal-section-label';
