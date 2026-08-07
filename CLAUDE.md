@@ -1,4 +1,4 @@
-# CNC Job Sheet Tracker — Project Context
+# CNC Job Tracker — Project Context
 
 ## What this app does
 Browser-only (no build step, no framework) single-page app. Operators upload VCarve CNC job sheet HTML files, grouped into projects by job name, and track each sheet through a 3-state workflow: **Incomplete → In Progress → Complete** (date/time + operator name + notes recorded on completion). All sheet data, completions, and project notes sync live across devices via Firestore — this is **not** local-only storage; every operator sees the same shared state in real time.
