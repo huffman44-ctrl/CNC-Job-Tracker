@@ -483,15 +483,21 @@ function noteKey(jobName) {
 
 function sheetNumber(fileName) {
   const m = fileName.match(/sheet\s*0*(\d+)/i) || fileName.match(/\[\s*0*(\d+)\s*\]/);
-  return m ? parseInt(m[1], 10) : Infinity;
+  if (m) return parseInt(m[1], 10);
+  // Trailing number with no brackets, e.g. "Job Layout 0.25_MDF 6.html" -> 6.
+  const trailing = fileName.replace(/\.\w+$/, '').match(/(\d+)\s*$/);
+  return trailing ? parseInt(trailing[1], 10) : Infinity;
 }
 
-// Material label preceding a "[N]" sheet number, e.g. "0.25 MDF" in "0.25 MDF [1].html".
-// Empty string for filenames without that pattern (old "SheetN" naming), so those sheets
-// still sort purely by sheetNumber below, unaffected by material grouping.
+// Material label preceding a sheet number, e.g. "0.25 MDF" in "0.25 MDF [1].html" or
+// "Job Layout 0.25_MDF" in "Job Layout 0.25_MDF 6.html". Empty string for filenames
+// without either pattern (old "SheetN" naming), so those sheets still sort purely by
+// sheetNumber below, unaffected by material grouping.
 function sheetMaterial(fileName) {
-  const m = fileName.match(/^(.*?)\s*\[\s*\d+\s*\]/);
-  return m ? m[1].trim().toLowerCase() : '';
+  const bracket = fileName.match(/^(.*?)\s*\[\s*\d+\s*\]/);
+  if (bracket) return bracket[1].trim().toLowerCase();
+  const trailing = fileName.replace(/\.\w+$/, '').match(/^(.*?)\s+\d+\s*$/);
+  return trailing ? trailing[1].trim().toLowerCase() : '';
 }
 
 function compareSheets(a, b) {
