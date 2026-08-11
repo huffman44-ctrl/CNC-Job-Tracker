@@ -41,5 +41,11 @@ const Endpoint = (() => {
     return true;
   }
 
-  return { enabled, archiveSheet, appendLogRows };
+  async function lookupOrder(orderNum, idToken) {
+    if (!enabled()) return null;
+    const data = await post({ action: 'lookupOrder', orderNum, idToken });
+    return data.order;
+  }
+
+  return { enabled, archiveSheet, appendLogRows, lookupOrder };
 })();

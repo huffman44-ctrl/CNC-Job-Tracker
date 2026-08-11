@@ -18,5 +18,11 @@ const Auth = (() => {
     firebase.auth().onAuthStateChanged(callback);
   }
 
-  return { signIn, signOut, onAuthChange };
+  function getIdToken() {
+    const user = firebase.auth().currentUser;
+    if (!user) return Promise.reject(new Error('not signed in'));
+    return user.getIdToken();
+  }
+
+  return { signIn, signOut, onAuthChange, getIdToken };
 })();
