@@ -7,6 +7,10 @@
 const TOKEN              = 'PASTE_TOKEN';
 const ARCHIVE_FOLDER_ID  = 'PASTE_ARCHIVE_FOLDER_ID';
 const LOG_SPREADSHEET_ID = 'PASTE_LOG_SPREADSHEET_ID';
+const ORDER_LOG_SPREADSHEET_ID = 'PASTE_ORDER_LOG_SPREADSHEET_ID';
+const FIREBASE_API_KEY         = 'PASTE_FIREBASE_API_KEY';
+const ORDER_LOG_TAB        = 'Order Log';
+const ORDER_LOG_HEADER_ROW = 4;   // data starts on sheet row 5
 
 // Rows route to the tab named after each row's Customer (10th column),
 // created on first use. Rows with no customer land in UNASSIGNED_TAB.
@@ -28,8 +32,9 @@ function doPost(e) {
     return jsonOut({ ok: false, error: 'bad token' });
   }
   try {
-    if (body.action === 'archive')    return jsonOut(archiveSheet(body));
-    if (body.action === 'appendRows') return jsonOut(appendRowsLocked(body));
+    if (body.action === 'archive')     return jsonOut(archiveSheet(body));
+    if (body.action === 'appendRows')  return jsonOut(appendRowsLocked(body));
+    if (body.action === 'lookupOrder') return jsonOut(lookupOrder(body));
     return jsonOut({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
@@ -139,6 +144,66 @@ function sanitizeTabName(name) {
     .replace(/[\/\\?*\[\]]/g, '-')
     .replace(/^'/, '-');
   return (cleaned || UNASSIGNED_TAB).slice(0, 100);
+}
+
+/**
+ * Look up ONE order in the live VanLab Order Log. Auth note: the repo (and
+ * ENDPOINT_CONFIG.token) is public, so this action additionally demands a
+ * Firebase ID token and verifies it with Google before reading anything.
+ * Returns only the five fields printing needs — no bulk read exists.
+ */
+function lookupOrder(body) {
+  if (ORDER_LOG_SPREADSHEET_ID.startsWith('PASTE') || FIREBASE_API_KEY.startsWith('PASTE')) {
+    return { ok: false, error: 'endpoint not configured: order-log constants are still placeholders' };
+  }
+  const auth = verifyFirebaseIdToken(body.idToken);
+  if (!auth.ok) return auth;
+  const wanted = normalizeOrderId(body.orderNum);
+  if (!wanted) return { ok: false, error: 'missing orderNum' };
+  const sheet = SpreadsheetApp.openById(ORDER_LOG_SPREADSHEET_ID).getSheetByName(ORDER_LOG_TAB);
+  if (!sheet) return { ok: false, error: 'Order Log tab not found' };
+  const values = sheet.getDataRange().getValues();
+  for (let i = ORDER_LOG_HEADER_ROW; i < values.length; i++) {
+    const row = values[i];
+    const orderNum = String(row[1] == null ? '' : row[1]).trim();   // column B
+    if (!orderNum || normalizeOrderId(orderNum) !== wanted) continue;
+    const vanRaw = String(row[4] == null ? '' : row[4]).trim();      // column E
+    return { ok: true, order: {
+      orderNum: orderNum,
+      customer: String(row[2] == null ? '' : row[2]).trim(),         // column C
+      vanRaw: vanRaw,
+      vanKey: parseVanKey(vanRaw),
+      assembly: String(row[5] == null ? '' : row[5]).trim(),         // column F
+    } };
+  }
+  return { ok: false, error: 'order ' + String(body.orderNum) + ' not found in Order Log' };
+}
+
+function normalizeOrderId(id) {
+  return String(id == null ? '' : id).trim().replace(/^#/, '').toLowerCase();
+}
+
+// Mirrors parse_van_key in the Python tools' order_data.py.
+function parseVanKey(vanRaw) {
+  const text = String(vanRaw == null ? '' : vanRaw).trim();
+  if (!text) return null;
+  const m = text.match(/^\s*(\d+)/);
+  if (m) return m[1];
+  if (text.toUpperCase().indexOf('SUV') === 0) return 'SUV01';
+  return null;
+}
+
+function verifyFirebaseIdToken(idToken) {
+  if (!idToken) return { ok: false, error: 'missing idToken' };
+  const res = UrlFetchApp.fetch(
+    'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + FIREBASE_API_KEY,
+    { method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({ idToken: idToken }), muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return { ok: false, error: 'sign-in rejected' };
+  let data;
+  try { data = JSON.parse(res.getContentText()); } catch (e) { return { ok: false, error: 'sign-in rejected' }; }
+  if (!data.users || !data.users.length) return { ok: false, error: 'sign-in rejected' };
+  return { ok: true, uid: data.users[0].localId };
 }
 
 function jsonOut(obj) {
