@@ -33,8 +33,8 @@ pdf-lib in the browser renders/stamps three PDFs → browser print dialog
 
 A "VanLab Printing" panel inside a job's project view. Flow:
 
-1. Order number field — prefilled by extracting a number from the job name when possible, editable.
-2. **Look up** → shows what came back (customer, van, assembly) so Collin confirms it's the right order *before* printing.
+1. **Order number is auto-detected from the job's sheet filenames** — VanLab sheet files carry it, e.g. `260611_ford_e350_swb_Pass_3806_order1199_Summary_Sheet 5.html` and `260520_..._Order_1195_Summary_Sheet 9.html`. Extraction matches `order`/`Order` + optional `_`/`#` + digits (`/order[\s_#]*(\d+)/i`), anchored on the word "order" so date prefixes (`260611`) and other numbers (`3806`) can't be mistaken for it. If the job's sheets disagree with each other about the order number, the panel flags the conflict instead of silently picking one. An editable manual field remains as the escape hatch for filenames without the pattern.
+2. Lookup runs automatically once an order number is detected → the panel shows what came back (order #, customer, van, assembly) so Collin confirms it's the right order *before* printing. His normal path is: open job, glance, print ×3 — no typing.
 3. Three buttons: **Hardware Stickers**, **Crate Label**, **Packing List**. Each generates its PDF client-side and opens it for printing. The print dialog's printer choice is manual by design (browsers can't auto-route); printer names make it foolproof.
 
 Fallback: if lookup fails (order not in log, bridge down), a manual van-type picker appears as the escape hatch — stickers and packing list can print from van type alone; the crate label needs the order fields, so without a lookup it falls back to manual entry of customer/assembly.
@@ -83,7 +83,7 @@ Two 4×6-capable thermal printers as network printers — one permanently loaded
 
 ## Testing
 
-- Unit tests (existing `test/` harness): van-key parsing, sticker list resolution incl. blank/NO STICKER/undecided, packing status resolution, order-number normalization (`#1204` vs `1204`).
+- Unit tests (existing `test/` harness): order-number extraction from real filename shapes (`order1199`, `Order_1195`, no-match, conflicting sheets), van-key parsing, sticker list resolution incl. blank/NO STICKER/undecided, packing status resolution, order-number normalization (`#1204` vs `1204`).
 - Bridge: manual test matrix — valid token, missing token, bad order, real order (with a fixture/anonymized row; never commit real customer rows — PII rule).
 - Visual parity: side-by-side print of web output vs. Python output for one real van before each phase ships.
 - **Phase gate:** each phase is floor-verified on the real printers before the next starts.
