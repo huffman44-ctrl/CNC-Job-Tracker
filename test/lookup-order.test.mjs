@@ -38,7 +38,14 @@ function plain(v) { return JSON.parse(JSON.stringify(v)); }
 // attach to the context object (matches loadEndpoint() in
 // logging-endpoint.test.mjs), so lookupOrder/parseVanKey are reachable
 // afterwards without any extra injection line.
-function makeContext({ tokenValid = true } = {}) {
+function makeContext({ tokenValid = true, allowedUids = null } = {}) {
+  let ctxSource = source;
+  if (allowedUids) {
+    ctxSource = ctxSource.replace(
+      'const ALLOWED_UIDS = [];',
+      `const ALLOWED_UIDS = ${JSON.stringify(allowedUids)};`
+    );
+  }
   const sandbox = {
     SpreadsheetApp: {
       openById(id) {
@@ -64,7 +71,7 @@ function makeContext({ tokenValid = true } = {}) {
       },
     },
   };
-  vm.runInNewContext(source, sandbox);
+  vm.runInNewContext(ctxSource, sandbox);
   return sandbox;
 }
 
@@ -100,6 +107,19 @@ test('unknown order is a clear error, not silence', () => {
 
 test('rejected sign-in returns an error and never touches the sheet', () => {
   const ctx = makeContext({ tokenValid: false });
+  ctx.SpreadsheetApp.openById = () => { throw new Error('sheet must not be read'); };
+  const r = ctx.lookupOrder({ idToken: 'IDTOKEN1', orderNum: '1199' });
+  assert.deepEqual(plain(r), { ok: false, error: 'sign-in rejected' });
+});
+
+test('allowlisted uid passes', () => {
+  const r = makeContext({ allowedUids: ['uid1'] }).lookupOrder({ idToken: 'IDTOKEN1', orderNum: '1199' });
+  assert.equal(r.ok, true);
+  assert.equal(r.order.orderNum, '1199');
+});
+
+test('valid token but non-allowlisted uid is rejected and never touches the sheet', () => {
+  const ctx = makeContext({ allowedUids: ['someone-else'] });
   ctx.SpreadsheetApp.openById = () => { throw new Error('sheet must not be read'); };
   const r = ctx.lookupOrder({ idToken: 'IDTOKEN1', orderNum: '1199' });
   assert.deepEqual(plain(r), { ok: false, error: 'sign-in rejected' });

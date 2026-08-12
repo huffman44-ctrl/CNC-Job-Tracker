@@ -1057,6 +1057,7 @@ This task needs Travis (Apps Script console access + the thermal printer). Nothi
 At script.google.com, in the tracker's existing endpoint project:
 - Paste the new `logging-endpoint.gs` body over the live code, then **restore the three real constants** (`TOKEN`, `ARCHIVE_FOLDER_ID`, `LOG_SPREADSHEET_ID`) from the previous live version — do NOT leave them as `PASTE_*`. (Copy the live file aside first.)
 - Fill the two new constants: `ORDER_LOG_SPREADSHEET_ID` = the ID from the VanLab Order Log's URL (the long string between `/d/` and `/edit`); `FIREBASE_API_KEY` = the `apiKey` value from `js/firebase-config.js`.
+- Verify in the Firebase console (Authentication → Settings → User actions) that new-user sign-up is disabled, OR fill `ALLOWED_UIDS` with the two operators' uids (Authentication → Users) — the endpoint otherwise trusts any signed-in user of the Firebase project.
 - Deploy via **Manage deployments → pencil icon → Version: New version → Deploy** — this KEEPS the existing URL. (Do not use "New deployment", which mints a new URL and would orphan `endpoint-config.js`.)
 
 - [ ] **Step 2: Verify the bridge before touching the site**
@@ -1089,6 +1090,7 @@ With Travis/Collin at the shop-floor PC (hard-refreshed):
 - Print Hardware Stickers → print the opened PDF on the 1×3 thermal printer at 100% scale.
 - Compare side-by-side against the Python tool's output for the same van (`python hardware_sticker_printer.py --van <key>` on Travis's PC): same text, same wrapping, comparable size/centering.
 - Stickers apply and read correctly at arm's length.
+- Note: do not floor-print vans 39/42 until VanLab confirms their sticker quantities.
 
 - [ ] **Step 5: Record the result**
 

@@ -754,6 +754,7 @@ function buildProjectCard(jobName, projectSheets) {
   card.addEventListener('click', () => {
     currentProject = jobName;
     vanlabPanel.hidden = true;
+    vanlabEpoch++;
     showContentScreen();
   });
 
@@ -1559,6 +1560,9 @@ const vanlabVanLabel   = document.querySelector('.vanlab-van-label');
 const vanlabPrintBtn   = document.getElementById('vanlab-stickers-btn');
 let vanlabOrder = null;        // lookup result for the open job, or null
 let vanlabFontBytes = null;    // cached Baloo 2 bytes
+let vanlabEpoch = 0;           // bumped on every panel open/close/job-switch so a
+                                // slow in-flight lookup can detect it's stale and bail
+let vanlabLastBlobUrl = null;  // last sticker-PDF object URL, revoked before a new one
 
 function vanlabSetStatus(text, isError) {
   vanlabStatus.textContent = text;
@@ -1579,6 +1583,7 @@ function vanlabShowManualPicker() {
 async function vanlabOpenPanel() {
   vanlabPanel.hidden = !vanlabPanel.hidden;
   if (vanlabPanel.hidden) return;
+  const ep = ++vanlabEpoch;
   vanlabOrder = null;
   vanlabVanSelect.hidden = true;
   vanlabVanLabel.hidden = true;
@@ -1601,7 +1606,9 @@ async function vanlabOpenPanel() {
   vanlabSetStatus(`Order ${orderNum} — looking up the Order Log…`);
   try {
     const idToken = await Auth.getIdToken();
+    if (ep !== vanlabEpoch) return;
     const order = await Endpoint.lookupOrder(orderNum, idToken);
+    if (ep !== vanlabEpoch) return;
     if (!order) {   // endpoint not configured (offline/test copy)
       vanlabSetStatus('Order lookup is not configured on this copy — pick the van type by hand:', true);
       vanlabShowManualPicker();
@@ -1622,6 +1629,8 @@ async function vanlabPrintStickers() {
   const res = VanlabPrint.resolveStickers(vanKey, STICKER_MAP);
   if (res.status !== 'matched') {
     vanlabSetStatus(`Can't print: ${res.reason}. The Sticker Map sheet has no rows tagged for this van.`, true);
+    vanlabOrder = null;
+    vanlabShowManualPicker();
     return;
   }
   vanlabPrintBtn.disabled = true;
@@ -1633,8 +1642,14 @@ async function vanlabPrintStickers() {
       vanlabFontBytes = new Uint8Array(await resp.arrayBuffer());
     }
     const bytes = await StickerPdf.buildStickerPdf(res.items, STICKER_MAP.stickers, vanlabFontBytes);
+    if (vanlabLastBlobUrl) URL.revokeObjectURL(vanlabLastBlobUrl);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    window.open(url, '_blank');
+    vanlabLastBlobUrl = url;
+    const opened = window.open(url, '_blank');
+    if (!opened) {
+      vanlabSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      return;
+    }
     const count = res.items.reduce((n, [, q]) => n + q, 0);
     vanlabSetStatus(`${count} stickers ready — print the opened PDF on the STICKERS 1x3 printer at 100% scale.`);
   } catch (err) {

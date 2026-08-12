@@ -9,6 +9,10 @@ const ARCHIVE_FOLDER_ID  = 'PASTE_ARCHIVE_FOLDER_ID';
 const LOG_SPREADSHEET_ID = 'PASTE_LOG_SPREADSHEET_ID';
 const ORDER_LOG_SPREADSHEET_ID = 'PASTE_ORDER_LOG_SPREADSHEET_ID';
 const FIREBASE_API_KEY         = 'PASTE_FIREBASE_API_KEY';
+// Optional allowlist: empty = any signed-in user of this Firebase project;
+// non-empty = only these uids (paste from Firebase console → Authentication
+// → Users) — recommended because Email/Password signup may be open.
+const ALLOWED_UIDS = [];
 const ORDER_LOG_TAB        = 'Order Log';
 const ORDER_LOG_HEADER_ROW = 4;   // data starts on sheet row 5
 
@@ -203,7 +207,9 @@ function verifyFirebaseIdToken(idToken) {
   let data;
   try { data = JSON.parse(res.getContentText()); } catch (e) { return { ok: false, error: 'sign-in rejected' }; }
   if (!data.users || !data.users.length) return { ok: false, error: 'sign-in rejected' };
-  return { ok: true, uid: data.users[0].localId };
+  const uid = data.users[0].localId;
+  if (ALLOWED_UIDS.length && ALLOWED_UIDS.indexOf(uid) === -1) return { ok: false, error: 'sign-in rejected' };
+  return { ok: true, uid: uid };
 }
 
 function jsonOut(obj) {
