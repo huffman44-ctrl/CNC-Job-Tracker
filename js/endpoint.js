@@ -47,5 +47,11 @@ const Endpoint = (() => {
     return data.order;
   }
 
-  return { enabled, archiveSheet, appendLogRows, lookupOrder };
+  async function getPackingPdf(fileName, idToken) {
+    if (!enabled()) return null;
+    const data = await post({ action: 'getPackingPdf', fileName, idToken });
+    return data.pdfBase64;
+  }
+
+  return { enabled, archiveSheet, appendLogRows, lookupOrder, getPackingPdf };
 })();
