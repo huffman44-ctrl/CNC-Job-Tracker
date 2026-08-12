@@ -1558,11 +1558,15 @@ const vanlabStatus     = document.getElementById('vanlab-status');
 const vanlabVanSelect  = document.getElementById('vanlab-van-select');
 const vanlabVanLabel   = document.querySelector('.vanlab-van-label');
 const vanlabPrintBtn   = document.getElementById('vanlab-stickers-btn');
+const vanlabSuvSelect  = document.getElementById('vanlab-suv-select');
+const vanlabSuvLabel   = document.querySelector('.vanlab-suv-label');
+const vanlabPackingBtn = document.getElementById('vanlab-packing-btn');
 let vanlabOrder = null;        // lookup result for the open job, or null
 let vanlabFontBytes = null;    // cached Baloo 2 bytes
 let vanlabEpoch = 0;           // bumped on every panel open/close/job-switch so a
                                 // slow in-flight lookup can detect it's stale and bail
 let vanlabLastBlobUrl = null;  // last sticker-PDF object URL, revoked before a new one
+let vanlabPackingBlobUrl = null;  // last packing-PDF object URL, revoked before a new one
 
 function vanlabSetStatus(text, isError) {
   vanlabStatus.textContent = text;
@@ -1577,7 +1581,10 @@ function vanlabShowManualPicker() {
   vanlabVanSelect.hidden = false;
   vanlabVanLabel.hidden = false;
   vanlabPrintBtn.disabled = true;
-  vanlabVanSelect.onchange = () => { vanlabPrintBtn.disabled = !vanlabVanSelect.value; };
+  vanlabVanSelect.onchange = () => {
+    vanlabPrintBtn.disabled = !vanlabVanSelect.value;
+    vanlabPackingBtn.disabled = !vanlabVanSelect.value;
+  };
 }
 
 async function vanlabOpenPanel() {
@@ -1588,6 +1595,10 @@ async function vanlabOpenPanel() {
   vanlabVanSelect.hidden = true;
   vanlabVanLabel.hidden = true;
   vanlabPrintBtn.disabled = true;
+  vanlabSuvSelect.hidden = true;
+  vanlabSuvLabel.hidden = true;
+  vanlabSuvSelect.value = '';
+  vanlabPackingBtn.disabled = true;
 
   const fileNames = sheets.filter(s => projectKey(s) === currentProject).map(s => s.fileName);
   const { orderNum, conflict } = VanlabPrint.extractOrderNumber(fileNames);
@@ -1617,6 +1628,7 @@ async function vanlabOpenPanel() {
     vanlabOrder = order;
     vanlabSetStatus(`Order ${order.orderNum} — Van ${order.vanRaw || '?'} — ${order.customer || 'no customer'}${order.assembly ? ' — kit ' + order.assembly : ''}`);
     vanlabPrintBtn.disabled = false;
+    vanlabPackingBtn.disabled = false;
   } catch (err) {
     const why = err.endpointError ? err.message : 'the Order Log lookup is unreachable';
     vanlabSetStatus(`Couldn't look up order ${orderNum} — ${why}. Pick the van type by hand:`, true);
@@ -1659,8 +1671,62 @@ async function vanlabPrintStickers() {
   }
 }
 
+async function vanlabPrintPacking() {
+  const ep = vanlabEpoch;
+  const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
+  const order = vanlabOrder || { orderNum: '', customer: '', assembly: '' };
+  const suvChoice = vanlabSuvSelect.hidden ? null : (vanlabSuvSelect.value || null);
+  const res = PackingMap.resolve(vanKey, order.assembly, suvChoice);
+
+  if (res.status === 'ambiguous') {
+    vanlabSuvSelect.hidden = false;
+    vanlabSuvLabel.hidden = false;
+    vanlabSetStatus('This SUV order doesn\'t say which kit — pick Full/Bed/Kitchen, then click Print Packing List again.', true);
+    return;
+  }
+  if (res.status === 'none_needed') {
+    vanlabSetStatus(`No packing list for van ${vanKey} — ${res.reason}. Nothing to print (that's expected).`);
+    return;
+  }
+  if (res.status === 'missing') {
+    vanlabSetStatus(`NEEDS ATTENTION — can't print a packing list: ${res.reason}`, true);
+    return;
+  }
+
+  vanlabPackingBtn.disabled = true;
+  vanlabSetStatus(`Fetching the packing list for van ${vanKey}…`);
+  try {
+    const idToken = await Auth.getIdToken();
+    if (ep !== vanlabEpoch) return;
+    const b64 = await Endpoint.getPackingPdf(res.file, idToken);
+    if (ep !== vanlabEpoch) return;
+    if (!b64) {
+      vanlabSetStatus('Packing-list fetch is not configured on this copy.', true);
+      return;
+    }
+    const template = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    vanlabSetStatus('Stamping the packing list…');
+    const bytes = await PackingPdf.stampPdf(template, order);
+    if (ep !== vanlabEpoch) return;
+    if (vanlabPackingBlobUrl) URL.revokeObjectURL(vanlabPackingBlobUrl);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    vanlabPackingBlobUrl = url;
+    if (!window.open(url)) {
+      vanlabSetStatus('Popup blocked — allow popups for this site, then click Print Packing List again.', true);
+      return;
+    }
+    vanlabSetStatus(`Packing list${order.orderNum ? ' for order ' + order.orderNum : ''} ready — print the opened PDF on the shop-floor letter printer at 100% scale.`);
+  } catch (err) {
+    const why = err.endpointError ? err.message : 'network problem — is the internet up?';
+    vanlabSetStatus(`Couldn't fetch the packing list — ${why}`, true);
+  } finally {
+    if (ep === vanlabEpoch) vanlabPackingBtn.disabled = false;
+  }
+}
+
 document.getElementById('vanlab-print-btn').addEventListener('click', vanlabOpenPanel);
 vanlabPrintBtn.addEventListener('click', vanlabPrintStickers);
+vanlabPackingBtn.addEventListener('click', vanlabPrintPacking);
 
 /* ══════════════════════════════════════════
    Helpers

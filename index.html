@@ -229,6 +229,14 @@
         <label class="form-label vanlab-van-label" for="vanlab-van-select" hidden>Van type</label>
         <select id="vanlab-van-select" class="form-input vanlab-van-select" hidden></select>
         <button class="btn btn-primary btn-sm" id="vanlab-stickers-btn" disabled>Print Hardware Stickers</button>
+        <label class="form-label vanlab-suv-label" for="vanlab-suv-select" hidden>SUV kit</label>
+        <select id="vanlab-suv-select" class="form-input vanlab-van-select" hidden>
+          <option value="">— pick the SUV kit —</option>
+          <option value="full">Full Kit</option>
+          <option value="bed">Bed Only</option>
+          <option value="kitchen">Kitchen Only</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="vanlab-packing-btn" disabled>Print Packing List</button>
       </div>
     </div>
 
@@ -411,6 +419,9 @@
   <script src="js/sticker-map.generated.js?v=1"></script>
   <script src="js/sticker-pdf.js?v=1"></script>
   <script src="js/vanlab-print.js?v=1"></script>
-  <script src="js/app.js?v=22"></script>
+  <script src="js/assembly-levels.js?v=1"></script>
+  <script src="js/packing-map.js?v=1"></script>
+  <script src="js/packing-pdf.js?v=1"></script>
+  <script src="js/app.js?v=23"></script>
 </body>
 </html>
