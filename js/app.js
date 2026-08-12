@@ -1551,7 +1551,7 @@ async function doResetAll() {
 }
 
 /* ══════════════════════════════════════════
-   VanLab Printing (Phase 1: hardware stickers)
+   VanLab Printing (hardware stickers, packing lists, crate label)
 ══════════════════════════════════════════ */
 const vanlabPanel      = document.getElementById('vanlab-panel');
 const vanlabStatus     = document.getElementById('vanlab-status');
@@ -1561,12 +1561,18 @@ const vanlabPrintBtn   = document.getElementById('vanlab-stickers-btn');
 const vanlabSuvSelect  = document.getElementById('vanlab-suv-select');
 const vanlabSuvLabel   = document.querySelector('.vanlab-suv-label');
 const vanlabPackingBtn = document.getElementById('vanlab-packing-btn');
+const vanlabCrateBtn      = document.getElementById('vanlab-crate-btn');
+const vanlabManualFields  = document.getElementById('vanlab-manual-fields');
+const vanlabManualOrder   = document.getElementById('vanlab-manual-order');
+const vanlabManualCustomer = document.getElementById('vanlab-manual-customer');
+const vanlabManualAssembly = document.getElementById('vanlab-manual-assembly');
 let vanlabOrder = null;        // lookup result for the open job, or null
 let vanlabFontBytes = null;    // cached Baloo 2 bytes
 let vanlabEpoch = 0;           // bumped on every panel open/close/job-switch so a
                                 // slow in-flight lookup can detect it's stale and bail
 let vanlabLastBlobUrl = null;  // last sticker-PDF object URL, revoked before a new one
 let vanlabPackingBlobUrl = null;  // last packing-PDF object URL, revoked before a new one
+let vanlabCrateBlobUrl = null;  // last crate-label object URL, revoked before a new one
 
 function vanlabSetStatus(text, isError) {
   vanlabStatus.textContent = text;
@@ -1589,9 +1595,12 @@ function vanlabShowManualPicker() {
   vanlabVanLabel.hidden = false;
   vanlabPrintBtn.disabled = true;
   vanlabPackingBtn.disabled = true;
+  vanlabCrateBtn.disabled = true;
+  vanlabManualFields.hidden = false;
   vanlabVanSelect.onchange = () => {
     vanlabPrintBtn.disabled = !vanlabVanSelect.value;
     vanlabPackingBtn.disabled = !vanlabVanSelect.value;
+    vanlabCrateBtn.disabled = !vanlabVanSelect.value;
   };
 }
 
@@ -1607,6 +1616,11 @@ async function vanlabOpenPanel() {
   vanlabSuvLabel.hidden = true;
   vanlabSuvSelect.value = '';
   vanlabPackingBtn.disabled = true;
+  vanlabCrateBtn.disabled = true;
+  vanlabManualFields.hidden = true;
+  vanlabManualOrder.value = '';
+  vanlabManualCustomer.value = '';
+  vanlabManualAssembly.value = '';
 
   const fileNames = sheets.filter(s => projectKey(s) === currentProject).map(s => s.fileName);
   const { orderNum, conflict } = VanlabPrint.extractOrderNumber(fileNames);
@@ -1637,6 +1651,7 @@ async function vanlabOpenPanel() {
     vanlabSetStatus(`Order ${order.orderNum} — Van ${order.vanRaw || '?'} — ${order.customer || 'no customer'}${order.assembly ? ' — kit ' + order.assembly : ''}`);
     vanlabPrintBtn.disabled = false;
     vanlabPackingBtn.disabled = false;
+    vanlabCrateBtn.disabled = false;
   } catch (err) {
     const why = err.endpointError ? err.message : 'the Order Log lookup is unreachable';
     vanlabSetStatus(`Couldn't look up order ${orderNum} — ${why}. Pick the van type by hand:`, true);
@@ -1742,9 +1757,66 @@ async function vanlabPrintPacking() {
   }
 }
 
+function vanlabToday() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + '/' + p(d.getDate()) + '/' + d.getFullYear();
+}
+
+async function vanlabPrintCrate() {
+  let order;
+  if (vanlabOrder) {
+    order = {
+      orderNum: vanlabOrder.orderNum || '',
+      vanName: vanlabOrder.vanRaw || ('Van ' + vanlabOrder.vanKey),
+      assembly: vanlabOrder.assembly || '',
+      customer: vanlabOrder.customer || '',
+      datePacked: vanlabToday(),
+    };
+  } else {
+    const orderNum = vanlabManualOrder.value.trim();
+    if (!orderNum) {
+      vanlabSetStatus('Type the order number first — the crate label prints it and encodes it in the QR.', true);
+      return;
+    }
+    order = {
+      orderNum,
+      vanName: 'Van ' + vanlabVanSelect.value,
+      assembly: vanlabManualAssembly.value.trim(),
+      customer: vanlabManualCustomer.value.trim(),
+      datePacked: vanlabToday(),
+    };
+  }
+  vanlabCrateBtn.disabled = true;
+  vanlabSetStatus('Building the crate label…');
+  try {
+    let logoBytes = null;
+    try {
+      logoBytes = Uint8Array.from(atob(VanlabLogo.pngBase64), (c) => c.charCodeAt(0));
+    } catch {
+      // buildCrateLabelPdf falls back to its placeholder box; the label
+      // must never fail to print over the logo.
+    }
+    const bytes = await CrateLabelPdf.buildCrateLabelPdf(order, logoBytes);
+    if (vanlabCrateBlobUrl) URL.revokeObjectURL(vanlabCrateBlobUrl);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    vanlabCrateBlobUrl = url;
+    if (!window.open(url, '_blank')) {
+      vanlabSetStatus('Popup blocked — allow popups for this site, then click Print Crate Label again.', true);
+      return;
+    }
+    vanlabSetStatus(`Crate label for order ${order.orderNum} ready — print the opened PDF on the CRATE LABEL 4x6 printer at 100% scale.`);
+  } catch (err) {
+    vanlabSetStatus(`Couldn't build the crate label — ${err.message}`, true);
+  } finally {
+    vanlabCrateBtn.disabled = false;
+  }
+}
+
 document.getElementById('vanlab-print-btn').addEventListener('click', vanlabOpenPanel);
 vanlabPrintBtn.addEventListener('click', vanlabPrintStickers);
 vanlabPackingBtn.addEventListener('click', vanlabPrintPacking);
+vanlabCrateBtn.addEventListener('click', vanlabPrintCrate);
 
 /* ══════════════════════════════════════════
    Helpers

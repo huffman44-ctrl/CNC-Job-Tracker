@@ -237,6 +237,15 @@
           <option value="kitchen">Kitchen Only</option>
         </select>
         <button class="btn btn-primary btn-sm" id="vanlab-packing-btn" disabled>Print Packing List</button>
+        <button class="btn btn-primary btn-sm" id="vanlab-crate-btn" disabled>Print Crate Label</button>
+        <span id="vanlab-manual-fields" hidden>
+          <label class="form-label" for="vanlab-manual-order">Order #</label>
+          <input id="vanlab-manual-order" class="form-input vanlab-van-select" placeholder="e.g. 1234">
+          <label class="form-label" for="vanlab-manual-customer">Customer</label>
+          <input id="vanlab-manual-customer" class="form-input vanlab-van-select" placeholder="for the QR code">
+          <label class="form-label" for="vanlab-manual-assembly">Assembly #</label>
+          <input id="vanlab-manual-assembly" class="form-input vanlab-van-select" placeholder="blank if none">
+        </span>
       </div>
     </div>
 
@@ -425,6 +434,6 @@
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=24"></script>
+  <script src="js/app.js?v=25"></script>
 </body>
 </html>
