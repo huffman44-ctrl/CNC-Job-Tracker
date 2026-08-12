@@ -9,6 +9,7 @@ const ARCHIVE_FOLDER_ID  = 'PASTE_ARCHIVE_FOLDER_ID';
 const LOG_SPREADSHEET_ID = 'PASTE_LOG_SPREADSHEET_ID';
 const ORDER_LOG_SPREADSHEET_ID = 'PASTE_ORDER_LOG_SPREADSHEET_ID';
 const FIREBASE_API_KEY         = 'PASTE_FIREBASE_API_KEY';
+const PACKING_FOLDER_ID = 'PASTE_PACKING_FOLDER_ID';
 // Optional allowlist: empty = any signed-in user of this Firebase project;
 // non-empty = only these uids (paste from Firebase console → Authentication
 // → Users) — recommended because Email/Password signup may be open.
@@ -39,6 +40,7 @@ function doPost(e) {
     if (body.action === 'archive')     return jsonOut(archiveSheet(body));
     if (body.action === 'appendRows')  return jsonOut(appendRowsLocked(body));
     if (body.action === 'lookupOrder') return jsonOut(lookupOrder(body));
+    if (body.action === 'getPackingPdf') return jsonOut(getPackingPdf(body));
     return jsonOut({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
@@ -195,6 +197,28 @@ function parseVanKey(vanRaw) {
   if (m) return m[1];
   if (text.toUpperCase().indexOf('SUV') === 0) return 'SUV01';
   return null;
+}
+
+/**
+ * Serve ONE packing-list template PDF from the designated Drive folder.
+ * Same auth posture as lookupOrder: the repo-public TOKEN is junk filtering
+ * only, so a Firebase ID token is verified before Drive is touched. Serves
+ * by exact filename, only from PACKING_FOLDER_ID — no listing action exists
+ * (the templates are VanLab's proprietary product docs).
+ */
+function getPackingPdf(body) {
+  if (PACKING_FOLDER_ID.startsWith('PASTE') || FIREBASE_API_KEY.startsWith('PASTE')) {
+    return { ok: false, error: 'endpoint not configured: packing constants are still placeholders' };
+  }
+  const auth = verifyFirebaseIdToken(body.idToken);
+  if (!auth.ok) return auth;
+  const fileName = String(body.fileName == null ? '' : body.fileName).trim();
+  if (!fileName) return { ok: false, error: 'missing fileName' };
+  const files = DriveApp.getFolderById(PACKING_FOLDER_ID).getFilesByName(fileName);
+  if (!files.hasNext()) {
+    return { ok: false, error: "packing list '" + fileName + "' not found in the library folder" };
+  }
+  return { ok: true, pdfBase64: Utilities.base64Encode(files.next().getBlob().getBytes()) };
 }
 
 function verifyFirebaseIdToken(idToken) {
