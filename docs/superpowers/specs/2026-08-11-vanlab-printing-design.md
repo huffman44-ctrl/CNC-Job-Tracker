@@ -2,6 +2,7 @@
 
 **Date:** 2026-08-11
 **Status:** Approved direction, spec pending Travis's review
+**Phase 2 revision (2026-08-12, approved):** packing templates are served from Google Drive via the existing bridge (not Firebase Storage — avoids the Blaze billing requirement); packing lists print at the shop floor; SUV variant detection uses the assembly field only (no notes fallback — the picker covers the gap).
 **Replaces:** the three local Python tools' *operation* (hardware_sticker_printer.py, packing_list_printer.py, label_generator.py in `Shop Management for VanLab/CNC-Kit-Management`) — the Python tools stay untouched until the web version reaches parity.
 
 ## Goal
@@ -22,7 +23,7 @@ Apps Script bridge (existing logging-endpoint.gs, new "lookupOrder" action)
 { orderNum, customer, vanRaw, vanKey, assembly }
   │
   ├─ vanKey → sticker list  (generated JSON, committed to repo)
-  ├─ vanKey → packing PDF   (Firebase Storage, auth-required read)
+  ├─ vanKey → packing PDF   (Drive folder via bridge "getPackingPdf", sign-in verified)
   └─ order fields → 4×6 crate label
   ▼
 pdf-lib in the browser renders/stamps three PDFs → browser print dialog
@@ -54,7 +55,7 @@ Travis keeps editing `VanLab Sticker Map.xlsx` in Google Sheets. `import_sticker
 
 ### Packing lists
 
-The ~20 per-van template PDFs (`VAN_TO_PDF` in packing_map.py) move to **Firebase Storage** with auth-required read rules — *not* the public repo (they're VanLab's proprietary product docs). The browser fetches the template for the van key and stamps the order number with pdf-lib, replicating `stamp.py`'s output. Statuses mirror the Python tool: matched / none-needed (e.g. panel installs) / MISSING / AMBIGUOUS (SUV needs Full/Bed/Kitchen — panel asks) / NOT FOUND. Nothing silently skipped. Template updates: replace the file in Storage (documented one-liner or console upload).
+The 22 per-van template PDFs (`VAN_TO_PDF` in packing_map.py; 1.5 MB total, largest 174 KB) live in a **Google Drive folder Travis owns** — *not* the public repo (they're VanLab's proprietary product docs) and *not* Firebase Storage (enabling Storage now requires the billed Blaze plan; the files are far too small to justify it). The bridge gains a `getPackingPdf` action: verifies the caller's Firebase ID token (same helper as `lookupOrder`), accepts one exact filename, serves base64 PDF bytes **only from the designated folder** (folder ID is a live-script constant, `PASTE_*` placeholder in the repo template). No listing/enumeration action. Client resolution: `js/packing-map.js` ports packing_map.py's tables and honesty rules — VAN_TO_PDF, none-needed (van 40), conflicted (van 39 stays blocked until VanLab confirms numbering), SUV variants; header comment marks it as mirroring packing_map.py until the Python tool retires. The browser fetches the template and stamps it with pdf-lib, replicating `stamp.py`'s output (blue band, order | customer | Assembly, options line via a JS port of assembly_levels.py, same undecodable-assembly warning). Statuses mirror the Python tool: matched / none-needed / MISSING / AMBIGUOUS (SUV needs Full/Bed/Kitchen — panel shows a picker; auto-detected from the assembly field only, since the lookup deliberately doesn't return notes) / NOT FOUND. Nothing silently skipped. Template updates: replace the file in Drive — nothing to redeploy.
 
 ### PDF rendering
 
@@ -63,22 +64,22 @@ One library, **pdf-lib**, for all three documents (drawing + stamping + font emb
 ### Data & rules
 
 - New per-job persisted fields (van-type override, resolved order number) ride on the existing project-metadata pattern in `storage.js`. ⚠️ CNC Firestore rules are **per-collection and console-only** — if a new collection is introduced, its allow line must be added manually in the console or writes silently no-op. Prefer extending an existing ruled collection.
-- Firebase Storage read rules (auth required) are likewise console-managed — part of the deploy checklist, not the repo.
+- No Firebase Storage and no new Firestore collections in Phase 2 — the only console-side deploy steps are pasting the Drive folder ID into the live Apps Script and redeploying it (Manage deployments → pencil → New version, NOT "New deployment").
 
 ### Error handling
 
-Every failure mode is a visible message, never a silent skip (the Python tools' honesty carries over): order not found (with "check the Order Log" hint), bridge down vs. rejected (existing endpointError split), van with no sticker mapping, undecided sticker rows, missing packing PDF, ambiguous SUV, Storage fetch failure. The panel never prints from stale or guessed data without saying so.
+Every failure mode is a visible message, never a silent skip (the Python tools' honesty carries over): order not found (with "check the Order Log" hint), bridge down vs. rejected (existing endpointError split), van with no sticker mapping, undecided sticker rows, missing packing PDF, ambiguous SUV, template fetch failure. The panel never prints from stale or guessed data without saying so.
 
 ## Hardware (Travis's side, not code)
 
-Two 4×6-capable thermal printers as network printers — one permanently loaded with 1"×3" sticker stock, one with 4×6 label stock (roll-swapping eliminated) — plus the regular office printer for packing lists. Named unmistakably. Any signed-in PC with the printers installed can print.
+Two 4×6-capable thermal printers (Omezizy D450BT, a Phomemo-family unit) — one permanently loaded with 1"×3" sticker stock, one with 4×6 label stock (roll-swapping eliminated) — USB into the shop-floor PC, plus a regular letter-size printer at the shop floor for packing lists (Travis's decision 8/12: packing lists print at the floor, not the office). Named unmistakably. Any signed-in PC with the printers installed can print. The 1×3 path was floor-proven 8/12 with a test page.
 
 ## Security summary
 
 - Order Log sharing stays specific-people-only; 2FA on Google accounts with access (Travis's checklist, independent of build).
 - Lookup requires a verified Firebase sign-in; returns 5 fields for one order; no enumeration endpoint.
 - No secrets in the public repo (the existing junk-filter token is acknowledged as public; nothing new relies on secrecy of repo contents).
-- Packing PDFs behind auth in Storage, not in the repo.
+- Packing PDFs behind the sign-in-verified bridge (Drive folder, single-file-by-exact-name, no enumeration), not in the repo.
 - Customer PII on printed output: customer name appears on the 4×6 crate label only (as today). No addresses/contacts anywhere.
 
 ## Testing
@@ -91,7 +92,7 @@ Two 4×6-capable thermal printers as network printers — one permanently loaded
 ## Phases
 
 1. **Hardware stickers** — bridge lookup + auth, sticker map export, 1×3 PDF rendering, print panel v1, real print test on the 1×3 thermal printer. Proves the whole pipeline.
-2. **Packing lists** — Storage upload + rules, template fetch + stamping, SUV disambiguation.
+2. **Packing lists** — Drive folder upload, bridge `getPackingPdf` action, packing-map/assembly-levels JS ports, template fetch + stamping, SUV disambiguation picker.
 3. **Crate label (4×6)** — port label_generator layout, logo embedded, retire the Python ritual for VanLab orders.
 
 ## Out of scope
