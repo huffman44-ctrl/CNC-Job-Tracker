@@ -3,6 +3,7 @@
 **Date:** 2026-08-11
 **Status:** Approved direction, spec pending Travis's review
 **Phase 2 revision (2026-08-12, approved):** packing templates are served from Google Drive via the existing bridge (not Firebase Storage — avoids the Blaze billing requirement); packing lists print at the shop floor; SUV variant detection uses the assembly field only (no notes fallback — the picker covers the gap).
+**Phase 3 design (2026-08-12, approved):** crate label is purely client-side — no Apps Script or Firestore changes. QR code kept but its Status line dropped (status isn't in the lookup response and was only a print-time snapshot). Per-job persisted fields (deferred through Phases 1–2) are **dropped**, not implemented. Details in the "Crate label (4×6)" section.
 **Replaces:** the three local Python tools' *operation* (hardware_sticker_printer.py, packing_list_printer.py, label_generator.py in `Shop Management for VanLab/CNC-Kit-Management`) — the Python tools stay untouched until the web version reaches parity.
 
 ## Goal
@@ -57,13 +58,24 @@ Travis keeps editing `VanLab Sticker Map.xlsx` in Google Sheets. `import_sticker
 
 The 22 per-van template PDFs (`VAN_TO_PDF` in packing_map.py; 1.5 MB total, largest 174 KB) live in a **Google Drive folder Travis owns** — *not* the public repo (they're VanLab's proprietary product docs) and *not* Firebase Storage (enabling Storage now requires the billed Blaze plan; the files are far too small to justify it). The bridge gains a `getPackingPdf` action: verifies the caller's Firebase ID token (same helper as `lookupOrder`), accepts one exact filename, serves base64 PDF bytes **only from the designated folder** (folder ID is a live-script constant, `PASTE_*` placeholder in the repo template). No listing/enumeration action. Client resolution: `js/packing-map.js` ports packing_map.py's tables and honesty rules — VAN_TO_PDF, none-needed (van 40), conflicted (van 39 stays blocked until VanLab confirms numbering), SUV variants; header comment marks it as mirroring packing_map.py until the Python tool retires. The browser fetches the template and stamps it with pdf-lib, replicating `stamp.py`'s output (blue band, order | customer | Assembly, options line via a JS port of assembly_levels.py, same undecodable-assembly warning). Statuses mirror the Python tool: matched / none-needed / MISSING / AMBIGUOUS (SUV needs Full/Bed/Kitchen — panel shows a picker; auto-detected from the assembly field only, since the lookup deliberately doesn't return notes) / NOT FOUND. Nothing silently skipped. Template updates: replace the file in Drive — nothing to redeploy.
 
+### Crate label (4×6) — Phase 3 detail (designed 2026-08-12)
+
+Pure client-side port of `label_generator.py`'s `draw_label`. No bridge changes, no new Firestore collections/fields, no console steps — ship is merge + go-live push. Completes the sticker package and retires the Python crate-label ritual for VanLab orders once floor-verified.
+
+- **`js/crate-label-pdf.js`** (module pattern of `sticker-pdf.js`): 288×432 pt page. Top logo band, thin `#F2F2F2` rule, info block of four label/value lines — Kit (van name, 14 pt), Assembly # ("—" when blank, 12 pt), Order #, Date Packed — with the Python tool's greedy word-wrap for long values (e.g. the Sprinter 144" van name), gray divider, centered QR (1.9"), "Scan for full kit details" caption, dark-blue `#1F4E79` footer bar reading `Generated MM/DD/YYYY  |  VanLab`. Colors exact: `#1F4E79`, `#2E75B6`, `#F2F2F2`. Fonts: Helvetica / Helvetica-Bold via pdf-lib **StandardFonts** — no fontkit, no TTF embedding for this document. Date Packed = print date (client clock), matching the Python behavior.
+- **QR code:** vendor `qrcode-generator` (MIT, ~10 KB, zero deps) into `js/vendor/`, draw the module matrix directly as black squares with pdf-lib (no PNG encoding — less code, crisp at print resolution). Payload is the Python QR text **minus the `Status:` line**: order, van, assembly (or `N/A`), customer, packed date, same framing lines. Error correction M, matching the Python settings.
+- **Logo:** one-time prep step trims the whitespace off `vanlab_logo.png` (same <240 threshold + 6 px pad the Python tool applies at every run) and commits the result as base64 in `js/vanlab-logo.generated.js`; embedded via `embedPng`. Aspect-fit sizing ported as-is (max width W−0.6", max height 0.7"). VanLab's public branding — safe in the public repo, unlike the packing PDFs. If the logo bytes fail to embed, render the Python tool's "LOGO placeholder" box instead of failing the print.
+- **Panel wiring:** the Crate Label button activates when a lookup result is present; generates client-side and opens for printing on "CRATE LABEL 4x6". Lookup-failure fallback (as specced): manual van pick plus typed customer + assembly, since the label prints order fields; blank assembly renders "—".
+- **Persisted per-job fields: dropped** (decision 2026-08-12). Re-detect-on-open has cost nothing across two live phases; saving state would add Firestore writes plus the console-only rules gotcha for pure convenience.
+- **Tests:** wrap behavior on the long van name, exact QR payload string, layout constants and page size, logo-placeholder path when bytes are absent. Standing gates apply: side-by-side parity print vs. a Python-generated label for one real order, floor print on the real D450BT before Phase 3 is done.
+
 ### PDF rendering
 
 One library, **pdf-lib**, for all three documents (drawing + stamping + font embedding), vendored into the repo (no CDN — matches the app's self-contained pattern). Layouts are ported from the Python renderers (`sticker_render.py`, `label_generator.py`) using their existing PDFs as the visual reference. Fonts embedded as TTF (OFL-licensed, repo-safe); default is whatever the Python tools print with at build time — the Baloo 2 trial (order 1206) resolves in the Python tool first, and the web port copies the winner. Page sizes are exact: 1"×3" per sticker page, 4"×6" label, letter packing list — sized-to-stock PDFs print correctly at 100% scale on the dedicated printers.
 
 ### Data & rules
 
-- New per-job persisted fields (van-type override, resolved order number) ride on the existing project-metadata pattern in `storage.js`. *(Deferred through Phases 1-2 — the panel re-detects on every open, and a manual van pick lasts one panel session. Convenience-only; implement in Phase 3 or drop.)* ⚠️ CNC Firestore rules are **per-collection and console-only** — if a new collection is introduced, its allow line must be added manually in the console or writes silently no-op. Prefer extending an existing ruled collection.
+- New per-job persisted fields (van-type override, resolved order number): **dropped** (Phase 3 decision, 2026-08-12) — the panel re-detects on every open, and a manual van pick lasts one panel session; two live phases showed that's enough. ⚠️ CNC Firestore rules are **per-collection and console-only** — if a new collection is ever introduced, its allow line must be added manually in the console or writes silently no-op. Prefer extending an existing ruled collection.
 - No Firebase Storage and no new Firestore collections in Phase 2 — the only console-side deploy steps are pasting the Drive folder ID into the live Apps Script and redeploying it (Manage deployments → pencil → New version, NOT "New deployment").
 
 ### Error handling
@@ -93,7 +105,7 @@ Two 4×6-capable thermal printers (Omezizy D450BT, a Phomemo-family unit) — on
 
 1. **Hardware stickers** — bridge lookup + auth, sticker map export, 1×3 PDF rendering, print panel v1, real print test on the 1×3 thermal printer. Proves the whole pipeline.
 2. **Packing lists** — Drive folder upload, bridge `getPackingPdf` action, packing-map/assembly-levels JS ports, template fetch + stamping, SUV disambiguation picker.
-3. **Crate label (4×6)** — port label_generator layout, logo embedded, retire the Python ritual for VanLab orders.
+3. **Crate label (4×6)** — port label_generator layout, QR kept (no Status line), logo embedded, retire the Python ritual for VanLab orders. Client-side only — no bridge or console changes. (Detail: "Crate label (4×6)" section above.)
 
 ## Out of scope
 
