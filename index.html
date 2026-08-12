@@ -209,6 +209,7 @@
       </div>
       <div class="header-right">
         <button class="dark-toggle header-dark-toggle" id="dark-mode-btn" aria-label="Toggle dark mode"></button>
+        <button class="btn btn-ghost btn-sm" id="vanlab-print-btn">VanLab Stickers</button>
         <button class="btn btn-ghost btn-sm" id="export-btn">Export CSV</button>
         <button class="btn btn-danger btn-sm" id="reset-btn">Reset All</button>
         <button class="btn btn-ghost btn-sm" id="new-job-btn">New Job</button>
@@ -220,6 +221,15 @@
         <div id="progress-fill" class="progress-bar-fill" style="width:0%"></div>
       </div>
       <span id="progress-label" class="progress-label">0 of 0 complete</span>
+    </div>
+
+    <div id="vanlab-panel" class="vanlab-panel" hidden>
+      <div id="vanlab-status" class="vanlab-status"></div>
+      <div class="vanlab-actions">
+        <label class="form-label vanlab-van-label" for="vanlab-van-select" hidden>Van type</label>
+        <select id="vanlab-van-select" class="form-input vanlab-van-select" hidden></select>
+        <button class="btn btn-primary btn-sm" id="vanlab-stickers-btn" disabled>Print Hardware Stickers</button>
+      </div>
     </div>
 
     <div id="job-note-banner" class="job-note-banner" hidden>
@@ -389,13 +399,18 @@
 
   <script src="js/firebase-config.js?v=7"></script>
   <script src="js/endpoint-config.js?v=1"></script>
-  <script src="js/endpoint.js?v=2"></script>
+  <script src="js/endpoint.js?v=3"></script>
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
   <script src="js/storage.js?v=12"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/markup.js?v=4"></script>
-  <script src="js/auth.js?v=1"></script>
-  <script src="js/app.js?v=21"></script>
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/vendor/pdf-lib.min.js?v=1"></script>
+  <script src="js/vendor/fontkit.umd.min.js?v=1"></script>
+  <script src="js/sticker-map.generated.js?v=1"></script>
+  <script src="js/sticker-pdf.js?v=1"></script>
+  <script src="js/vanlab-print.js?v=1"></script>
+  <script src="js/app.js?v=22"></script>
 </body>
 </html>

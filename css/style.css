@@ -1757,3 +1757,13 @@ body {
   background: none; border: none; color: inherit;
   font-size: 20px; line-height: 1; cursor: pointer; padding: 0;
 }
+
+/* ── VanLab printing panel (content screen) ── */
+.vanlab-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 10px 20px; border-bottom: 1px solid var(--gray-200);
+}
+.vanlab-status { font-size: 0.85rem; }
+.vanlab-status-error { color: var(--red); font-weight: 600; }
+.vanlab-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.vanlab-van-select { max-width: 160px; }

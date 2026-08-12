@@ -753,6 +753,7 @@ function buildProjectCard(jobName, projectSheets) {
 
   card.addEventListener('click', () => {
     currentProject = jobName;
+    vanlabPanel.hidden = true;
     showContentScreen();
   });
 
@@ -1547,6 +1548,104 @@ async function doResetAll() {
   await Promise.all(displaySheets.map(s => Storage.clear(s.fileKey, 'sheet')));
   renderAllSheets();
 }
+
+/* ══════════════════════════════════════════
+   VanLab Printing (Phase 1: hardware stickers)
+══════════════════════════════════════════ */
+const vanlabPanel      = document.getElementById('vanlab-panel');
+const vanlabStatus     = document.getElementById('vanlab-status');
+const vanlabVanSelect  = document.getElementById('vanlab-van-select');
+const vanlabVanLabel   = document.querySelector('.vanlab-van-label');
+const vanlabPrintBtn   = document.getElementById('vanlab-stickers-btn');
+let vanlabOrder = null;        // lookup result for the open job, or null
+let vanlabFontBytes = null;    // cached Baloo 2 bytes
+
+function vanlabSetStatus(text, isError) {
+  vanlabStatus.textContent = text;
+  vanlabStatus.classList.toggle('vanlab-status-error', !!isError);
+}
+
+function vanlabShowManualPicker() {
+  const vans = Object.keys(STICKER_MAP.vanStickers)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  vanlabVanSelect.innerHTML = '<option value="">— pick van type —</option>'
+    + vans.map(v => `<option value="${v}">Van ${v}</option>`).join('');
+  vanlabVanSelect.hidden = false;
+  vanlabVanLabel.hidden = false;
+  vanlabPrintBtn.disabled = true;
+  vanlabVanSelect.onchange = () => { vanlabPrintBtn.disabled = !vanlabVanSelect.value; };
+}
+
+async function vanlabOpenPanel() {
+  vanlabPanel.hidden = !vanlabPanel.hidden;
+  if (vanlabPanel.hidden) return;
+  vanlabOrder = null;
+  vanlabVanSelect.hidden = true;
+  vanlabVanLabel.hidden = true;
+  vanlabPrintBtn.disabled = true;
+
+  const fileNames = sheets.filter(s => projectKey(s) === currentProject).map(s => s.fileName);
+  const { orderNum, conflict } = VanlabPrint.extractOrderNumber(fileNames);
+
+  if (conflict) {
+    vanlabSetStatus(`This job's sheets disagree about the order number (${conflict.join(' vs ')}) — fix the uploads, or pick the van type by hand:`, true);
+    vanlabShowManualPicker();
+    return;
+  }
+  if (!orderNum) {
+    vanlabSetStatus("No order number found in this job's file names — pick the van type by hand:");
+    vanlabShowManualPicker();
+    return;
+  }
+
+  vanlabSetStatus(`Order ${orderNum} — looking up the Order Log…`);
+  try {
+    const idToken = await Auth.getIdToken();
+    const order = await Endpoint.lookupOrder(orderNum, idToken);
+    if (!order) {   // endpoint not configured (offline/test copy)
+      vanlabSetStatus('Order lookup is not configured on this copy — pick the van type by hand:', true);
+      vanlabShowManualPicker();
+      return;
+    }
+    vanlabOrder = order;
+    vanlabSetStatus(`Order ${order.orderNum} — Van ${order.vanRaw || '?'} — ${order.customer || 'no customer'}${order.assembly ? ' — kit ' + order.assembly : ''}`);
+    vanlabPrintBtn.disabled = false;
+  } catch (err) {
+    const why = err.endpointError ? err.message : 'the Order Log lookup is unreachable';
+    vanlabSetStatus(`Couldn't look up order ${orderNum} — ${why}. Pick the van type by hand:`, true);
+    vanlabShowManualPicker();
+  }
+}
+
+async function vanlabPrintStickers() {
+  const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
+  const res = VanlabPrint.resolveStickers(vanKey, STICKER_MAP);
+  if (res.status !== 'matched') {
+    vanlabSetStatus(`Can't print: ${res.reason}. The Sticker Map sheet has no rows tagged for this van.`, true);
+    return;
+  }
+  vanlabPrintBtn.disabled = true;
+  vanlabSetStatus('Building the sticker PDF…');
+  try {
+    if (!vanlabFontBytes) {
+      const resp = await fetch('assets/fonts/Baloo2-SemiBold.ttf');
+      if (!resp.ok) throw new Error('font file missing');
+      vanlabFontBytes = new Uint8Array(await resp.arrayBuffer());
+    }
+    const bytes = await StickerPdf.buildStickerPdf(res.items, STICKER_MAP.stickers, vanlabFontBytes);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    window.open(url, '_blank');
+    const count = res.items.reduce((n, [, q]) => n + q, 0);
+    vanlabSetStatus(`${count} stickers ready — print the opened PDF on the STICKERS 1x3 printer at 100% scale.`);
+  } catch (err) {
+    vanlabSetStatus(`Couldn't build the sticker PDF — ${err.message}`, true);
+  } finally {
+    vanlabPrintBtn.disabled = false;
+  }
+}
+
+document.getElementById('vanlab-print-btn').addEventListener('click', vanlabOpenPanel);
+vanlabPrintBtn.addEventListener('click', vanlabPrintStickers);
 
 /* ══════════════════════════════════════════
    Helpers
