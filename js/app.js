@@ -1574,13 +1574,21 @@ function vanlabSetStatus(text, isError) {
 }
 
 function vanlabShowManualPicker() {
-  const vans = Object.keys(STICKER_MAP.vanStickers)
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  // Union of sticker-mapped vans and packing-capable vans: the two features
+  // don't cover the same vans (e.g. SUV01/44 have packing lists but no
+  // sticker rows, van 40 has stickers but no packing list), so the picker
+  // has to offer both sets and let each feature give its own honest error
+  // for the vans it doesn't cover.
+  const vans = Array.from(new Set([
+    ...Object.keys(STICKER_MAP.vanStickers),
+    ...PackingMap.knownVanKeys(),
+  ])).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   vanlabVanSelect.innerHTML = '<option value="">— pick van type —</option>'
     + vans.map(v => `<option value="${v}">Van ${v}</option>`).join('');
   vanlabVanSelect.hidden = false;
   vanlabVanLabel.hidden = false;
   vanlabPrintBtn.disabled = true;
+  vanlabPackingBtn.disabled = true;
   vanlabVanSelect.onchange = () => {
     vanlabPrintBtn.disabled = !vanlabVanSelect.value;
     vanlabPackingBtn.disabled = !vanlabVanSelect.value;
@@ -1695,6 +1703,11 @@ async function vanlabPrintPacking() {
 
   vanlabPackingBtn.disabled = true;
   vanlabSetStatus(`Fetching the packing list for van ${vanKey}…`);
+  // Tracks which stage we're in so the catch below can report honestly:
+  // 'fetch' covers the network round-trip, 'stamp' covers decoding the
+  // base64 template and running it through pdf-lib, which fails
+  // differently (corrupt/protected PDF, not a network problem).
+  let stage = 'fetch';
   try {
     const idToken = await Auth.getIdToken();
     if (ep !== vanlabEpoch) return;
@@ -1704,6 +1717,7 @@ async function vanlabPrintPacking() {
       vanlabSetStatus('Packing-list fetch is not configured on this copy.', true);
       return;
     }
+    stage = 'stamp';
     const template = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     vanlabSetStatus('Stamping the packing list…');
     const bytes = await PackingPdf.stampPdf(template, order);
@@ -1717,8 +1731,12 @@ async function vanlabPrintPacking() {
     }
     vanlabSetStatus(`Packing list${order.orderNum ? ' for order ' + order.orderNum : ''} ready — print the opened PDF on the shop-floor letter printer at 100% scale.`);
   } catch (err) {
-    const why = err.endpointError ? err.message : 'network problem — is the internet up?';
-    vanlabSetStatus(`Couldn't fetch the packing list — ${why}`, true);
+    if (stage === 'fetch') {
+      const why = err.endpointError ? err.message : 'network problem — is the internet up?';
+      vanlabSetStatus(`Couldn't fetch the packing list — ${why}`, true);
+    } else {
+      vanlabSetStatus(`Couldn't stamp the packing list — the template PDF may be corrupt or protected — ${err.message}`, true);
+    }
   } finally {
     if (ep === vanlabEpoch) vanlabPackingBtn.disabled = false;
   }

@@ -80,5 +80,17 @@ const PackingMap = (() => {
     return { status: 'missing', file: null, reason: 'no packing list mapped for van ' + vanKey };
   }
 
-  return { resolve, SUV_VARIANTS };
+  // Every van key this module can produce a packing list decision for
+  // (matched, none_needed, or the SUV picker path) — used by the manual
+  // van-fallback picker so it isn't limited to whatever the Sticker Map
+  // happens to cover.
+  function knownVanKeys() {
+    return Array.from(new Set([
+      ...Object.keys(VAN_TO_PDF),
+      ...Object.keys(NONE_NEEDED_VANS),
+      'SUV01',
+    ]));
+  }
+
+  return { resolve, SUV_VARIANTS, knownVanKeys };
 })();

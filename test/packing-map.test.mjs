@@ -82,3 +82,12 @@ test('every SUV_VARIANTS value is a .pdf filename', () => {
   assert.deepEqual(Object.keys(plain(v)).sort(), ['bed', 'full', 'kitchen']);
   for (const f of Object.values(plain(v))) assert.match(f, /\.pdf$/);
 });
+
+test('knownVanKeys covers packing-capable vans the Sticker Map does not, like SUV01 and 44', () => {
+  const keys = plain(load().knownVanKeys());
+  assert.ok(keys.includes('SUV01'), 'SUV01 should be a known van');
+  assert.ok(keys.includes('44'), 'van 44 should be a known van');
+  assert.ok(keys.includes('13'), 'a normal mapped van should still be known');
+  assert.ok(keys.includes('40'), 'a none_needed van should still be known');
+  assert.equal(new Set(keys).size, keys.length, 'no duplicate keys');
+});
