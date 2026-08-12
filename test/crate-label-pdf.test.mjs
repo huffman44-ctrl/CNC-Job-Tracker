@@ -64,11 +64,19 @@ test('real logo bytes embed without error', async () => {
   vm.runInContext(read('js/vanlab-logo.generated.js') + '\nthis.VanlabLogo = VanlabLogo;', ctx2);
   const logoBytes = new Uint8Array(Buffer.from(ctx2.VanlabLogo.pngBase64, 'base64'));
   const bytes = await c.buildCrateLabelPdf(ORDER, logoBytes);
-  assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
+  const text = new TextDecoder('latin1').decode(bytes);
+  assert.equal(text.slice(0, 5), '%PDF-');
+  // useObjectStreams: false keeps objects uncompressed, so a real embedded
+  // logo shows up as an image XObject in the raw bytes — unlike the
+  // placeholder fallback, which draws vector shapes only. This distinguishes
+  // "logo actually embedded" from "silently fell back to the placeholder".
+  assert.match(text, /\/Subtype\s*\/Image/);
 });
 
 test('garbage logo bytes fall back to the placeholder instead of throwing', async () => {
   const c = load();
   const bytes = await c.buildCrateLabelPdf(ORDER, new Uint8Array([1, 2, 3, 4]));
-  assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
+  const text = new TextDecoder('latin1').decode(bytes);
+  assert.equal(text.slice(0, 5), '%PDF-');
+  assert.doesNotMatch(text, /\/Subtype\s*\/Image/);
 });

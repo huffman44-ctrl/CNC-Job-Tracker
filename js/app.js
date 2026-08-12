@@ -1764,8 +1764,13 @@ function vanlabToday() {
 }
 
 async function vanlabPrintCrate() {
+  const ep = vanlabEpoch;
   let order;
   if (vanlabOrder) {
+    if (!vanlabOrder.vanRaw && !vanlabOrder.vanKey) {
+      vanlabSetStatus(`The Order Log row for order ${vanlabOrder.orderNum} has no van type yet — fill it in on the Order Log, then reopen this panel.`, true);
+      return;
+    }
     order = {
       orderNum: vanlabOrder.orderNum || '',
       vanName: vanlabOrder.vanRaw || ('Van ' + vanlabOrder.vanKey),
@@ -1809,7 +1814,7 @@ async function vanlabPrintCrate() {
   } catch (err) {
     vanlabSetStatus(`Couldn't build the crate label — ${err.message}`, true);
   } finally {
-    vanlabCrateBtn.disabled = false;
+    if (ep === vanlabEpoch) vanlabCrateBtn.disabled = false;
   }
 }
 
