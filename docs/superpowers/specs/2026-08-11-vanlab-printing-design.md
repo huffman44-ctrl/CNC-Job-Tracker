@@ -63,7 +63,7 @@ One library, **pdf-lib**, for all three documents (drawing + stamping + font emb
 
 ### Data & rules
 
-- New per-job persisted fields (van-type override, resolved order number) ride on the existing project-metadata pattern in `storage.js`. ⚠️ CNC Firestore rules are **per-collection and console-only** — if a new collection is introduced, its allow line must be added manually in the console or writes silently no-op. Prefer extending an existing ruled collection.
+- New per-job persisted fields (van-type override, resolved order number) ride on the existing project-metadata pattern in `storage.js`. *(Deferred through Phases 1-2 — the panel re-detects on every open, and a manual van pick lasts one panel session. Convenience-only; implement in Phase 3 or drop.)* ⚠️ CNC Firestore rules are **per-collection and console-only** — if a new collection is introduced, its allow line must be added manually in the console or writes silently no-op. Prefer extending an existing ruled collection.
 - No Firebase Storage and no new Firestore collections in Phase 2 — the only console-side deploy steps are pasting the Drive folder ID into the live Apps Script and redeploying it (Manage deployments → pencil → New version, NOT "New deployment").
 
 ### Error handling
