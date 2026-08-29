@@ -1664,6 +1664,42 @@ body {
   .sheet-nav-row.selected { border-top-color: var(--orange); border-left: none; }
 }
 
+/* ── Phone (≤600px) ──
+   Three root causes on iPhone widths, each fixed once here:
+   1. .header-right is flex-shrink:0 with nowrap buttons → header wider than
+      the viewport, page scrolls sideways, last button cut off.
+   2. .detail-hero-top never wraps → the Add Note / Delete Sheet buttons squeeze
+      .detail-titles to a few px and the title renders one letter per line.
+   3. .auth-bar is position:fixed with nothing reserving space under the page
+      → it sits on top of the search box / sort control at the bottom. */
+@media (max-width: 600px) {
+  .app-header {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    row-gap: 6px;
+  }
+  .header-right {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .detail-hero { padding: 20px 16px 18px; }
+  .detail-hero-top { flex-wrap: wrap; }
+  .detail-titles { flex: 1 1 180px; }
+  .content-main { padding-bottom: 90px; }
+  .auth-bar {
+    left: 12px; right: 12px; bottom: 12px;
+    justify-content: space-between;
+  }
+  .auth-bar-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+}
+
 /* ── Job ticket — printed at CSV export, 4x6 thermal (Rollo) ────────────── */
 .job-ticket { display: none; }
 
