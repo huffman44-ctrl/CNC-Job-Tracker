@@ -1702,6 +1702,10 @@ body {
      focus, and the zoom sticks after you leave it — the page then pans
      left/right under your thumb. 16px on phones stops the zoom. */
   .filter-search, .filter-sort, .form-input { font-size: 16px; }
+  /* The desktop grid's minmax(360px, 1fr) is a hard floor — on phones that
+     report under 392px wide (Display Zoom, mini/SE) the cards overflow the
+     screen and the page scrolls sideways. One column, no floor. */
+  .projects-grid { grid-template-columns: 1fr; }
 }
 
 /* ── Job ticket — printed at CSV export, 4x6 thermal (Rollo) ────────────── */
