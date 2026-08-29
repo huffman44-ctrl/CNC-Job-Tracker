@@ -1698,6 +1698,10 @@ body {
     text-overflow: ellipsis;
     min-width: 0;
   }
+  /* iOS Safari auto-zooms the whole page when a text box under 16px gets
+     focus, and the zoom sticks after you leave it — the page then pans
+     left/right under your thumb. 16px on phones stops the zoom. */
+  .filter-search, .filter-sort, .form-input { font-size: 16px; }
 }
 
 /* ── Job ticket — printed at CSV export, 4x6 thermal (Rollo) ────────────── */
