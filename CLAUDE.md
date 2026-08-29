@@ -38,7 +38,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
   1. **Loading** — shown while Firebase connects
   2. **Projects directory** — grid of project cards (one per distinct `jobName`), each showing progress %, complete/in-progress/incomplete stat chips, an optional note preview, Add Note / Open / Delete (trash icon) actions
   3. **Upload** — drag-drop or browse for HTML files
-  4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Export CSV, Reset All, New Job
+  4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Export CSV, Reset All (the old "New Job" wipe-everything button was removed 2026-08-29 — + Upload Job on the Projects screen is how jobs are added)
   - Secondary screens reached from the Projects directory header: **Ticket History** (searchable list of past export/print records) and **Manage Customers** (`showManageCustomersScreen()`/`renderCustomersList()` — add, rename, delete customer directory entries)
 - **Storage** (`js/storage.js`) — thin wrapper over Firestore with a synchronous local cache so the UI never blocks on network:
   - `sheets/{fileKey}` — parsed sheet data plus `archiveUrl` (Drive link to the archived HTML, set post-upload) (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`/`setArchiveUrl`/`onSheetsChange` realtime listener — added 2026-07-17 after shop-computer CSV exports missed sheets uploaded while the page sat open; the listener sorts client-side by `uploadedAt` instead of query `orderBy`, which would silently drop docs missing the field)
@@ -78,7 +78,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - 3-state sheet completion (Incomplete → In Progress → Complete) with Mark Complete modal (date/time, operator dropdown Collin/Travis/Other, notes) and Clear Record confirmation
 - Progress bar per project; live cross-device sync via Firestore for sheets, completions, and notes
 - Dark mode toggle (persisted locally per device)
-- Export CSV, Reset All, New Job / back-to-projects navigation
+- Export CSV, Reset All / back-to-projects navigation
 - Per-sheet instruction notes, editable from either the project card modal or an Add Note/Edit Note button in the sheet detail header (read-only callout + sidebar icon for the operator) + job-note banner in sheet view; both live-synced
 - Export CSV prompts for a customer (Manage Customers-backed picker, `openCustomerPicker`), tags the project with it, and writes a 9-column per-job CSV to `CNC Job Exports/<sanitized customer name>/...csv` (adds a `Customer` column, via `js/path-utils.js`); the Master Job Log append is 10 columns (same 9 plus the archive-link column — column 9 links each row's archived HTML in Drive, column 10 is Customer); uploads are archived to Job Sheet Archive/<job>/ (still job-only, not customer-scoped) — both via the Apps Script endpoint, active only once `endpoint-config.js` has real values
 

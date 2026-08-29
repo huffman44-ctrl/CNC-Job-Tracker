@@ -137,7 +137,6 @@ document.body.addEventListener('drop', e => {
 fileInput.addEventListener('change', e => { handleFiles(e.target.files, true);  fileInput.value = ''; });
 addFileInput.addEventListener('change', e => { handleFiles(e.target.files, false); addFileInput.value = ''; });
 
-document.getElementById('new-job-btn').addEventListener('click', resetToUpload);
 document.getElementById('export-btn').addEventListener('click', doExport);
 document.getElementById('reset-btn').addEventListener('click', doResetAll);
 document.getElementById('modal-cancel').addEventListener('click', closeModal);
@@ -258,25 +257,6 @@ function handleFiles(fileList, isFirstLoad) {
     };
     reader.readAsText(file);
   }
-}
-
-async function resetToUpload() {
-  if (!confirm('Start a new job? This clears all loaded sheets and completion records for everyone.')) return;
-  await Promise.all([
-    Storage.clearSheets(),
-    Storage.clearAllCompletions(),
-    ...sheets.map(s => Storage.setSheetNote(s.fileKey, '')),
-    ...sheets.map(s => Storage.setAnnotations(s.fileKey, [])),
-  ]);
-  sheets         = [];
-  currentProject = null;
-  sheetNavEl.innerHTML = '';
-  sheetDetailEl.innerHTML = '';
-  fileListEl.innerHTML = '';
-  fileListEl.hidden    = true;
-  contentScreen.hidden  = true;
-  projectsScreen.hidden = true;
-  uploadScreen.hidden   = false;
 }
 
 function goToUpload() {
