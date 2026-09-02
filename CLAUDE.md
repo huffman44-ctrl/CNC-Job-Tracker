@@ -69,20 +69,11 @@ If you ever suspect a test run touched production, check the `sheets` collection
 - SVG insertion in `buildSheetDetail` is wrapped in try-catch so any SVG error doesn't prevent toolpaths from rendering
 - Project card header text wrapper has `min-width: 0` + `.project-card-name` has `overflow-wrap: break-word` — without this, a long job name with no spaces (no soft wrap point) forces the flex header row wider than the card, pushing the delete button past the card's `overflow: hidden` edge and making it disappear
 
-## Current status (as of 2026-07-17)
-### Working
-- File upload (drag-drop + browse), multi-file support, "Add More Sheets" within a project
-- Projects directory screen: progress %, stat chips, per-project notes, delete project
-- Sheets always render in numeric order based on the sheet number in the filename
-- Master-detail sheet view with sheet title, total time chip, material info strip, Material Border SVG, toolpath rows
-- 3-state sheet completion (Incomplete → In Progress → Complete) with Mark Complete modal (date/time, operator dropdown Collin/Travis/Other, notes) and Clear Record confirmation
-- Progress bar per project; live cross-device sync via Firestore for sheets, completions, and notes
-- Dark mode toggle (persisted locally per device)
-- Export CSV, Reset All / back-to-projects navigation
-- Per-sheet instruction notes, editable from either the project card modal or an Add Note/Edit Note button in the sheet detail header (read-only callout + sidebar icon for the operator) + job-note banner in sheet view; both live-synced
-- Export CSV prompts for a customer (Manage Customers-backed picker, `openCustomerPicker`), tags the project with it, and writes a 9-column per-job CSV to `CNC Job Exports/<sanitized customer name>/...csv` (adds a `Customer` column, via `js/path-utils.js`); the Master Job Log append is 10 columns (same 9 plus the archive-link column — column 9 links each row's archived HTML in Drive, column 10 is Customer); uploads are archived to Job Sheet Archive/<job>/ (still job-only, not customer-scoped) — both via the Apps Script endpoint, active only once `endpoint-config.js` has real values
+## Where the status lives
 
-### Operators configured in modal
+**Current status, shipped features and history are in the vault note** `Brain\Projects\CNC Job Tracker.md`, not here. A rules file that accumulates status goes stale and stops being trusted — this section used to hold a feature inventory frozen at 2026-07-17.
+
+## Operators configured in modal
 - Collin (default)
 - Travis
 - Other... (free-text input)
