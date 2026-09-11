@@ -10,7 +10,8 @@ CNC_WebApp/
 ├── css/style.css               — all styles; CSS custom properties for color tokens; dark mode via [data-theme]
 ├── js/parser.js                 — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }; simpleHash(str)
 ├── js/path-utils.js             — sanitizeForPath(name) helper; builds safe folder names for customer-named export paths
-├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/ collections) with in-memory cache for sync reads
+├── js/sequence.js               — generateSequence(prefix, start, end) for the To Print panel: numeric or doubling-alpha (A…Z, AA, BB…), cap 500; parseLines, rangeLabel
+├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, printQueue/ collections) with in-memory cache for sync reads
 ├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
 ├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
 ├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, appends rows to the Master Job Log on export
@@ -36,7 +37,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 ## Architecture
 - **Screens** (`index.html`, toggled via `hidden` attribute, driven by `showProjectsScreen()` / `goToUpload()` / `showContentScreen()` in app.js):
   1. **Loading** — shown while Firebase connects
-  2. **Projects directory** — grid of project cards (one per distinct `jobName`), each showing progress %, complete/in-progress/incomplete stat chips, an optional note preview, Add Note / Open / Delete (trash icon) actions
+  2. **Projects directory** — grid of project cards (one per distinct `jobName`), each showing progress %, complete/in-progress/incomplete stat chips, an optional note preview, Add Note / Open / Delete (trash icon) actions; a **To Print** header button opens a collapsed print-queue panel (list of queued sticker batches for the shop floor, + New batch builder) — spec in docs/superpowers/specs/2026-09-10-print-queue-design.md
   3. **Upload** — drag-drop or browse for HTML files
   4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Export CSV, Reset All (the old "New Job" wipe-everything button was removed 2026-08-29 — + Upload Job on the Projects screen is how jobs are added)
   - Secondary screens reached from the Projects directory header: **Ticket History** (searchable list of past export/print records) and **Manage Customers** (`showManageCustomersScreen()`/`renderCustomersList()` — add, rename, delete customer directory entries)
