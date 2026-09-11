@@ -1848,6 +1848,7 @@ body {
 }
 .pq-drop-browse { color: var(--orange); cursor: pointer; text-decoration: underline; }
 .print-queue-panel.pq-drop--over .pq-drop { border-color: var(--orange); color: var(--orange); background: var(--orange-light); }
+.print-queue-panel.pq-drop--over { outline: 2px dashed var(--orange); outline-offset: -4px; }
 .pq-doc-staged { display: flex; align-items: center; gap: 10px; }
 @media (max-width: 480px) {
   .print-queue-panel { padding: 10px 12px 12px; }

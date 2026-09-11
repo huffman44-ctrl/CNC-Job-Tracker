@@ -20,7 +20,7 @@ CNC_WebApp/
 ├── package.json                 — `npm run serve` → `npx serve .` (no build step needed)
 ├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root (not in samples/)
 ├── samples/                    — gitignored; local-only scratch space for test HTML files, not committed
-└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append); pasted into script.google.com, not executed from the repo + print-queue uploadDoc/getDoc (Drive folder "CNC Print Queue" self-created on first upload, id kept in a script property)
+└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append + print-queue uploadDoc/getDoc — Drive folder "CNC Print Queue" self-created on first upload, id kept in a script property); pasted into script.google.com, not executed from the repo
 ```
 
 ## ⚠️ Testing safety — read before running this app

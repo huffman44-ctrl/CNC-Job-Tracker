@@ -1918,6 +1918,7 @@ async function pqPrintDocument(item, button) {
   button.disabled = true;
   pqSetStatus(`Fetching ${name}…`);
   try {
+    if (!Endpoint.enabled()) throw new Error('endpoint not configured');
     const idToken = await Auth.getIdToken();
     const b64 = await Endpoint.getDoc(item.fileId, idToken);
     if (!b64) throw new Error('endpoint not configured');
@@ -1948,7 +1949,8 @@ async function pqMarkPrinted(item, button) {
   button.disabled = true;
   try {
     await Storage.markPrinted(item.id);
-    pqSetStatus(`${Sequence.rangeLabel(item.lines)} marked printed.`);
+    const what = item.kind === 'document' ? (item.fileName || 'document') : Sequence.rangeLabel(item.lines);
+    pqSetStatus(`${what} marked printed.`);
     renderPrintQueue();
   } catch (err) {
     // Row stays in the list; the real reason is the message.
@@ -2053,6 +2055,7 @@ const pqDocSendBtn = document.getElementById('pq-doc-send-btn');
 const PQ_DOC_MAX_BYTES = 10 * 1024 * 1024;
 let pqDoc = null;   // staged { file, bytes, pages, size } — nothing uploads until Send
 let pqDocSending = false;   // true while pqDocSend is awaiting; blocks drops/Clear from racing it
+let pqStageSeq = 0;   // bumped on every pqStageFile call; lets the latest drop win over a stale one
 
 function pqDocShowError(msg) {
   pqDocError.textContent = msg;
@@ -2087,6 +2090,7 @@ function pqDocReset() {
 
 async function pqStageFile(file) {
   if (pqDocSending) return;
+  const my = ++pqStageSeq;
   pqDocShowError('');
   pqDocReset();
   if (!file) return;
@@ -2096,6 +2100,7 @@ async function pqStageFile(file) {
     return;
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
+  if (my !== pqStageSeq) return;
   if (!DocInfo.isPdf(bytes)) { pqDocShowError("That isn't a PDF."); return; }
   let info;
   try {
@@ -2104,6 +2109,7 @@ async function pqStageFile(file) {
     pqDocShowError(`Couldn't read ${file.name} — is it encrypted?`);
     return;
   }
+  if (my !== pqStageSeq) return;
   pqDoc = { file, bytes, pages: info.pages, size: DocInfo.sizeFor(info.width, info.height) };
   pqDocRender();
 }
@@ -2137,6 +2143,7 @@ async function pqDocSend() {
   pqDocShowError('');
   pqSetStatus(`Uploading ${name}…`);
   try {
+    if (!Endpoint.enabled()) throw new Error('endpoint not configured');
     const user = app ? app.auth().currentUser : null;
     const idToken = await Auth.getIdToken();
     const fileId = await Endpoint.uploadDoc(name, base64, idToken);
