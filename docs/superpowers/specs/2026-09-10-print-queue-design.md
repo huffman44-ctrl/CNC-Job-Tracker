@@ -1,7 +1,7 @@
 # Print Queue — Design
 
 **Status:** designed 2026-09-10, reviewed against the code 2026-09-10 (7 corrections
-folded in, see *Review notes* at the end) — Phase 1 implemented 2026-09-10 on branch print-queue (plan: ../plans/2026-09-10-print-queue-phase1.md); Phase 3 (documents) amended 2026-09-11 and approved by Travis — see *Phase 3 amendment* at the end; Phase 2 not started
+folded in, see *Review notes* at the end) — Phase 1 implemented 2026-09-10 on branch print-queue (plan: ../plans/2026-09-10-print-queue-phase1.md); Phase 3 (documents) implemented 2026-09-11 on branch print-queue-docs (plan: ../plans/2026-09-11-print-queue-phase3-documents.md) — live script redeploy pending; Phase 2 not started
 **Brainstormed with:** Travis
 **Depends on:** `js/sticker-pdf.js`, `js/endpoint.js`, `js/storage.js`, `js/auth.js`
 
