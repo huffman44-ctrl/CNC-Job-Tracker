@@ -288,6 +288,7 @@ function showProjectsScreen() {
   customersScreen.hidden     = true;
   projectsScreen.hidden      = false;
   renderProjects();
+  renderPrintQueue();
 }
 
 function showLoginScreen() {
@@ -1554,6 +1555,15 @@ let vanlabLastBlobUrl = null;  // last sticker-PDF object URL, revoked before a 
 let vanlabPackingBlobUrl = null;  // last packing-PDF object URL, revoked before a new one
 let vanlabCrateBlobUrl = null;  // last crate-label object URL, revoked before a new one
 
+async function loadBalooFont() {
+  if (!vanlabFontBytes) {
+    const resp = await fetch('assets/fonts/Baloo2-SemiBold.ttf');
+    if (!resp.ok) throw new Error('font file missing');
+    vanlabFontBytes = new Uint8Array(await resp.arrayBuffer());
+  }
+  return vanlabFontBytes;
+}
+
 function vanlabSetStatus(text, isError) {
   vanlabStatus.textContent = text;
   vanlabStatus.classList.toggle('vanlab-status-error', !!isError);
@@ -1651,12 +1661,7 @@ async function vanlabPrintStickers() {
   vanlabPrintBtn.disabled = true;
   vanlabSetStatus('Building the sticker PDF…');
   try {
-    if (!vanlabFontBytes) {
-      const resp = await fetch('assets/fonts/Baloo2-SemiBold.ttf');
-      if (!resp.ok) throw new Error('font file missing');
-      vanlabFontBytes = new Uint8Array(await resp.arrayBuffer());
-    }
-    const bytes = await StickerPdf.buildStickerPdf(res.items, STICKER_MAP.stickers, vanlabFontBytes);
+    const bytes = await StickerPdf.buildStickerPdf(res.items, STICKER_MAP.stickers, await loadBalooFont());
     if (vanlabLastBlobUrl) URL.revokeObjectURL(vanlabLastBlobUrl);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     vanlabLastBlobUrl = url;
@@ -1804,6 +1809,132 @@ vanlabPackingBtn.addEventListener('click', vanlabPrintPacking);
 vanlabCrateBtn.addEventListener('click', vanlabPrintCrate);
 
 /* ══════════════════════════════════════════
+   Print Queue — the "To Print" panel (projects screen)
+   Spec: docs/superpowers/specs/2026-09-10-print-queue-design.md
+══════════════════════════════════════════ */
+const printQueueBtn         = document.getElementById('print-queue-btn');
+const printQueuePanel       = document.getElementById('print-queue-panel');
+const printQueueStatus      = document.getElementById('print-queue-status');
+const printQueueList        = document.getElementById('print-queue-list');
+const printQueueShowPrinted = document.getElementById('print-queue-show-printed');
+let pqLastBlobUrl = null;   // last queue-PDF object URL, revoked before a new one
+
+// Page size / font ceiling / printer name per sticker size (spec § PDF rendering).
+const PQ_SIZES = {
+  '3x1': { width: 3 * 72, height: 1 * 72, startSize: 60,  printer: 'STICKERS 1x3' },
+  '4x6': { width: 4 * 72, height: 6 * 72, startSize: 140, printer: 'CRATE LABEL 4x6' },
+};
+
+// Firebase only gives us the sign-in email. Map the two operators to the
+// names they go by; anything else falls back to the part before the @.
+const PQ_DISPLAY_NAMES = {
+  // 'travis@example.com': 'Travis',
+  // 'collin@example.com': 'Collin',
+};
+function pqDisplayName(email) {
+  if (!email) return 'Someone';
+  return PQ_DISPLAY_NAMES[email.toLowerCase()] || email.split('@')[0];
+}
+
+function pqSetStatus(text, isError) {
+  printQueueStatus.textContent = text;
+  printQueueStatus.classList.toggle('vanlab-status-error', !!isError);
+}
+
+function pqTitle(item) {
+  const label = item.lines.length === 1 ? item.lines[0] : `${item.lines[0]}-${item.lines[item.lines.length - 1]}`;
+  return `${label} · ${item.size} · ${item.lines.length} stickers`;
+}
+
+function renderPrintQueue() {
+  const open = Storage.getPrintQueue();
+  printQueueBtn.textContent = open.length ? `To Print (${open.length})` : 'To Print';
+  if (printQueuePanel.hidden) return;
+
+  const showPrinted = printQueueShowPrinted.checked;
+  const items = showPrinted ? Storage.getPrintedItems() : open;
+  if (!items.length) {
+    printQueueList.innerHTML = `<div class="print-queue-empty">${showPrinted ? 'Nothing printed yet.' : 'Nothing waiting to print.'}</div>`;
+    return;
+  }
+  printQueueList.innerHTML = items.map(item => {
+    const spec = PQ_SIZES[item.size];
+    const count = item.lines.length;
+    const when = item.createdAt ? formatDT(new Date(item.createdAt)) : '';
+    const printedNote = item.printedAt ? ` · printed ${formatDT(new Date(item.printedAt))}` : '';
+    return `
+      <div class="pq-row" data-id="${escHtml(item.id)}">
+        <div class="pq-row-main">
+          <span class="pq-row-what">${escHtml(Sequence.rangeLabel(item.lines))}</span>
+          <span class="pq-row-meta">${count} sticker${count !== 1 ? 's' : ''} · ${escHtml(item.size)}${item.jobName ? ' · ' + escHtml(item.jobName) : ''} · ${escHtml(pqDisplayName(item.createdBy))} · ${escHtml(when)}${printedNote}</span>
+        </div>
+        <div class="pq-row-actions">
+          <div>
+            <button class="btn btn-primary btn-sm" data-action="print">Print ${count} sticker${count !== 1 ? 's' : ''} → ${escHtml(spec ? spec.printer : item.size)}</button>
+            <div class="pq-row-hint">100% scale · margins none</div>
+          </div>
+          ${item.printedAt ? '' : '<button class="btn btn-ghost btn-sm" data-action="printed">Printed</button>'}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function pqPrint(item, button) {
+  const spec = PQ_SIZES[item.size];
+  if (!spec) { pqSetStatus(`Can't print: unknown size ${item.size}.`, true); return; }
+  button.disabled = true;
+  pqSetStatus('Building the sticker PDF…');
+  try {
+    const texts = {};
+    const items = item.lines.map((line, i) => { texts[i] = line; return [i, 1]; });
+    const bytes = await StickerPdf.buildStickerPdf(items, texts, await loadBalooFont(),
+      { width: spec.width, height: spec.height, startSize: spec.startSize, title: pqTitle(item) });
+    if (pqLastBlobUrl) URL.revokeObjectURL(pqLastBlobUrl);
+    pqLastBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    if (!window.open(pqLastBlobUrl, '_blank')) {
+      pqSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      return;
+    }
+    pqSetStatus(`${item.lines.length} stickers ready — print the opened PDF on the ${spec.printer} printer at 100% scale.`);
+  } catch (err) {
+    pqSetStatus(`Couldn't build the sticker PDF — ${err.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function pqMarkPrinted(item, button) {
+  button.disabled = true;
+  try {
+    await Storage.markPrinted(item.id);
+    pqSetStatus(`${Sequence.rangeLabel(item.lines)} marked printed.`);
+    renderPrintQueue();
+  } catch (err) {
+    // Row stays in the list; the real reason is the message.
+    pqSetStatus(`Couldn't mark it printed — ${err.message}. Try again.`, true);
+    button.disabled = false;
+  }
+}
+
+printQueueList.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.closest('.pq-row').dataset.id;
+  const item = [...Storage.getPrintQueue(), ...Storage.getPrintedItems()].find(i => i.id === id);
+  if (!item) return;
+  if (btn.dataset.action === 'print') pqPrint(item, btn);
+  if (btn.dataset.action === 'printed') pqMarkPrinted(item, btn);
+});
+
+printQueueBtn.addEventListener('click', () => {
+  printQueuePanel.hidden = !printQueuePanel.hidden;
+  pqSetStatus('');
+  renderPrintQueue();
+});
+
+printQueueShowPrinted.addEventListener('change', renderPrintQueue);
+
+/* ══════════════════════════════════════════
    Helpers
 ══════════════════════════════════════════ */
 function escHtml(s) {
@@ -1838,6 +1969,7 @@ async function loadDataAndShowApp() {
     Storage.loadCustomers(),
     Storage.loadProjectCustomers(),
     Storage.loadAnnotations(),
+    Storage.loadPrintQueue(),
   ]);
 
   if (storedSheets.length > 0) {
@@ -1889,6 +2021,14 @@ async function loadDataAndShowApp() {
     // device adds/renames/removes a customer, so it does need one.
     if (!customersScreen.hidden) renderCustomersList();
   });
+
+  Storage.onPrintQueueChange(() => {
+    // Badge count on the To Print button updates everywhere; the list only
+    // re-renders while the panel is open (renderPrintQueue checks).
+    renderPrintQueue();
+  });
+
+  renderPrintQueue();   // initial badge from the loaded cache
 
   loadingScreen.classList.add('hidden');
 }

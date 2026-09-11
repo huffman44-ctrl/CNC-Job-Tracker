@@ -88,11 +88,22 @@
       </div>
       <div class="header-right">
         <button class="dark-toggle" id="projects-dark-btn" aria-label="Toggle dark mode"></button>
+        <button class="btn btn-ghost btn-sm" id="print-queue-btn">To Print</button>
         <button class="btn btn-ghost btn-sm" id="ticket-history-btn">Ticket History</button>
         <button class="btn btn-ghost btn-sm" id="manage-customers-btn">Manage Customers</button>
         <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
       </div>
     </header>
+    <div id="print-queue-panel" class="print-queue-panel" hidden>
+      <div class="print-queue-head">
+        <span id="print-queue-status" class="vanlab-status"></span>
+        <label class="print-queue-toggle">
+          <input type="checkbox" id="print-queue-show-printed"> Show printed
+        </label>
+      </div>
+      <div id="print-queue-list" class="print-queue-list"></div>
+      <!-- builder disclosures are added in Task 5 -->
+    </div>
     <main class="content-main">
       <div class="stats-bar" id="stats-bar"></div>
       <div class="filter-row">
@@ -418,7 +429,7 @@
   <script src="js/endpoint.js?v=3"></script>
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
-  <script src="js/storage.js?v=12"></script>
+  <script src="js/storage.js?v=13"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/markup.js?v=4"></script>
   <script src="js/auth.js?v=2"></script>
@@ -427,12 +438,13 @@
   <script src="js/vendor/qrcode-generator.js?v=1"></script>
   <script src="js/sticker-map.generated.js?v=1"></script>
   <script src="js/vanlab-logo.generated.js?v=1"></script>
-  <script src="js/sticker-pdf.js?v=1"></script>
+  <script src="js/sticker-pdf.js?v=2"></script>
+  <script src="js/sequence.js?v=1"></script>
   <script src="js/vanlab-print.js?v=1"></script>
   <script src="js/assembly-levels.js?v=1"></script>
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=26"></script>
+  <script src="js/app.js?v=27"></script>
 </body>
 </html>
