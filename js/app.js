@@ -1970,9 +1970,14 @@ async function pqSend() {
     return;
   }
   const size = document.querySelector('input[name="pq-size"]:checked').value;
-  const user = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
+  // Only trust firebase.auth() once an app has actually been initialized —
+  // in PASTE mode the compat SDK loads from the CDN (so firebase.auth is a
+  // real function) but initApp() never calls firebase.initializeApp(), and
+  // calling firebase.auth() with no app throws synchronously.
+  const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
   pqSendBtn.disabled = true;
   try {
+    const user = app ? app.auth().currentUser : null;
     // Nothing is written until here — the textarea is the only draft state,
     // so Collin never sees a batch appear one line at a time.
     await Storage.addPrintItem({ kind: 'stickers', lines, size, jobName: null, createdBy: user ? user.email : '' });
