@@ -1,17 +1,18 @@
 # Print Queue — Design
 
-**Status:** designed 2026-09-10, not implemented
+**Status:** designed 2026-09-10, reviewed against the code 2026-09-10 (7 corrections
+folded in, see *Review notes* at the end), not implemented
 **Brainstormed with:** Travis
 **Depends on:** `js/sticker-pdf.js`, `js/endpoint.js`, `js/storage.js`, `js/auth.js`
 
 ## Goal
 
-Give Travis a way to put work in front of Colin (who runs the shop floor) without
+Give Travis a way to put work in front of Collin (who runs the shop floor) without
 phoning him: a shared list inside the CNC Job Tracker that says *here is what needs
 printing*. Two kinds of item go in it — batches of stickers generated from text, and
 documents Travis uploads for the regular printer.
 
-Colin opens it and sees only the list. The tools that built the list stay folded away.
+Collin opens it and sees only the list. The tools that built the list stay folded away.
 
 This is a **print queue**, not a sticker queue. Stickers are one item type. The
 header button reads **To Print**, because that is what it means to the person who
@@ -25,7 +26,7 @@ from a **fixed map**: a van number goes in, a predetermined sticker list comes o
 (`STICKER_MAP`, `js/sticker-map.generated.js`).
 
 Nothing today lets Travis author an **arbitrary** batch — `ED1`–`ED45` — and leave it
-waiting for Colin. That is the gap this fills. The VanLab panel stays exactly as it
+waiting for Collin. That is the gap this fills. The VanLab panel stays exactly as it
 is; this sits beside it.
 
 ## Architecture
@@ -53,7 +54,7 @@ the "hey, there's stickers to print" that Travis currently delivers by phone.
 
 Decided: **no role gating** (Travis, 2026-09-10 — "let's just do A for now").
 
-The builder is a collapsed disclosure. Colin *can* open it; he has no reason to.
+The builder is a collapsed disclosure. Collin *can* open it; he has no reason to.
 The app does have per-user identity available (`firebase.auth().currentUser`,
 `js/auth.js`) if this ever needs to become real gating — but it does not today, and
 we are not building the plumbing for a restriction nobody asked for.
@@ -64,14 +65,14 @@ blast radius is a confused operator, not lost data. Revisit only if that happens
 
 ### Draft vs sent
 
-A batch does not exist for Colin until Travis presses **Send to print list**. The
+A batch does not exist for Collin until Travis presses **Send to print list**. The
 builder holds unsent work in local component state only — nothing is written to
 Firestore until send.
 
-Without this, Colin watches `ED1`…`ED45` appear one row at a time while Travis is
+Without this, Collin watches `ED1`…`ED45` appear one row at a time while Travis is
 still typing.
 
-## UI: the list (Colin's view)
+## UI: the list (Collin's view)
 
 One row per queued item, newest last. Each row shows:
 
@@ -81,7 +82,7 @@ One row per queued item, newest last. Each row shows:
 | Count | `45 stickers` / `1 sheet` |
 | Size | `3x1` · `4x6` · `Letter` |
 | Job tag | `Order 1206` — omitted when untagged |
-| Who / when | `Travis · today 9:14 AM` |
+| Who / when | `Travis · today 9:14 AM` — name from a small email→name map in `app.js` (Travis, Collin); unknown emails show the part before the `@` |
 
 Two buttons per row:
 
@@ -134,6 +135,8 @@ forget:
   prefix is left exactly as typed — it is Travis's text, not a code.
 - Anything else → throw with a message naming the offending input.
 - `end` before `start` in either mode → throw. Ranges do not run backwards.
+- More than **500** items → throw (`"That range is 100000 stickers — the limit is 500."`).
+  Without a cap a typo renders a hundred thousand pages and freezes the tab.
 
 ### Alpha ordering: doubling
 
@@ -189,8 +192,14 @@ New signature, with an options argument:
 
 ```js
 buildStickerPdf(items, stickerTexts, fontBytes, opts = {})
-// opts.width, opts.height, opts.startSize
+// opts.width, opts.height, opts.startSize, opts.title
 ```
+
+`fitLines` reads `START_SIZE` from module scope today, so it gains a `startSize`
+parameter as well (defaulting to 22) — otherwise the option has nothing to reach.
+
+`opts.title` is written into the PDF's Title metadata (`doc.setTitle`). See *PDF
+title encodes the size* below for why this matters.
 
 Start sizes for queued batches — `fitLines` only ever shrinks from these, so they are
 ceilings, not fixed sizes. Short text like `ED1` lands at the ceiling; a long typed
@@ -221,25 +230,43 @@ Two new endpoint actions:
 - `uploadDoc` — `{ fileName, mimeType, base64, idToken }` → `{ url, fileId }`
 - `getDoc` — `{ fileId, idToken }` → `{ base64 }`
 
-Colin's **Print** button calls `getDoc`, builds a blob URL, and opens it. It does
-**not** open a Drive link directly — that would depend on Colin's own Drive
+Collin's **Print** button calls `getDoc`, builds a blob URL, and opens it. It does
+**not** open a Drive link directly — that would depend on Collin's own Drive
 permissions and drop him into Drive's viewer. The Apps Script runs as Travis, so the
-file comes back regardless of what Colin can see in Drive. This mirrors the proven
+file comes back regardless of what Collin can see in Drive. This mirrors the proven
 `getPackingPdf` path exactly.
 
 **Upload cap: 10 MB.** Base64 inflates by ~33% and it rides a `text/plain` POST body
 through Apps Script. Reject larger files client-side with a plain message rather than
 letting the POST fail opaquely.
 
-### Filename encodes the size
+**Timeout.** `Endpoint.post` aborts every call at 20 seconds. A 10 MB file is ~13 MB
+of base64 each way, which will not make it over shop wifi in 20 seconds. `post`
+gains an optional per-call timeout; `uploadDoc` and `getDoc` pass **120 seconds**.
+Every existing call keeps 20.
 
-Every generated PDF is named for its batch:
+**Drive folder.** A new `DOCS_FOLDER_ID` constant in the Apps Script, alongside
+`ARCHIVE_FOLDER_ID` and `PACKING_FOLDER_ID`. Travis creates the folder and pastes
+the ID into the live script.
+
+### PDF title encodes the size
+
+Every generated PDF carries its batch in the PDF's **Title metadata**:
 
 ```
-ED1-ED45__3x1__45-stickers.pdf
+ED1-ED45 · 3x1 · 45 stickers
 ```
 
 This is a deliberate safety feature, not cosmetics. See Wrong-printer risk.
+
+**Why the title and not a filename:** the app opens PDFs with `window.open` on a
+blob URL (`app.js`, the existing sticker flow). A blob tab has no filename — the tab
+shows a random UUID. Chrome's PDF viewer *does* show the document's Title metadata
+in the tab and in the print dialog header, so that is the string that must carry
+the size. The VanLab hardware-sticker flow passes no title and is unchanged.
+
+Uploaded documents keep whatever title they already have; their row and button
+say `Letter`, and the letter printer is the only plausible destination anyway.
 
 ## Wrong-printer risk
 
@@ -260,8 +287,8 @@ The size is therefore stated in **three** places before anything prints:
 
 1. The row's size column.
 2. The button text — `Print 45 stickers → STICKERS 1x3`.
-3. The **PDF filename**, which appears in the browser tab *and* at the top of
-   Chrome's print dialog — on screen at the exact moment the printer is chosen.
+3. The **PDF title metadata**, which Chrome shows in the browser tab *and* at the
+   top of the print dialog — on screen at the exact moment the printer is chosen.
 
 **Rejected: a local print helper** that watches the queue and prints silently to a
 named printer. It is the version that actually feels like magic, and it is the right
@@ -271,7 +298,7 @@ always-on shop machine decision Travis deliberately parked — and because it fa
 *silently* on reboot: stickers stop appearing and nobody knows why. A human reading a
 screen is worse in theory and more reliable in practice.
 
-**Revisit trigger:** if Colin sends a batch to the wrong printer more than about
+**Revisit trigger:** if Collin sends a batch to the wrong printer more than about
 twice, build the helper.
 
 ## Data
@@ -310,7 +337,7 @@ Decided: **printed items leave the list but stay in the collection** (Travis,
 `Printed` sets `printedAt`. The list filters to `printedAt == null`. The document is
 never deleted, which buys two things for free:
 
-- **Reprints.** A sticker gets peeled crooked; Colin reprints that exact batch from
+- **Reprints.** A sticker gets peeled crooked; Collin reprints that exact batch from
   history instead of Travis rebuilding it.
 - **Travis can see from anywhere whether it actually got printed**, without calling
   the shop.
@@ -331,18 +358,24 @@ from this repo. There is no error surfaced — the sticker simply never appears.
 This must be done *before* testing the feature, or an afternoon disappears debugging
 something that was never broken. Travis does this; it is not a code change.
 
+The rule copies the block used by `customers`, `projectCustomer` and
+`sheetAnnotations`: an **email allowlist of Travis and Collin**, not `auth != null`.
+That is the convention the 2026-08-20 rules incident settled on, and it is stricter
+than the five older collections still at `allow read, write: if true`. The vault
+note's "any ruleset must cover all 8 collections" list becomes **9**.
+
 ## Security
 
 - The new `uploadDoc` / `getDoc` actions **take `idToken`** and verify it, following
   the newer endpoint pattern (`lookupOrder`, `getPackingPdf`) — **not** the older
-  unguarded pattern (`archiveSheet`, `appendRows`). Without this, "send Colin a
+  unguarded pattern (`archiveSheet`, `appendRows`). Without this, "send Collin a
   document" means anyone holding the endpoint URL and token can write arbitrary
   files into Travis's Drive.
 - The pre-existing unguarded `archiveSheet` / `appendRows` actions are a **separate
   known open item** tracked in the vault's CNC Job Tracker note. This work does not
   fix them and must not make them worse.
-- `printQueue` rules should require an authenticated user for read and write. Any
-  signed-in operator may mark an item printed — that is the intent, not a gap.
+- `printQueue` rules use the Travis + Collin email allowlist (see *Firestore rules*
+  above). Either of them may mark an item printed — that is the intent, not a gap.
 
 ## Error handling
 
@@ -357,7 +390,7 @@ custom copy.
 | Invalid alpha endpoint (`AB`) | Inline message explaining the doubling rule |
 | Upload over 10 MB | Rejected client-side before the POST |
 | Endpoint down on upload | Existing `endpointError` path; batch is not queued |
-| Endpoint down on Colin's Print | Row stays in the list, message says retry |
+| Endpoint down on Collin's Print | Row stays in the list, message says retry |
 
 A failed send must never leave a half-written row in the list.
 
@@ -373,11 +406,19 @@ A failed send must never leave a half-written row in the list.
 - mixed modes (`1`–`Z`) throw
 - reversed ranges (`45`–`1`) throw
 
-**The byte-identical guard on `sticker-pdf.js`:** render a known hardware-sticker
-batch with the pre-change code and with the post-change code called without options,
-and assert the bytes match. If the existing VanLab flow changes at all, the
-refactor broke something. `doc.save({ useObjectStreams: false })` keeps the output
-introspectable, which is what makes this test possible.
+**The guard on `sticker-pdf.js`** is structural, not byte-for-byte. pdf-lib stamps
+the creation and modification time into every save, so two renders of identical
+input never match byte-for-byte, and there is no "pre-change code" on disk at test
+time. Instead:
+
+- `fitLines('HI', …)` with no start size still returns 22 (the existing test).
+- `fitLines('ED1', …, 60)` returns 60; a long line at 60 shrinks below 60.
+- `buildStickerPdf` with no options produces pages whose `/MediaBox` is
+  `[0 0 216 72]`; with `{ width: 288, height: 432 }` it is `[0 0 288 432]`.
+- With `{ title: 'X' }` the PDF contains `/Title (X)`; with no options it does not.
+
+`doc.save({ useObjectStreams: false })` keeps the output introspectable, which is
+what makes the `/MediaBox` and `/Title` checks possible.
 
 Manual verification (cannot be automated — real printers):
 
@@ -397,6 +438,12 @@ the app's CLAUDE.md.
 2. **Job tagging.** Tag on send, job name on the row, badge on the project card that
    opens the panel filtered to that job.
 3. **Documents.** File picker, `uploadDoc`/`getDoc` endpoint actions, letter rows.
+   **Two manual steps, both Travis's:** create the Drive folder and paste its ID
+   into the live script, then publish a new Apps Script deployment version
+   (Deploy → Manage deployments → pencil → New version). The repo copy of the
+   script has `PASTE_` placeholders and an empty `ALLOWED_UIDS`; the live one has
+   the real values. **Merge the two new functions into the live script — never
+   paste the repo file over it**, or the UID allowlist is gone.
 
 ## Out of scope
 
@@ -408,3 +455,19 @@ the app's CLAUDE.md.
 - Role gating.
 - Skipping `I`/`O`; zero-padded numbers.
 - Any change to the existing VanLab Printing panel's behaviour.
+
+## Review notes (2026-09-10, against the code)
+
+Corrections folded into the sections above, kept here so the reasoning survives:
+
+1. **Filename → PDF title.** Blob-URL tabs show a UUID, not a filename. The size
+   lives in the PDF Title metadata instead.
+2. **Byte-identical test → structural test.** pdf-lib timestamps every save.
+3. **Endpoint timeout.** The fixed 20 s abort would kill 13 MB uploads; `post`
+   gets a per-call override.
+4. **Range cap of 500.** No upper bound meant a typo could freeze the tab.
+5. **Rules = email allowlist**, matching the post-incident convention, not any
+   signed-in user.
+6. **Phase 3 needs an Apps Script redeploy** and must not overwrite the live
+   script's `ALLOWED_UIDS`.
+7. **Collin**, not Colin — matches the operator list and the vault.
