@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=20">
+  <link rel="stylesheet" href="css/style.css?v=22">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -120,6 +120,26 @@
           </div>
           <div id="pq-error" class="vanlab-status vanlab-status-error" hidden></div>
           <div><button class="btn btn-primary btn-sm" id="pq-send-btn" type="button">Send to print list</button></div>
+        </div>
+      </details>
+      <details class="print-queue-builder" id="pq-doc-builder">
+        <summary>+ Send a document</summary>
+        <div class="print-queue-builder-body">
+          <div id="pq-drop" class="pq-drop">
+            Drop a PDF here, or <label for="pq-file" class="pq-drop-browse">browse</label>
+            <input type="file" id="pq-file" accept="application/pdf" hidden>
+          </div>
+          <div id="pq-doc-staged" class="pq-doc-staged" hidden>
+            <span id="pq-doc-label" class="pq-row-what"></span>
+            <button class="btn btn-ghost btn-sm" id="pq-doc-clear" type="button" aria-label="Clear the file">×</button>
+          </div>
+          <div id="pq-doc-size" class="print-queue-size" hidden>
+            <span class="form-label">Size:</span>
+            <label><input type="radio" name="pq-doc-size" value="4x6"> 4x6 thermal</label>
+            <label><input type="radio" name="pq-doc-size" value="letter"> Letter</label>
+          </div>
+          <div id="pq-doc-error" class="vanlab-status vanlab-status-error" hidden></div>
+          <div><button class="btn btn-primary btn-sm" id="pq-doc-send-btn" type="button" disabled>Send to print list</button></div>
         </div>
       </details>
     </div>
@@ -445,10 +465,10 @@
 
   <script src="js/firebase-config.js?v=7"></script>
   <script src="js/endpoint-config.js?v=1"></script>
-  <script src="js/endpoint.js?v=3"></script>
+  <script src="js/endpoint.js?v=4"></script>
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
-  <script src="js/storage.js?v=13"></script>
+  <script src="js/storage.js?v=14"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/markup.js?v=4"></script>
   <script src="js/auth.js?v=2"></script>
@@ -458,12 +478,13 @@
   <script src="js/sticker-map.generated.js?v=1"></script>
   <script src="js/vanlab-logo.generated.js?v=1"></script>
   <script src="js/sticker-pdf.js?v=2"></script>
+  <script src="js/doc-info.js?v=1"></script>
   <script src="js/sequence.js?v=1"></script>
   <script src="js/vanlab-print.js?v=1"></script>
   <script src="js/assembly-levels.js?v=1"></script>
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=29"></script>
+  <script src="js/app.js?v=32"></script>
 </body>
 </html>

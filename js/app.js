@@ -1821,8 +1821,9 @@ let pqLastBlobUrl = null;   // last queue-PDF object URL, revoked before a new o
 
 // Page size / font ceiling / printer name per sticker size (spec § PDF rendering).
 const PQ_SIZES = {
-  '3x1': { width: 3 * 72, height: 1 * 72, startSize: 60,  printer: 'STICKERS 1x3' },
-  '4x6': { width: 4 * 72, height: 6 * 72, startSize: 140, printer: 'CRATE LABEL 4x6' },
+  '3x1':    { width: 3 * 72, height: 1 * 72, startSize: 60,  printer: 'STICKERS 1x3' },
+  '4x6':    { width: 4 * 72, height: 6 * 72, startSize: 140, printer: 'CRATE LABEL 4x6' },
+  'letter': { printer: 'letter printer' },   // documents only — never rendered by buildStickerPdf
 };
 
 // Firebase only gives us the sign-in email. Map the two operators to the
@@ -1862,18 +1863,22 @@ function renderPrintQueue() {
   }
   printQueueList.innerHTML = items.map(item => {
     const spec = PQ_SIZES[item.size];
-    const count = item.lines.length;
+    const isDoc = item.kind === 'document';
+    const count = isDoc ? (item.pages || 0) : item.lines.length;
+    const unit = isDoc ? 'page' : 'sticker';
+    const countText = `${count} ${unit}${count !== 1 ? 's' : ''}`;
+    const what = isDoc ? (item.fileName || 'document') : Sequence.rangeLabel(item.lines);
     const when = item.createdAt ? formatDT(new Date(item.createdAt)) : '';
     const printedNote = item.printedAt ? ` · printed ${formatDT(new Date(item.printedAt))}` : '';
     return `
       <div class="pq-row" data-id="${escHtml(item.id)}">
         <div class="pq-row-main">
-          <span class="pq-row-what">${escHtml(Sequence.rangeLabel(item.lines))}</span>
-          <span class="pq-row-meta">${count} sticker${count !== 1 ? 's' : ''} · ${escHtml(item.size)}${item.jobName ? ' · ' + escHtml(item.jobName) : ''} · ${escHtml(pqDisplayName(item.createdBy))} · ${escHtml(when)}${printedNote}</span>
+          <span class="pq-row-what">${escHtml(what)}</span>
+          <span class="pq-row-meta">${countText} · ${escHtml(item.size)}${item.jobName ? ' · ' + escHtml(item.jobName) : ''} · ${escHtml(pqDisplayName(item.createdBy))} · ${escHtml(when)}${printedNote}</span>
         </div>
         <div class="pq-row-actions">
           <div>
-            <button class="btn btn-primary btn-sm" data-action="print">Print ${count} sticker${count !== 1 ? 's' : ''} → ${escHtml(spec ? spec.printer : item.size)}</button>
+            <button class="btn btn-primary btn-sm" data-action="print">Print ${countText} → ${escHtml(spec ? spec.printer : item.size)}</button>
             <div class="pq-row-hint">100% scale · margins none</div>
           </div>
           ${item.printedAt ? '' : '<button class="btn btn-ghost btn-sm" data-action="printed">Printed</button>'}
@@ -1883,6 +1888,7 @@ function renderPrintQueue() {
 }
 
 async function pqPrint(item, button) {
+  if (item.kind === 'document') return pqPrintDocument(item, button);
   const spec = PQ_SIZES[item.size];
   if (!spec) { pqSetStatus(`Can't print: unknown size ${item.size}.`, true); return; }
   button.disabled = true;
@@ -1906,11 +1912,45 @@ async function pqPrint(item, button) {
   }
 }
 
+async function pqPrintDocument(item, button) {
+  const spec = PQ_SIZES[item.size];
+  const name = item.fileName || 'document';
+  button.disabled = true;
+  pqSetStatus(`Fetching ${name}…`);
+  try {
+    if (!Endpoint.enabled()) throw new Error('endpoint not configured');
+    const idToken = await Auth.getIdToken();
+    const b64 = await Endpoint.getDoc(item.fileId, idToken);
+    if (!b64) throw new Error('endpoint not configured');
+    let bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    // Wrong-printer guard: re-title so Chrome's tab and print dialog name the
+    // size. Best-effort — if pdf-lib can't re-open the file, print it untitled.
+    try {
+      const doc = await PDFLib.PDFDocument.load(bytes);
+      doc.setTitle(DocInfo.title(name, item.size, item.pages || doc.getPageCount()));
+      bytes = await doc.save({ useObjectStreams: false });
+    } catch (_) { /* open untitled */ }
+    if (pqLastBlobUrl) URL.revokeObjectURL(pqLastBlobUrl);
+    pqLastBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    if (!window.open(pqLastBlobUrl, '_blank')) {
+      pqSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      return;
+    }
+    pqSetStatus(`${name} ready — print the opened PDF on the ${spec ? spec.printer : item.size} at 100% scale.`);
+  } catch (err) {
+    // Row stays in the list; the real reason is the message.
+    pqSetStatus(`Couldn't fetch ${name} — ${err.message}. Try again.`, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function pqMarkPrinted(item, button) {
   button.disabled = true;
   try {
     await Storage.markPrinted(item.id);
-    pqSetStatus(`${Sequence.rangeLabel(item.lines)} marked printed.`);
+    const what = item.kind === 'document' ? (item.fileName || 'document') : Sequence.rangeLabel(item.lines);
+    pqSetStatus(`${what} marked printed.`);
     renderPrintQueue();
   } catch (err) {
     // Row stays in the list; the real reason is the message.
@@ -2002,6 +2042,152 @@ pqSendBtn.addEventListener('click', pqSend);
 [pqPrefix, pqStart, pqEnd].forEach(el => el.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); pqFill(); }
 }));
+
+/* ── Builder: + Send a document ── */
+const pqDocBuilder = document.getElementById('pq-doc-builder');
+const pqFile       = document.getElementById('pq-file');
+const pqDocStaged  = document.getElementById('pq-doc-staged');
+const pqDocLabel   = document.getElementById('pq-doc-label');
+const pqDocClear   = document.getElementById('pq-doc-clear');
+const pqDocSize    = document.getElementById('pq-doc-size');
+const pqDocError   = document.getElementById('pq-doc-error');
+const pqDocSendBtn = document.getElementById('pq-doc-send-btn');
+const PQ_DOC_MAX_BYTES = 10 * 1024 * 1024;
+let pqDoc = null;   // staged { file, bytes, pages, size } — nothing uploads until Send
+let pqDocSending = false;   // true while pqDocSend is awaiting; blocks drops/Clear from racing it
+let pqStageSeq = 0;   // bumped on every pqStageFile call; lets the latest drop win over a stale one
+
+function pqDocShowError(msg) {
+  pqDocError.textContent = msg;
+  pqDocError.hidden = !msg;
+}
+
+function pqDocPickedSize() {
+  const r = document.querySelector('input[name="pq-doc-size"]:checked');
+  return r ? r.value : null;
+}
+
+function pqDocRender() {
+  if (!pqDoc) {
+    pqDocStaged.hidden = true;
+    pqDocSize.hidden = true;
+    pqDocSendBtn.disabled = true;
+    return;
+  }
+  const size = pqDoc.size || pqDocPickedSize();
+  pqDocLabel.textContent = `${pqDoc.file.name} · ${pqDoc.pages} page${pqDoc.pages === 1 ? '' : 's'}${size ? ' · ' + size : ''}`;
+  pqDocStaged.hidden = false;
+  pqDocSize.hidden = !!pqDoc.size;     // picker only when auto-detect found nothing
+  pqDocSendBtn.disabled = !size;
+}
+
+function pqDocReset() {
+  pqDoc = null;
+  pqFile.value = '';
+  document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => { r.checked = false; });
+  pqDocRender();
+}
+
+async function pqStageFile(file) {
+  if (pqDocSending) return;
+  const my = ++pqStageSeq;
+  pqDocShowError('');
+  pqDocReset();
+  if (!file) return;
+  pqDocBuilder.open = true;
+  if (file.size > PQ_DOC_MAX_BYTES) {
+    pqDocShowError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB — the limit is 10 MB.`);
+    return;
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (my !== pqStageSeq) return;
+  if (!DocInfo.isPdf(bytes)) { pqDocShowError("That isn't a PDF."); return; }
+  let info;
+  try {
+    info = await DocInfo.inspectPdf(bytes);
+  } catch (_) {
+    pqDocShowError(`Couldn't read ${file.name} — is it encrypted?`);
+    return;
+  }
+  if (my !== pqStageSeq) return;
+  pqDoc = { file, bytes, pages: info.pages, size: DocInfo.sizeFor(info.width, info.height) };
+  pqDocRender();
+}
+
+// The bytes are already in memory from staging, so encode those rather than
+// re-reading the file. Chunked: String.fromCharCode can't take 10 MB of args.
+function pqBytesToBase64(bytes) {
+  let s = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(s);
+}
+
+async function pqDocSend() {
+  if (!pqDoc) return;
+  const size = pqDoc.size || pqDocPickedSize();
+  if (!size) { pqDocShowError('Pick a size first.'); return; }
+  // Snapshot everything before the first await — pqDoc can be replaced or
+  // cleared out from under us while this send is in flight (drop/browse/
+  // Clear are blocked by pqDocSending below, but this is the actual fix:
+  // never re-read module-level pqDoc after control leaves this function).
+  const { file, bytes, pages } = pqDoc;
+  const name = file.name;
+  const base64 = pqBytesToBase64(bytes);
+  // Same PASTE-mode guard as pqSend: only touch firebase.auth() once an app exists.
+  const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
+  pqDocSending = true;
+  pqDocSendBtn.disabled = true;
+  pqDocShowError('');
+  pqSetStatus(`Uploading ${name}…`);
+  try {
+    if (!Endpoint.enabled()) throw new Error('endpoint not configured');
+    const user = app ? app.auth().currentUser : null;
+    const idToken = await Auth.getIdToken();
+    const fileId = await Endpoint.uploadDoc(name, base64, idToken);
+    if (!fileId) throw new Error('endpoint not configured');
+    // Upload first, queue second. If this write fails the file sits unused in
+    // the Drive folder — accepted; Travis just sends again.
+    await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages, size, lines: [], jobName: null, createdBy: user ? user.email : '' });
+    pqDocReset();
+    pqDocBuilder.open = false;
+    pqSetStatus(`${name} sent to the print list.`);
+    renderPrintQueue();
+  } catch (err) {
+    pqSetStatus('');
+    pqDocShowError(`Couldn't send — ${err.message}`);
+    pqDocSendBtn.disabled = false;
+  } finally {
+    pqDocSending = false;
+  }
+}
+
+// Drops anywhere on the panel stage the file (the disclosure is usually
+// collapsed). stopPropagation matters: document.body's drop handler treats
+// any file dropped on the Projects screen as a job-sheet upload.
+['dragenter', 'dragover'].forEach(ev => printQueuePanel.addEventListener(ev, e => {
+  if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  printQueuePanel.classList.add('pq-drop--over');
+}));
+printQueuePanel.addEventListener('dragleave', e => {
+  if (!printQueuePanel.contains(e.relatedTarget)) printQueuePanel.classList.remove('pq-drop--over');
+});
+printQueuePanel.addEventListener('drop', e => {
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  e.preventDefault();
+  e.stopPropagation();
+  printQueuePanel.classList.remove('pq-drop--over');
+  pqStageFile(file);
+});
+pqFile.addEventListener('change', () => pqStageFile(pqFile.files[0]));
+pqDocClear.addEventListener('click', () => { if (pqDocSending) return; pqDocShowError(''); pqDocReset(); });
+document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => r.addEventListener('change', pqDocRender));
+pqDocSendBtn.addEventListener('click', pqDocSend);
 
 /* ══════════════════════════════════════════
    Helpers

@@ -1842,6 +1842,14 @@ body {
 .print-queue-range .form-input { max-width: 120px; }
 .print-queue-size { display: flex; gap: 16px; font-size: 0.85rem; }
 .print-queue-size label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.pq-drop {
+  border: 2px dashed var(--gray-300); border-radius: 8px; padding: 18px 12px;
+  text-align: center; font-size: 0.85rem; color: var(--gray-500);
+}
+.pq-drop-browse { color: var(--orange); cursor: pointer; text-decoration: underline; }
+.print-queue-panel.pq-drop--over .pq-drop { border-color: var(--orange); color: var(--orange); background: var(--orange-light); }
+.print-queue-panel.pq-drop--over { outline: 2px dashed var(--orange); outline-offset: -4px; }
+.pq-doc-staged { display: flex; align-items: center; gap: 10px; }
 @media (max-width: 480px) {
   .print-queue-panel { padding: 10px 12px 12px; }
   .pq-row-actions { width: 100%; }

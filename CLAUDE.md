@@ -11,15 +11,16 @@ CNC_WebApp/
 ├── js/parser.js                 — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }; simpleHash(str)
 ├── js/path-utils.js             — sanitizeForPath(name) helper; builds safe folder names for customer-named export paths
 ├── js/sequence.js               — generateSequence(prefix, start, end) for the To Print panel: numeric or doubling-alpha (A…Z, AA, BB…), cap 500; parseLines, rangeLabel
+├── js/doc-info.js               — isPdf / sizeFor (4x6 or letter from the first page, ±3 pt, either orientation) / inspectPdf / title — print-queue document staging and the wrong-printer title guard
 ├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, printQueue/ collections) with in-memory cache for sync reads
 ├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
 ├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
-├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, appends rows to the Master Job Log on export
+├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, appends rows to the Master Job Log on export; uploadDoc/getDoc for print-queue documents (120 s timeout)
 ├── js/app.js                    — all UI logic: dark mode, file upload, projects directory, master-detail sheet workspace, modals, CSV export, Firebase init
 ├── package.json                 — `npm run serve` → `npx serve .` (no build step needed)
 ├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root (not in samples/)
 ├── samples/                    — gitignored; local-only scratch space for test HTML files, not committed
-└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append); pasted into script.google.com, not executed from the repo
+└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append + print-queue uploadDoc/getDoc — Drive folder "CNC Print Queue" self-created on first upload, id kept in a script property); pasted into script.google.com, not executed from the repo
 ```
 
 ## ⚠️ Testing safety — read before running this app
@@ -28,7 +29,8 @@ CNC_WebApp/
 **Never test against the real config.** To test safely offline:
 1. Copy the app to a temp directory.
 2. Overwrite the copy's `js/firebase-config.js` with a `projectId` that starts with `"PASTE"` (e.g. `"PASTE_DISABLED"`).
-3. `initApp()` in app.js (~line 850) checks `FIREBASE_CONFIG.projectId.startsWith('PASTE')` and skips Firebase entirely when true, falling back to in-memory-only mode — uploads, completions, and deletes stay local to that browser tab with zero risk to prod data.
+3. **Also overwrite the copy's `js/endpoint-config.js`** with `const ENDPOINT_CONFIG = { url: 'PASTE_URL', token: 'x' };` — the tracked file holds the LIVE Apps Script URL and token (GitHub Pages serves it), so without this an upload in the copy calls the real `archiveSheet` and writes into the Drive archive. `Endpoint.enabled()` is false once the URL starts with PASTE.
+4. `initApp()` in app.js (~line 850) checks `FIREBASE_CONFIG.projectId.startsWith('PASTE')` and skips Firebase entirely when true, falling back to in-memory-only mode — uploads, completions, and deletes stay local to that browser tab with zero risk to prod data.
 
 If you ever suspect a test run touched production, check the `sheets` collection for unexpected docs by filename and delete them immediately — don't leave fake data mixed into real operator records.
 
