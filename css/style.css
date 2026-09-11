@@ -1811,3 +1811,34 @@ body {
 .vanlab-status-error { color: var(--red); font-weight: 600; }
 .vanlab-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .vanlab-van-select { max-width: 160px; }
+
+/* ── Print queue panel (projects screen) ── */
+.print-queue-panel {
+  padding: 10px 20px 14px; border-bottom: 1px solid var(--gray-200);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.print-queue-head { display: flex; align-items: center; gap: 12px; min-height: 20px; }
+.print-queue-toggle { margin-left: auto; font-size: 0.8rem; color: var(--gray-500); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.print-queue-list { display: flex; flex-direction: column; gap: 8px; }
+.print-queue-empty { font-size: 0.85rem; color: var(--gray-500); }
+.pq-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 10px 12px; border: 1px solid var(--gray-200); border-radius: 8px;
+}
+.pq-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.pq-row-what { font-weight: 700; font-size: 1rem; overflow-wrap: anywhere; }
+.pq-row-meta { font-size: 0.8rem; color: var(--gray-500); }
+.pq-row-actions { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.pq-row-hint { font-size: 0.72rem; color: var(--gray-500); margin-top: 3px; text-align: center; }
+.print-queue-builder { border: 1px dashed var(--gray-300); border-radius: 8px; padding: 6px 12px; }
+.print-queue-builder > summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--gray-500); list-style: none; }
+.print-queue-builder > summary::-webkit-details-marker { display: none; }
+.print-queue-builder-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 0 6px; }
+.print-queue-range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.print-queue-range .form-input { max-width: 120px; }
+.print-queue-size { display: flex; gap: 16px; font-size: 0.85rem; }
+.print-queue-size label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+@media (max-width: 480px) {
+  .print-queue-panel { padding: 10px 12px 12px; }
+  .pq-row-actions { width: 100%; }
+}

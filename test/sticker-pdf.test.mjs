@@ -64,3 +64,39 @@ test('buildStickerPdf renders one page per label and returns a real PDF', async 
   // 2 + 1 labels -> exactly 3 pages
   assert.equal(new TextDecoder().decode(bytes).match(/\/Type\s*\/Page[^s]/g).length, 3);
 });
+
+test('fitLines honours an explicit startSize and shrinks from it', () => {
+  const s = load();
+  // 4x6 label interior: 268 x 418. ED1 at 140 is 3*140*0.5 = 210 wide, 168 tall -> fits at the ceiling.
+  assert.equal(s.fitLines('ED1', 268, 418, mono, 140).size, 140);
+  // 3x1 interior: 196 x 52. Height 60*1.2 = 72 > 52, so it must shrink below 60.
+  const r = s.fitLines('ED1', 196, 52, mono, 60);
+  assert.ok(r.size < 60 && r.size > 6, 'expected a shrink from 60, got ' + r.size);
+  assert.ok(r.size * 1.2 <= 52);
+});
+
+test('fitLines default start size is still 22', () => {
+  const s = load();
+  assert.equal(s.fitLines('HI', 196, 52, mono).size, 22);
+});
+
+test('buildStickerPdf with no options: 3x1 pages and no Title metadata', async () => {
+  const s = load();
+  const fontBytes = readFileSync(join(root, 'assets/fonts/Baloo2-SemiBold.ttf'));
+  const bytes = await s.buildStickerPdf([['a', 1]], { a: 'A18' }, fontBytes);
+  const text = new TextDecoder('latin1').decode(bytes);
+  assert.ok(/MediaBox\s*\[\s*0\s+0\s+216\s+72\s*\]/.test(text), 'default page size changed');
+  assert.ok(!/\/Title/.test(text), 'default output must not carry a Title');
+});
+
+test('buildStickerPdf honours width/height and writes the Title', async () => {
+  const s = load();
+  const fontBytes = readFileSync(join(root, 'assets/fonts/Baloo2-SemiBold.ttf'));
+  const bytes = await s.buildStickerPdf([['a', 2]], { a: 'ED1' }, fontBytes,
+    { width: 288, height: 432, startSize: 140, title: 'X' });
+  const text = new TextDecoder('latin1').decode(bytes);
+  assert.equal(text.match(/\/Type\s*\/Page[^s]/g).length, 2);
+  assert.ok(/MediaBox\s*\[\s*0\s+0\s+288\s+432\s*\]/.test(text), 'wrong page size');
+  // pdf-lib writes setTitle() as a UTF-16BE hex string: <FEFF0058> for "X"
+  assert.ok(/\/Title\s*<feff0058>/i.test(text), 'Title metadata missing');
+});

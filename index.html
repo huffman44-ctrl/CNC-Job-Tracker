@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=18">
+  <link rel="stylesheet" href="css/style.css?v=19">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -88,11 +88,41 @@
       </div>
       <div class="header-right">
         <button class="dark-toggle" id="projects-dark-btn" aria-label="Toggle dark mode"></button>
+        <button class="btn btn-ghost btn-sm" id="print-queue-btn">To Print</button>
         <button class="btn btn-ghost btn-sm" id="ticket-history-btn">Ticket History</button>
         <button class="btn btn-ghost btn-sm" id="manage-customers-btn">Manage Customers</button>
         <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
       </div>
     </header>
+    <div id="print-queue-panel" class="print-queue-panel" hidden>
+      <div class="print-queue-head">
+        <span id="print-queue-status" class="vanlab-status"></span>
+        <label class="print-queue-toggle">
+          <input type="checkbox" id="print-queue-show-printed"> Show printed
+        </label>
+      </div>
+      <div id="print-queue-list" class="print-queue-list"></div>
+      <details class="print-queue-builder" id="pq-builder">
+        <summary>+ New batch</summary>
+        <div class="print-queue-builder-body">
+          <label class="form-label" for="pq-lines">Stickers — one per line</label>
+          <textarea id="pq-lines" class="form-input form-textarea form-textarea--tall" placeholder="ED1&#10;ED2&#10;ED3 …" spellcheck="false"></textarea>
+          <div class="print-queue-range">
+            <span class="form-label">Fill a range:</span>
+            <input id="pq-prefix" class="form-input" placeholder="prefix (ED)" autocapitalize="off">
+            <input id="pq-start" class="form-input" placeholder="start (1 or A)">
+            <input id="pq-end" class="form-input" placeholder="end (45 or Z)">
+            <button class="btn btn-outline btn-sm" id="pq-fill-btn" type="button">Fill</button>
+          </div>
+          <div class="print-queue-size">
+            <label><input type="radio" name="pq-size" value="3x1" checked> 3x1 thermal</label>
+            <label><input type="radio" name="pq-size" value="4x6"> 4x6 thermal</label>
+          </div>
+          <div id="pq-error" class="vanlab-status vanlab-status-error" hidden></div>
+          <div><button class="btn btn-primary btn-sm" id="pq-send-btn" type="button">Send to print list</button></div>
+        </div>
+      </details>
+    </div>
     <main class="content-main">
       <div class="stats-bar" id="stats-bar"></div>
       <div class="filter-row">
@@ -418,7 +448,7 @@
   <script src="js/endpoint.js?v=3"></script>
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
-  <script src="js/storage.js?v=12"></script>
+  <script src="js/storage.js?v=13"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/markup.js?v=4"></script>
   <script src="js/auth.js?v=2"></script>
@@ -427,12 +457,13 @@
   <script src="js/vendor/qrcode-generator.js?v=1"></script>
   <script src="js/sticker-map.generated.js?v=1"></script>
   <script src="js/vanlab-logo.generated.js?v=1"></script>
-  <script src="js/sticker-pdf.js?v=1"></script>
+  <script src="js/sticker-pdf.js?v=2"></script>
+  <script src="js/sequence.js?v=1"></script>
   <script src="js/vanlab-print.js?v=1"></script>
   <script src="js/assembly-levels.js?v=1"></script>
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=26"></script>
+  <script src="js/app.js?v=28"></script>
 </body>
 </html>

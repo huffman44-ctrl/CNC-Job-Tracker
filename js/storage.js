@@ -13,6 +13,8 @@ const Storage = (() => {
   const annotationsCache = {}; // { [fileKey]: Array<{type,x,y,w,h,color}> }
   const customersCache = {};        // { [key]: name }
   const projectCustomerCache = {};  // { [noteKey]: name }
+  const printQueueCache = {};       // { [id]: Item } — see getPrintQueue for the Item shape
+  let localPrintId = 0;             // ids when Firebase is off (PASTE config / tests)
 
   function init(firestore) {
     db = firestore;
@@ -433,7 +435,90 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory };
+  /* ── Print Queue (the "To Print" panel) ── Firestore printQueue/{id} ──
+   * Item: { id, kind:'stickers'|'document', lines, fileId, fileName,
+   *         size:'3x1'|'4x6'|'letter', jobName, createdBy, createdAt(ms), printedAt(ms|null) }
+   * Printed items stay in the collection (reprints + "did it get printed?"
+   * from anywhere); the open list is just printedAt == null.
+   */
+
+  // Docs can be hand-edited in the console; a missing/odd `lines` must
+  // not take the whole list down in renderPrintQueue.
+  function printItemFromDoc(doc) {
+    const d = doc.data() || {};
+    return { id: doc.id, ...d, lines: Array.isArray(d.lines) ? d.lines : [] };
+  }
+
+  function getPrintQueue() {
+    return Object.values(printQueueCache)
+      .filter(i => i.printedAt == null)
+      .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));
+  }
+
+  function getPrintedItems() {
+    return Object.values(printQueueCache)
+      .filter(i => i.printedAt != null)
+      .sort((a, b) => (b.printedAt ?? 0) - (a.printedAt ?? 0));
+  }
+
+  async function addPrintItem(item) {
+    // Firestore FIRST, cache second — the reverse of every other writer in
+    // this file, and it does not swallow the error. A batch must never show
+    // in Collin's list unless it was actually saved (spec: "a failed send
+    // must never leave a half-written row in the list").
+    const record = {
+      kind:      item.kind || 'stickers',
+      lines:     Array.isArray(item.lines) ? item.lines.slice() : [],
+      fileId:    item.fileId || null,
+      fileName:  item.fileName || null,
+      size:      item.size,
+      jobName:   item.jobName || null,
+      createdBy: item.createdBy || '',
+      createdAt: Date.now(),
+      printedAt: null,
+    };
+    let id;
+    if (db) {
+      const ref = db.collection('printQueue').doc();
+      await ref.set(record);
+      id = ref.id;
+    } else {
+      id = 'local-' + (++localPrintId);
+    }
+    printQueueCache[id] = { id, ...record };
+    return id;
+  }
+
+  async function markPrinted(id) {
+    const item = printQueueCache[id];
+    if (!item) throw new Error('unknown print item: ' + id);
+    const printedAt = Date.now();
+    if (db) await db.collection('printQueue').doc(id).update({ printedAt });
+    item.printedAt = printedAt;
+  }
+
+  async function loadPrintQueue() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('printQueue').get();
+      snap.forEach(doc => { printQueueCache[doc.id] = printItemFromDoc(doc); });
+    } catch (e) {
+      console.warn('Firestore loadPrintQueue failed:', e);
+    }
+  }
+
+  function onPrintQueueChange(callback) {
+    if (!db) return;
+    // No orderBy — a query orderBy silently drops docs missing the field
+    // (see onSheetsChange). Sorting is client-side in getPrintQueue.
+    db.collection('printQueue').onSnapshot(snap => {
+      Object.keys(printQueueCache).forEach(k => delete printQueueCache[k]);
+      snap.forEach(doc => { printQueueCache[doc.id] = printItemFromDoc(doc); });
+      callback();
+    }, err => console.warn('Firestore printQueue listener error:', err));
+  }
+
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;
