@@ -1821,8 +1821,9 @@ let pqLastBlobUrl = null;   // last queue-PDF object URL, revoked before a new o
 
 // Page size / font ceiling / printer name per sticker size (spec § PDF rendering).
 const PQ_SIZES = {
-  '3x1': { width: 3 * 72, height: 1 * 72, startSize: 60,  printer: 'STICKERS 1x3' },
-  '4x6': { width: 4 * 72, height: 6 * 72, startSize: 140, printer: 'CRATE LABEL 4x6' },
+  '3x1':    { width: 3 * 72, height: 1 * 72, startSize: 60,  printer: 'STICKERS 1x3' },
+  '4x6':    { width: 4 * 72, height: 6 * 72, startSize: 140, printer: 'CRATE LABEL 4x6' },
+  'letter': { printer: 'letter printer' },   // documents only — never rendered by buildStickerPdf
 };
 
 // Firebase only gives us the sign-in email. Map the two operators to the
@@ -1862,18 +1863,22 @@ function renderPrintQueue() {
   }
   printQueueList.innerHTML = items.map(item => {
     const spec = PQ_SIZES[item.size];
-    const count = item.lines.length;
+    const isDoc = item.kind === 'document';
+    const count = isDoc ? (item.pages || 0) : item.lines.length;
+    const unit = isDoc ? 'page' : 'sticker';
+    const countText = `${count} ${unit}${count !== 1 ? 's' : ''}`;
+    const what = isDoc ? (item.fileName || 'document') : Sequence.rangeLabel(item.lines);
     const when = item.createdAt ? formatDT(new Date(item.createdAt)) : '';
     const printedNote = item.printedAt ? ` · printed ${formatDT(new Date(item.printedAt))}` : '';
     return `
       <div class="pq-row" data-id="${escHtml(item.id)}">
         <div class="pq-row-main">
-          <span class="pq-row-what">${escHtml(Sequence.rangeLabel(item.lines))}</span>
-          <span class="pq-row-meta">${count} sticker${count !== 1 ? 's' : ''} · ${escHtml(item.size)}${item.jobName ? ' · ' + escHtml(item.jobName) : ''} · ${escHtml(pqDisplayName(item.createdBy))} · ${escHtml(when)}${printedNote}</span>
+          <span class="pq-row-what">${escHtml(what)}</span>
+          <span class="pq-row-meta">${countText} · ${escHtml(item.size)}${item.jobName ? ' · ' + escHtml(item.jobName) : ''} · ${escHtml(pqDisplayName(item.createdBy))} · ${escHtml(when)}${printedNote}</span>
         </div>
         <div class="pq-row-actions">
           <div>
-            <button class="btn btn-primary btn-sm" data-action="print">Print ${count} sticker${count !== 1 ? 's' : ''} → ${escHtml(spec ? spec.printer : item.size)}</button>
+            <button class="btn btn-primary btn-sm" data-action="print">Print ${countText} → ${escHtml(spec ? spec.printer : item.size)}</button>
             <div class="pq-row-hint">100% scale · margins none</div>
           </div>
           ${item.printedAt ? '' : '<button class="btn btn-ghost btn-sm" data-action="printed">Printed</button>'}
@@ -1883,6 +1888,7 @@ function renderPrintQueue() {
 }
 
 async function pqPrint(item, button) {
+  if (item.kind === 'document') return pqPrintDocument(item, button);
   const spec = PQ_SIZES[item.size];
   if (!spec) { pqSetStatus(`Can't print: unknown size ${item.size}.`, true); return; }
   button.disabled = true;
@@ -1901,6 +1907,38 @@ async function pqPrint(item, button) {
     pqSetStatus(`${item.lines.length} stickers ready — print the opened PDF on the ${spec.printer} printer at 100% scale.`);
   } catch (err) {
     pqSetStatus(`Couldn't build the sticker PDF — ${err.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function pqPrintDocument(item, button) {
+  const spec = PQ_SIZES[item.size];
+  const name = item.fileName || 'document';
+  button.disabled = true;
+  pqSetStatus(`Fetching ${name}…`);
+  try {
+    const idToken = await Auth.getIdToken();
+    const b64 = await Endpoint.getDoc(item.fileId, idToken);
+    if (!b64) throw new Error('endpoint not configured');
+    let bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    // Wrong-printer guard: re-title so Chrome's tab and print dialog name the
+    // size. Best-effort — if pdf-lib can't re-open the file, print it untitled.
+    try {
+      const doc = await PDFLib.PDFDocument.load(bytes);
+      doc.setTitle(DocInfo.title(name, item.size, item.pages || doc.getPageCount()));
+      bytes = await doc.save({ useObjectStreams: false });
+    } catch (_) { /* open untitled */ }
+    if (pqLastBlobUrl) URL.revokeObjectURL(pqLastBlobUrl);
+    pqLastBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    if (!window.open(pqLastBlobUrl, '_blank')) {
+      pqSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      return;
+    }
+    pqSetStatus(`${name} ready — print the opened PDF on the ${spec ? spec.printer : item.size} at 100% scale.`);
+  } catch (err) {
+    // Row stays in the list; the real reason is the message.
+    pqSetStatus(`Couldn't fetch ${name} — ${err.message}. Try again.`, true);
   } finally {
     button.disabled = false;
   }

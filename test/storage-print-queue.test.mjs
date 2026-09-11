@@ -50,6 +50,18 @@ test('addPrintItem does not mutate the caller\'s lines array', async () => {
   assert.deepEqual(lines, ['ED1']);
 });
 
+test('addPrintItem records pages for documents and null for stickers', async () => {
+  const docId = await Storage.addPrintItem({ kind: 'document', fileId: 'F1', fileName: 'cut-list.pdf', pages: 8, size: '4x6', lines: [] });
+  const doc = Storage.getPrintQueue().find(i => i.id === docId);
+  assert.equal(doc.kind, 'document');
+  assert.equal(doc.pages, 8);
+  assert.equal(doc.fileId, 'F1');
+  assert.equal(doc.fileName, 'cut-list.pdf');
+  assert.deepEqual(doc.lines, []);
+  const stId = await Storage.addPrintItem(batch(['ED1']));
+  assert.equal(Storage.getPrintQueue().find(i => i.id === stId).pages, null);
+});
+
 test('loadPrintQueue tolerates a doc with no lines array', async () => {
   const fakeDb = { collection: () => ({ get: async () => ({
     forEach: fn => fn({ id: 'odd', data: () => ({ kind: 'stickers', size: '3x1', createdAt: 1, printedAt: null }) }),

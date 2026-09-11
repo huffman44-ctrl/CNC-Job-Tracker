@@ -471,6 +471,7 @@ const Storage = (() => {
       lines:     Array.isArray(item.lines) ? item.lines.slice() : [],
       fileId:    item.fileId || null,
       fileName:  item.fileName || null,
+      pages:     Number.isInteger(item.pages) ? item.pages : null,
       size:      item.size,
       jobName:   item.jobName || null,
       createdBy: item.createdBy || '',
