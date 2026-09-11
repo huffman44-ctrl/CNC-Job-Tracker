@@ -10,13 +10,17 @@ const Endpoint = (() => {
       && !ENDPOINT_CONFIG.url.startsWith('PASTE');
   }
 
-  async function post(payload) {
+  const DEFAULT_TIMEOUT_MS = 20000;
+  // 10 MB of base64 each way over shop wifi does not fit in 20 s.
+  const DOC_TIMEOUT_MS = 120000;
+
+  async function post(payload, opts = {}) {
     const res = await fetch(ENDPOINT_CONFIG.url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: ENDPOINT_CONFIG.token, ...payload }),
       redirect: 'follow',
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(opts.timeoutMs || DEFAULT_TIMEOUT_MS),
     });
     const data = await res.json();
     if (!data.ok) {
@@ -53,5 +57,19 @@ const Endpoint = (() => {
     return data.pdfBase64;
   }
 
-  return { enabled, archiveSheet, appendLogRows, lookupOrder, getPackingPdf };
+  // Print-queue documents. Both actions carry the Firebase ID token; the
+  // Apps Script verifies it before touching Drive.
+  async function uploadDoc(fileName, base64, idToken) {
+    if (!enabled()) return null;
+    const data = await post({ action: 'uploadDoc', fileName, base64, idToken }, { timeoutMs: DOC_TIMEOUT_MS });
+    return data.fileId;
+  }
+
+  async function getDoc(fileId, idToken) {
+    if (!enabled()) return null;
+    const data = await post({ action: 'getDoc', fileId, idToken }, { timeoutMs: DOC_TIMEOUT_MS });
+    return data.pdfBase64;
+  }
+
+  return { enabled, archiveSheet, appendLogRows, lookupOrder, getPackingPdf, uploadDoc, getDoc, DOC_TIMEOUT_MS };
 })();
