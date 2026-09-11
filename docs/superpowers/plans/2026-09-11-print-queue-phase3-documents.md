@@ -1019,6 +1019,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `CLAUDE.md` (repo) — file-structure block: add `js/doc-info.js` after the `js/sequence.js` line; extend the `js/endpoint.js` line with `; uploadDoc/getDoc for print-queue documents`; extend the `apps-script/logging-endpoint.gs` line with ` + print-queue uploadDoc/getDoc (self-created Drive folder)`.
+  Also, in the **⚠️ Testing safety** section, after step 2 (`Overwrite the copy's js/firebase-config.js …`), insert a new step: `3. **Also overwrite the copy's \`js/endpoint-config.js\`** with \`const ENDPOINT_CONFIG = { url: 'PASTE_URL', token: 'x' };\` — the tracked file holds the LIVE Apps Script URL and token (GitHub Pages serves it), so without this an upload in the copy calls the real \`archiveSheet\` and writes into the Drive archive. \`Endpoint.enabled()\` is false once the URL starts with PASTE.` and renumber the old step 3 to 4.
 - Modify: `docs/superpowers/specs/2026-09-10-print-queue-design.md` — status line: replace `Phase 3 (documents) amended 2026-09-11 and approved by Travis — see *Phase 3 amendment* at the end; Phase 2 not started` with `Phase 3 (documents) implemented 2026-09-11 on branch print-queue-docs (plan: ../plans/2026-09-11-print-queue-phase3-documents.md) — live script redeploy pending; Phase 2 not started`.
 - Modify: vault note `G:\My Drive\Brain\Brain\Projects\CNC Job Tracker.md` — in the top "Print queue" section, add after the existing checkboxes:
 
