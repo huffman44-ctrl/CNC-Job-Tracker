@@ -1843,7 +1843,8 @@ function pqSetStatus(text, isError) {
 
 function pqTitle(item) {
   const label = item.lines.length === 1 ? item.lines[0] : `${item.lines[0]}-${item.lines[item.lines.length - 1]}`;
-  return `${label} · ${item.size} · ${item.lines.length} stickers`;
+  const count = item.lines.length;
+  return `${label} · ${item.size} · ${count} sticker${count !== 1 ? 's' : ''}`;
 }
 
 function renderPrintQueue() {
@@ -1933,6 +1934,67 @@ printQueueBtn.addEventListener('click', () => {
 });
 
 printQueueShowPrinted.addEventListener('change', renderPrintQueue);
+
+/* ── Builder: + New batch ── */
+const pqBuilder = document.getElementById('pq-builder');
+const pqLines   = document.getElementById('pq-lines');
+const pqPrefix  = document.getElementById('pq-prefix');
+const pqStart   = document.getElementById('pq-start');
+const pqEnd     = document.getElementById('pq-end');
+const pqError   = document.getElementById('pq-error');
+const pqFillBtn = document.getElementById('pq-fill-btn');
+const pqSendBtn = document.getElementById('pq-send-btn');
+
+function pqShowError(msg) {
+  pqError.textContent = msg;
+  pqError.hidden = !msg;
+}
+
+function pqFill() {
+  try {
+    const lines = Sequence.generateSequence(pqPrefix.value, pqStart.value, pqEnd.value);
+    const existing = pqLines.value.replace(/\s+$/, '');
+    pqLines.value = (existing ? existing + '\n' : '') + lines.join('\n');
+    pqShowError('');
+    pqLines.scrollTop = pqLines.scrollHeight;
+  } catch (err) {
+    pqShowError(err.message);
+  }
+}
+
+async function pqSend() {
+  const lines = Sequence.parseLines(pqLines.value);
+  if (!lines.length) { pqShowError('Type at least one sticker line, or fill a range first.'); return; }
+  if (lines.length > Sequence.MAX_ITEMS) {
+    pqShowError(`That's ${lines.length} stickers — the limit is ${Sequence.MAX_ITEMS} per batch.`);
+    return;
+  }
+  const size = document.querySelector('input[name="pq-size"]:checked').value;
+  const user = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
+  pqSendBtn.disabled = true;
+  try {
+    // Nothing is written until here — the textarea is the only draft state,
+    // so Collin never sees a batch appear one line at a time.
+    await Storage.addPrintItem({ kind: 'stickers', lines, size, jobName: null, createdBy: user ? user.email : '' });
+    pqLines.value = '';
+    pqShowError('');
+    pqBuilder.open = false;
+    pqSetStatus(`${lines.length} sticker${lines.length !== 1 ? 's' : ''} sent to the print list.`);
+    renderPrintQueue();
+  } catch (err) {
+    // Firestore rejected (rules missing, offline…): nothing was cached, so
+    // the list is untouched. Say why.
+    pqShowError(`Couldn't send — ${err.message}`);
+  } finally {
+    pqSendBtn.disabled = false;
+  }
+}
+
+pqFillBtn.addEventListener('click', pqFill);
+pqSendBtn.addEventListener('click', pqSend);
+[pqPrefix, pqStart, pqEnd].forEach(el => el.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); pqFill(); }
+}));
 
 /* ══════════════════════════════════════════
    Helpers
