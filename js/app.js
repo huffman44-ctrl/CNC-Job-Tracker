@@ -1850,6 +1850,8 @@ function pqTitle(item) {
 function renderPrintQueue() {
   const open = Storage.getPrintQueue();
   printQueueBtn.textContent = open.length ? `To Print (${open.length})` : 'To Print';
+  // Bright orange while anything is waiting — the badge is the whole notification system.
+  printQueueBtn.classList.toggle('print-queue-btn--pending', open.length > 0);
   if (printQueuePanel.hidden) return;
 
   const showPrinted = printQueueShowPrinted.checked;
