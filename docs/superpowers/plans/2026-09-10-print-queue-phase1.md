@@ -28,7 +28,7 @@
 - **PDF Title format:** `ED1-ED45 · 3x1 · 45 stickers` (range label with a plain hyphen, size, count). This is the wrong-printer guard — it shows in the Chrome tab and print dialog.
 - **Error copy comes from the thrown error's `.message`**, shown inline. No custom mapping.
 - **Panel lives on the Projects screen header** (spec § Architecture says "Projects-screen header"). Note the VanLab panel is actually on the *job* screen header; the spec's side-by-side sketch is not literal. The To Print panel is job-independent in Phase 1, and Phase 2's project-card badge is a Projects-screen feature, so Projects is right.
-- **Script cache-busting:** every modified JS file's `?v=` in `index.html` must be bumped, or GitHub Pages serves the old file.
+- **Script cache-busting:** every modified JS **and CSS** file's `?v=` in `index.html` must be bumped, or GitHub Pages serves the old file.
 
 ---
 

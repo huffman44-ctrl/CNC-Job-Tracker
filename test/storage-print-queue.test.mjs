@@ -49,3 +49,17 @@ test('addPrintItem does not mutate the caller\'s lines array', async () => {
   Storage.getPrintQueue().find(i => i.id === id).lines.push('ED2');
   assert.deepEqual(lines, ['ED1']);
 });
+
+test('loadPrintQueue tolerates a doc with no lines array', async () => {
+  const fakeDb = { collection: () => ({ get: async () => ({
+    forEach: fn => fn({ id: 'odd', data: () => ({ kind: 'stickers', size: '3x1', createdAt: 1, printedAt: null }) }),
+  }) }) };
+  Storage.init(fakeDb);
+  try {
+    await Storage.loadPrintQueue();
+    const item = Storage.getPrintQueue().find(i => i.id === 'odd');
+    assert.deepEqual(item.lines, []);
+  } finally {
+    Storage.init(null);
+  }
+});

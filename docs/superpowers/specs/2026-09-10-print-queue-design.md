@@ -351,9 +351,12 @@ nobody feels responsible for clearing).
 
 ### Firestore rules — a manual step, console-only
 
-**`printQueue` writes will silently no-op until an allow rule is added by hand in the
+**`printQueue` writes will fail until an allow rule is added by hand in the
 Firebase console.** Rules on this project are per-collection and are not deployed
-from this repo. There is no error surfaced — the sticker simply never appears.
+from this repo. Unlike the app's other writers, Send does not swallow the failure —
+the builder shows `Couldn't send — Missing or insufficient permissions` and nothing
+is queued. An already-open tab's listener dies on the first permission error and
+does not re-subscribe, so reload open tabs after adding the rule.
 
 This must be done *before* testing the feature, or an afternoon disappears debugging
 something that was never broken. Travis does this; it is not a code change.
@@ -415,7 +418,7 @@ time. Instead:
 - `fitLines('ED1', …, 60)` returns 60; a long line at 60 shrinks below 60.
 - `buildStickerPdf` with no options produces pages whose `/MediaBox` is
   `[0 0 216 72]`; with `{ width: 288, height: 432 }` it is `[0 0 288 432]`.
-- With `{ title: 'X' }` the PDF contains `/Title (X)`; with no options it does not.
+- With `{ title: 'X' }` the PDF contains a `/Title` entry (pdf-lib writes it as UTF-16BE hex, `<FEFF0058>`); with no options it has none.
 
 `doc.save({ useObjectStreams: false })` keeps the output introspectable, which is
 what makes the `/MediaBox` and `/Title` checks possible.

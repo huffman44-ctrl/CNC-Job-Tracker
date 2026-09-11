@@ -442,6 +442,13 @@ const Storage = (() => {
    * from anywhere); the open list is just printedAt == null.
    */
 
+  // Docs can be hand-edited in the console; a missing/odd `lines` must
+  // not take the whole list down in renderPrintQueue.
+  function printItemFromDoc(doc) {
+    const d = doc.data() || {};
+    return { id: doc.id, ...d, lines: Array.isArray(d.lines) ? d.lines : [] };
+  }
+
   function getPrintQueue() {
     return Object.values(printQueueCache)
       .filter(i => i.printedAt == null)
@@ -494,7 +501,7 @@ const Storage = (() => {
     if (!db) return;
     try {
       const snap = await db.collection('printQueue').get();
-      snap.forEach(doc => { printQueueCache[doc.id] = { id: doc.id, ...doc.data() }; });
+      snap.forEach(doc => { printQueueCache[doc.id] = printItemFromDoc(doc); });
     } catch (e) {
       console.warn('Firestore loadPrintQueue failed:', e);
     }
@@ -506,7 +513,7 @@ const Storage = (() => {
     // (see onSheetsChange). Sorting is client-side in getPrintQueue.
     db.collection('printQueue').onSnapshot(snap => {
       Object.keys(printQueueCache).forEach(k => delete printQueueCache[k]);
-      snap.forEach(doc => { printQueueCache[doc.id] = { id: doc.id, ...doc.data() }; });
+      snap.forEach(doc => { printQueueCache[doc.id] = printItemFromDoc(doc); });
       callback();
     }, err => console.warn('Firestore printQueue listener error:', err));
   }
