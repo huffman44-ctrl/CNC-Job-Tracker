@@ -1,7 +1,7 @@
 # Print Queue — Design
 
 **Status:** designed 2026-09-10, reviewed against the code 2026-09-10 (7 corrections
-folded in, see *Review notes* at the end) — Phase 1 implemented 2026-09-10 on branch print-queue (plan: ../plans/2026-09-10-print-queue-phase1.md); Phases 2–3 not started
+folded in, see *Review notes* at the end) — Phase 1 implemented 2026-09-10 on branch print-queue (plan: ../plans/2026-09-10-print-queue-phase1.md); Phase 3 (documents) amended 2026-09-11 and approved by Travis — see *Phase 3 amendment* at the end; Phase 2 not started
 **Brainstormed with:** Travis
 **Depends on:** `js/sticker-pdf.js`, `js/endpoint.js`, `js/storage.js`, `js/auth.js`
 
@@ -117,6 +117,9 @@ Below the list, two collapsed disclosures.
 
 Size for documents is always `Letter`; the regular printer is the only destination
 for them.
+
+> **Superseded 2026-09-11** — documents are `4x6` or `letter`, auto-detected from the PDF.
+> See *Phase 3 amendment* at the end of this document.
 
 ## Sequence generation
 
@@ -474,3 +477,170 @@ Corrections folded into the sections above, kept here so the reasoning survives:
 6. **Phase 3 needs an Apps Script redeploy** and must not overwrite the live
    script's `ALLOWED_UIDS`.
 7. **Collin**, not Colin — matches the operator list and the vault.
+
+## Phase 3 amendment (2026-09-11) — documents
+
+Approved by Travis 2026-09-11 after Phase 1 went live. Phase 3 is built **before**
+Phase 2 (job tagging); nothing in this amendment depends on tagging. Where this section
+disagrees with the Phase 3 text above, this section wins.
+
+### What changed from the original Phase 3
+
+| Original | Now | Why |
+|---|---|---|
+| Documents are always `Letter` | `4x6` or `letter`, **auto-detected** from the PDF's first page; a two-way picker appears only when the page is neither | Travis's main case is 4x6 shipping labels emailed to him, printed on the crate printer |
+| PDF or image | **PDF only** | Decided; labels arrive as PDFs |
+| Travis creates a Drive folder and pastes its ID into the live script | The script **creates the folder itself** on first upload and remembers it | Removes a manual step nobody benefits from |
+| Filename appears in the tab | The fetched PDF is **re-titled client-side** (`cut-list.pdf · 4x6 · 8 pages`) before it opens | Same wrong-printer guard as stickers; blob tabs have no filename |
+
+Multi-page PDFs are allowed and the page count is shown; a batch of labels in one file is
+one queue item.
+
+### Dropping a file (Travis's side)
+
+- The **+ Send a document** disclosure holds a dashed drop zone: *Drop a PDF here, or
+  browse*. Browse is a hidden `<input type="file" accept="application/pdf">`. Dropping a
+  file **anywhere on the To Print panel** also stages it and opens the disclosure — the
+  disclosure is normally collapsed and the drop should still land.
+- One file at a time. A second drop replaces the staged one.
+- Refused before anything uploads, with a plain message: not a PDF (checked by the
+  `%PDF-` header, not the extension); over **10 MB**; a PDF that pdf-lib cannot open
+  (encrypted or corrupt).
+- Staging reads the file in the browser with the pdf-lib already on the page:
+  `pages = doc.getPageCount()`, first page `{ width, height }` in points. Size rule, either
+  orientation, ±3 pt tolerance:
+
+  | first page | size |
+  |---|---|
+  | 288 × 432 (4 in × 6 in) | `4x6` |
+  | 612 × 792 (Letter) | `letter` |
+  | anything else | picker shown: `4x6 thermal` · `Letter`; Send disabled until chosen |
+
+- The staged line reads `cut-list.pdf · 8 pages · 4x6` with **Send to print list** and a
+  small clear (×). Nothing is written or uploaded until Send.
+
+This lives in a new pure module `js/doc-info.js`:
+
+```js
+DocInfo.sizeFor(width, height)          // → '4x6' | 'letter' | null
+DocInfo.inspectPdf(bytes)               // → Promise<{ pages, width, height }> (throws if pdf-lib can't open it)
+DocInfo.isPdf(bytes)                    // → header check
+DocInfo.title(fileName, size, pages)    // → 'cut-list.pdf · 4x6 · 8 pages' (pluralised)
+```
+
+Testable under `node --test` the way `sticker-pdf` is: build a PDF with pdf-lib in the
+test, inspect it, assert.
+
+### Send
+
+1. Button disabled, status `Uploading cut-list.pdf…`.
+2. `Endpoint.uploadDoc(fileName, base64, idToken)` → `{ fileId }`. Base64 via
+   `FileReader.readAsDataURL`, header stripped.
+3. `Storage.addPrintItem({ kind:'document', fileId, fileName, pages, size, lines: [] })`.
+4. Clear the staged file, collapse the disclosure, status `cut-list.pdf sent to the print
+   list.`, re-render.
+
+If step 2 fails: nothing is queued, `Couldn't send — <message>` inline. If step 3 fails after
+step 2 succeeded: same message; the uploaded file stays in the Drive folder unused. That
+orphan is accepted — it costs nothing and Travis just sends again.
+
+`Endpoint.post` gains an options argument `{ timeoutMs }`. `uploadDoc` and `getDoc` pass
+**120 000**; every existing call keeps the 20 s default (`post`'s signature change must not
+touch any existing caller's behaviour).
+
+### Data
+
+The `printQueue` document for `kind: 'document'`:
+
+```
+kind:      'document'
+fileId:    '<drive id>'
+fileName:  'cut-list.pdf'
+pages:     8
+size:      '4x6' | 'letter'
+lines:     []                 // Storage already normalises a missing lines to []
+jobName / createdBy / createdAt / printedAt as for stickers
+```
+
+### Collin's side
+
+- Row: what = `fileName`; count = `8 pages` / `1 page`; size; who / when — same columns
+  as stickers.
+- Button: `Print 8 pages → CRATE LABEL 4x6` for `4x6`, `Print 8 pages → letter printer`
+  for `letter`. Hint line under it stays `100% scale · margins none`.
+- Print: `Endpoint.getDoc(fileId, idToken)` → base64 → bytes → pdf-lib `load` →
+  `setTitle(DocInfo.title(…))` → `save({ useObjectStreams: false })` → blob → `window.open`.
+  If pdf-lib cannot re-open the fetched bytes, open them untitled rather than fail — the
+  guard is best-effort on the way out, the file must still print.
+- Printed: unchanged.
+
+`PQ_SIZES` gains `letter: { printer: 'letter printer' }` with no page geometry — documents
+are never rendered by `buildStickerPdf`.
+
+### Apps Script — two new actions
+
+Both follow `getPackingPdf`: verify the Firebase ID token (and `ALLOWED_UIDS`) **before**
+touching Drive. Both are added to the `doPost` dispatch. `TOKEN` is still checked first as
+for every action.
+
+**`uploadDoc`** `{ fileName, base64, idToken }` → `{ ok, fileId }`
+
+- Reject: missing `fileName` or `base64`; decoded bytes not starting `%PDF-`; base64
+  longer than 14 000 000 characters (≈10 MB decoded — the client cap, enforced again
+  server-side).
+- Folder: `printQueueFolder()` reads script property `PRINT_QUEUE_FOLDER_ID`; if unset,
+  creates a folder named **`CNC Print Queue`** in the root of the executing account's My
+  Drive, stores its id in the property, returns it. Wrapped in the same `LockService`
+  pattern `archiveSheet` uses so two first-uploads can't create two folders.
+- `folder.createFile(Utilities.newBlob(bytes, 'application/pdf', fileName))`. Duplicate
+  names are allowed (Drive permits them); the queue stores the id, not the name.
+
+**`getDoc`** `{ fileId, idToken }` → `{ ok, pdfBase64 }`
+
+- Reject missing `fileId`.
+- `DriveApp.getFileById(fileId)`; walk `file.getParents()` and require one of them to be the
+  print-queue folder, else `{ ok:false, error:'not a print-queue file' }`. This is the
+  scope guard: the endpoint runs as Travis, so without it any allowlisted user could fetch
+  any file id in his Drive.
+- Return `Utilities.base64Encode(file.getBlob().getBytes())`.
+
+Repo copy `apps-script/logging-endpoint.gs` gets both functions and the dispatch lines.
+**Deploying is manual and Travis's:** open the live script, paste the two functions and
+the two dispatch lines in (do **not** replace the file — the live copy holds the real
+`TOKEN`, folder ids, `FIREBASE_API_KEY` and `ALLOWED_UIDS`), then Deploy → Manage
+deployments → pencil → New version. The endpoint URL does not change on a new version.
+No folder to create, no id to paste.
+
+### Error handling additions
+
+| Case | Behaviour |
+|---|---|
+| Dropped file is not a PDF | Inline: `That isn't a PDF.` Nothing staged |
+| Over 10 MB | Inline: `cut-list.pdf is 14.2 MB — the limit is 10 MB.` Nothing staged |
+| pdf-lib can't open it | Inline: `Couldn't read cut-list.pdf — is it encrypted?` Nothing staged |
+| Odd page size | Picker shown; Send disabled until a size is chosen |
+| Upload fails / times out | `Couldn't send — <message>`; nothing queued |
+| Queue write fails after upload | `Couldn't send — <message>`; file orphaned in Drive, accepted |
+| getDoc fails on Print | Row stays; status `Couldn't fetch cut-list.pdf — <message>. Try again.` |
+| Live script not yet redeployed | Endpoint answers `unknown action`; surfaced verbatim — that is the cue to redeploy |
+
+### Testing
+
+- `test/doc-info.test.mjs`: `sizeFor` for both orientations, tolerance edges, null for
+  A4/others; `inspectPdf` on a 3-page 4x6 PDF built in the test; `isPdf`; `title` plural.
+- `test/endpoint-doc.test.mjs`: `uploadDoc`/`getDoc` post the right action + `idToken`
+  and honour `timeoutMs` — mirror `test/endpoint-packing.test.mjs`.
+- `test/logging-endpoint.test.mjs` extension (the `.gs` is already loaded in a vm with
+  fakes): `uploadDoc` rejects non-PDF and oversize; creates the folder once and reuses the
+  stored id; `getDoc` refuses a file outside the folder; both reject a bad token before
+  Drive is touched.
+- Browser: Playwright in PASTE mode with the endpoint stubbed (`Endpoint.enabled()` is
+  false when the URL is `PASTE…`, so stub `Endpoint.uploadDoc`/`getDoc` on the page) —
+  drop a generated 4x6 PDF, see the staged line, Send, row, Print title.
+- Real: one emailed 4x6 label through the whole path on the crate printer, after the
+  script redeploy.
+
+### Out of scope (still)
+
+Images; editing a queued document; per-page printing; typing text to make a letter
+document; any change to the existing `archiveSheet` / `appendRows` guard status.
