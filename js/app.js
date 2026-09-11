@@ -2052,6 +2052,7 @@ const pqDocError   = document.getElementById('pq-doc-error');
 const pqDocSendBtn = document.getElementById('pq-doc-send-btn');
 const PQ_DOC_MAX_BYTES = 10 * 1024 * 1024;
 let pqDoc = null;   // staged { file, bytes, pages, size } — nothing uploads until Send
+let pqDocSending = false;   // true while pqDocSend is awaiting; blocks drops/Clear from racing it
 
 function pqDocShowError(msg) {
   pqDocError.textContent = msg;
@@ -2085,6 +2086,7 @@ function pqDocReset() {
 }
 
 async function pqStageFile(file) {
+  if (pqDocSending) return;
   pqDocShowError('');
   pqDocReset();
   if (!file) return;
@@ -2121,20 +2123,27 @@ async function pqDocSend() {
   if (!pqDoc) return;
   const size = pqDoc.size || pqDocPickedSize();
   if (!size) { pqDocShowError('Pick a size first.'); return; }
-  const name = pqDoc.file.name;
+  // Snapshot everything before the first await — pqDoc can be replaced or
+  // cleared out from under us while this send is in flight (drop/browse/
+  // Clear are blocked by pqDocSending below, but this is the actual fix:
+  // never re-read module-level pqDoc after control leaves this function).
+  const { file, bytes, pages } = pqDoc;
+  const name = file.name;
+  const base64 = pqBytesToBase64(bytes);
   // Same PASTE-mode guard as pqSend: only touch firebase.auth() once an app exists.
   const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
+  pqDocSending = true;
   pqDocSendBtn.disabled = true;
   pqDocShowError('');
   pqSetStatus(`Uploading ${name}…`);
   try {
     const user = app ? app.auth().currentUser : null;
     const idToken = await Auth.getIdToken();
-    const fileId = await Endpoint.uploadDoc(name, pqBytesToBase64(pqDoc.bytes), idToken);
+    const fileId = await Endpoint.uploadDoc(name, base64, idToken);
     if (!fileId) throw new Error('endpoint not configured');
     // Upload first, queue second. If this write fails the file sits unused in
     // the Drive folder — accepted; Travis just sends again.
-    await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages: pqDoc.pages, size, lines: [], jobName: null, createdBy: user ? user.email : '' });
+    await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages, size, lines: [], jobName: null, createdBy: user ? user.email : '' });
     pqDocReset();
     pqDocBuilder.open = false;
     pqSetStatus(`${name} sent to the print list.`);
@@ -2143,6 +2152,8 @@ async function pqDocSend() {
     pqSetStatus('');
     pqDocShowError(`Couldn't send — ${err.message}`);
     pqDocSendBtn.disabled = false;
+  } finally {
+    pqDocSending = false;
   }
 }
 
@@ -2167,7 +2178,7 @@ printQueuePanel.addEventListener('drop', e => {
   pqStageFile(file);
 });
 pqFile.addEventListener('change', () => pqStageFile(pqFile.files[0]));
-pqDocClear.addEventListener('click', () => { pqDocShowError(''); pqDocReset(); });
+pqDocClear.addEventListener('click', () => { if (pqDocSending) return; pqDocShowError(''); pqDocReset(); });
 document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => r.addEventListener('change', pqDocRender));
 pqDocSendBtn.addEventListener('click', pqDocSend);
 
