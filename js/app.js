@@ -2041,6 +2041,136 @@ pqSendBtn.addEventListener('click', pqSend);
   if (e.key === 'Enter') { e.preventDefault(); pqFill(); }
 }));
 
+/* ── Builder: + Send a document ── */
+const pqDocBuilder = document.getElementById('pq-doc-builder');
+const pqFile       = document.getElementById('pq-file');
+const pqDocStaged  = document.getElementById('pq-doc-staged');
+const pqDocLabel   = document.getElementById('pq-doc-label');
+const pqDocClear   = document.getElementById('pq-doc-clear');
+const pqDocSize    = document.getElementById('pq-doc-size');
+const pqDocError   = document.getElementById('pq-doc-error');
+const pqDocSendBtn = document.getElementById('pq-doc-send-btn');
+const PQ_DOC_MAX_BYTES = 10 * 1024 * 1024;
+let pqDoc = null;   // staged { file, bytes, pages, size } — nothing uploads until Send
+
+function pqDocShowError(msg) {
+  pqDocError.textContent = msg;
+  pqDocError.hidden = !msg;
+}
+
+function pqDocPickedSize() {
+  const r = document.querySelector('input[name="pq-doc-size"]:checked');
+  return r ? r.value : null;
+}
+
+function pqDocRender() {
+  if (!pqDoc) {
+    pqDocStaged.hidden = true;
+    pqDocSize.hidden = true;
+    pqDocSendBtn.disabled = true;
+    return;
+  }
+  const size = pqDoc.size || pqDocPickedSize();
+  pqDocLabel.textContent = `${pqDoc.file.name} · ${pqDoc.pages} page${pqDoc.pages === 1 ? '' : 's'}${size ? ' · ' + size : ''}`;
+  pqDocStaged.hidden = false;
+  pqDocSize.hidden = !!pqDoc.size;     // picker only when auto-detect found nothing
+  pqDocSendBtn.disabled = !size;
+}
+
+function pqDocReset() {
+  pqDoc = null;
+  pqFile.value = '';
+  document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => { r.checked = false; });
+  pqDocRender();
+}
+
+async function pqStageFile(file) {
+  pqDocShowError('');
+  pqDocReset();
+  if (!file) return;
+  pqDocBuilder.open = true;
+  if (file.size > PQ_DOC_MAX_BYTES) {
+    pqDocShowError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB — the limit is 10 MB.`);
+    return;
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!DocInfo.isPdf(bytes)) { pqDocShowError("That isn't a PDF."); return; }
+  let info;
+  try {
+    info = await DocInfo.inspectPdf(bytes);
+  } catch (_) {
+    pqDocShowError(`Couldn't read ${file.name} — is it encrypted?`);
+    return;
+  }
+  pqDoc = { file, bytes, pages: info.pages, size: DocInfo.sizeFor(info.width, info.height) };
+  pqDocRender();
+}
+
+// The bytes are already in memory from staging, so encode those rather than
+// re-reading the file. Chunked: String.fromCharCode can't take 10 MB of args.
+function pqBytesToBase64(bytes) {
+  let s = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(s);
+}
+
+async function pqDocSend() {
+  if (!pqDoc) return;
+  const size = pqDoc.size || pqDocPickedSize();
+  if (!size) { pqDocShowError('Pick a size first.'); return; }
+  const name = pqDoc.file.name;
+  // Same PASTE-mode guard as pqSend: only touch firebase.auth() once an app exists.
+  const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
+  pqDocSendBtn.disabled = true;
+  pqDocShowError('');
+  pqSetStatus(`Uploading ${name}…`);
+  try {
+    const user = app ? app.auth().currentUser : null;
+    const idToken = await Auth.getIdToken();
+    const fileId = await Endpoint.uploadDoc(name, pqBytesToBase64(pqDoc.bytes), idToken);
+    if (!fileId) throw new Error('endpoint not configured');
+    // Upload first, queue second. If this write fails the file sits unused in
+    // the Drive folder — accepted; Travis just sends again.
+    await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages: pqDoc.pages, size, lines: [], jobName: null, createdBy: user ? user.email : '' });
+    pqDocReset();
+    pqDocBuilder.open = false;
+    pqSetStatus(`${name} sent to the print list.`);
+    renderPrintQueue();
+  } catch (err) {
+    pqSetStatus('');
+    pqDocShowError(`Couldn't send — ${err.message}`);
+    pqDocSendBtn.disabled = false;
+  }
+}
+
+// Drops anywhere on the panel stage the file (the disclosure is usually
+// collapsed). stopPropagation matters: document.body's drop handler treats
+// any file dropped on the Projects screen as a job-sheet upload.
+['dragenter', 'dragover'].forEach(ev => printQueuePanel.addEventListener(ev, e => {
+  if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  printQueuePanel.classList.add('pq-drop--over');
+}));
+printQueuePanel.addEventListener('dragleave', e => {
+  if (!printQueuePanel.contains(e.relatedTarget)) printQueuePanel.classList.remove('pq-drop--over');
+});
+printQueuePanel.addEventListener('drop', e => {
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  e.preventDefault();
+  e.stopPropagation();
+  printQueuePanel.classList.remove('pq-drop--over');
+  pqStageFile(file);
+});
+pqFile.addEventListener('change', () => pqStageFile(pqFile.files[0]));
+pqDocClear.addEventListener('click', () => { pqDocShowError(''); pqDocReset(); });
+document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => r.addEventListener('change', pqDocRender));
+pqDocSendBtn.addEventListener('click', pqDocSend);
+
 /* ══════════════════════════════════════════
    Helpers
 ══════════════════════════════════════════ */
