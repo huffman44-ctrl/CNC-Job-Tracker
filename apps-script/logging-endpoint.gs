@@ -3,6 +3,7 @@
  * constants, then Deploy > New deployment > Web app:
  *   Execute as: Me   |   Who has access: Anyone
  * Redeploying creates a fresh URL (rotate if the endpoint is ever abused).
+ * Print-queue documents (uploadDoc/getDoc) need no constants — the folder is self-created.
  */
 const TOKEN              = 'PASTE_TOKEN';
 const ARCHIVE_FOLDER_ID  = 'PASTE_ARCHIVE_FOLDER_ID';
@@ -41,6 +42,8 @@ function doPost(e) {
     if (body.action === 'appendRows')  return jsonOut(appendRowsLocked(body));
     if (body.action === 'lookupOrder') return jsonOut(lookupOrder(body));
     if (body.action === 'getPackingPdf') return jsonOut(getPackingPdf(body));
+    if (body.action === 'uploadDoc')   return jsonOut(uploadDoc(body));
+    if (body.action === 'getDoc')      return jsonOut(getDoc(body));
     return jsonOut({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err) });
@@ -219,6 +222,76 @@ function getPackingPdf(body) {
     return { ok: false, error: "packing list '" + fileName + "' not found in the library folder" };
   }
   return { ok: true, pdfBase64: Utilities.base64Encode(files.next().getBlob().getBytes()) };
+}
+
+/**
+ * Print-queue documents (the Job Tracker's "To Print" panel). Files live in
+ * one Drive folder this script creates on first use and remembers in a script
+ * property — nothing to paste. Both actions verify the Firebase ID token
+ * before touching Drive, like getPackingPdf. getDoc only serves files whose
+ * parent is that folder: the script runs as the owner, so without that guard
+ * any allowlisted user could pull any file id in the owner's Drive.
+ */
+const PRINT_QUEUE_FOLDER_NAME = 'CNC Print Queue';
+const PRINT_QUEUE_FOLDER_PROP = 'PRINT_QUEUE_FOLDER_ID';
+const DOC_MAX_BASE64_CHARS    = 14000000;   // ≈10 MB decoded — the same cap the client enforces
+
+function printQueueFolder() {
+  const props = PropertiesService.getScriptProperties();
+  let id = props.getProperty(PRINT_QUEUE_FOLDER_PROP);
+  if (id) return DriveApp.getFolderById(id);
+  // Same lock pattern as archiveSheet: only the create step races.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    id = props.getProperty(PRINT_QUEUE_FOLDER_PROP);   // re-check under the lock
+    if (!id) {
+      const folder = DriveApp.createFolder(PRINT_QUEUE_FOLDER_NAME);
+      props.setProperty(PRINT_QUEUE_FOLDER_PROP, folder.getId());
+      return folder;
+    }
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+  return DriveApp.getFolderById(id);
+}
+
+function uploadDoc(body) {
+  if (FIREBASE_API_KEY.startsWith('PASTE')) {
+    return { ok: false, error: 'endpoint not configured: FIREBASE_API_KEY is still a placeholder' };
+  }
+  const auth = verifyFirebaseIdToken(body.idToken);
+  if (!auth.ok) return auth;
+  const fileName = String(body.fileName == null ? '' : body.fileName).trim();
+  const base64   = String(body.base64 == null ? '' : body.base64);
+  if (!fileName || !base64) return { ok: false, error: 'missing fileName or base64' };
+  if (base64.length > DOC_MAX_BASE64_CHARS) return { ok: false, error: fileName + ' is over the 10 MB limit' };
+  const bytes = Utilities.base64Decode(base64);
+  // Apps Script bytes are signed (-128..127); mask before comparing.
+  const head = bytes.slice(0, 5).map(function (b) { return String.fromCharCode(b & 0xff); }).join('');
+  if (head !== '%PDF-') return { ok: false, error: fileName + " isn't a PDF" };
+  const file = printQueueFolder().createFile(Utilities.newBlob(bytes, 'application/pdf', fileName));
+  return { ok: true, fileId: file.getId() };
+}
+
+function getDoc(body) {
+  if (FIREBASE_API_KEY.startsWith('PASTE')) {
+    return { ok: false, error: 'endpoint not configured: FIREBASE_API_KEY is still a placeholder' };
+  }
+  const auth = verifyFirebaseIdToken(body.idToken);
+  if (!auth.ok) return auth;
+  const fileId = String(body.fileId == null ? '' : body.fileId).trim();
+  if (!fileId) return { ok: false, error: 'missing fileId' };
+  const folderId = printQueueFolder().getId();
+  let file;
+  try { file = DriveApp.getFileById(fileId); } catch (e) { return { ok: false, error: 'document not found' }; }
+  const parents = file.getParents();
+  let inFolder = false;
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folderId) { inFolder = true; break; }
+  }
+  if (!inFolder) return { ok: false, error: 'not a print-queue file' };
+  return { ok: true, pdfBase64: Utilities.base64Encode(file.getBlob().getBytes()) };
 }
 
 function verifyFirebaseIdToken(idToken) {
