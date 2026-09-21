@@ -1,7 +1,7 @@
 /**
  * Van -> packing-list template resolution, with the Python tool's honesty
- * rules: none-needed vans say so, the van-39 numbering conflict stays
- * blocked, SUVs without a variant are ambiguous (never guessed). Port of
+ * rules: none-needed vans say so, a conflicted van number stays blocked,
+ * SUVs without a variant are ambiguous (never guessed). Port of
  * packing_map.py — keep the two in step until the Python tool retires.
  * Pure logic, no DOM, no fetch; the bridge checks actual file existence.
  */
@@ -35,11 +35,10 @@ const PackingMap = (() => {
   };
 
   // Van numbering conflicts — flag for a human instead of guessing.
-  // (Same wording as packing_map.py; delete the entry when VanLab confirms.)
-  const CONFLICTED_VANS = {
-    '39': 'van numbering conflict: Order Log says Transit Connect, PDF library '
-        + 'says ESeries SWB Passenger - verify with VanLab before packing',
-  };
+  // Add an entry when a van number is in doubt; delete it when VanLab
+  // confirms. Empty since 2026-09-21, when the 39/42 renumbering settled
+  // (see the commit message). Exported below so the branch stays tested.
+  const CONFLICTED_VANS = {};
 
   const SUV_VARIANTS = {
     full: 'SUV01  SUV01 Full Kit.pdf',
@@ -92,5 +91,5 @@ const PackingMap = (() => {
     ]));
   }
 
-  return { resolve, SUV_VARIANTS, knownVanKeys };
+  return { resolve, SUV_VARIANTS, knownVanKeys, CONFLICTED_VANS };
 })();

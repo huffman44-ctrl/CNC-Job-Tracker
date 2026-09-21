@@ -30,11 +30,32 @@ test('van 40 is none_needed with a visible reason, not a failure', () => {
   assert.match(r.reason, /no packing list required/);
 });
 
-test('van 39 stays blocked on the numbering conflict', () => {
+test('van 39 resolves to the ESeries SWB Passenger now the renumbering is settled', () => {
   const r = load().resolve('39', '', null);
-  assert.equal(r.status, 'missing');
-  assert.match(r.reason, /numbering conflict/);
-  assert.match(r.reason, /verify with VanLab/);
+  assert.equal(r.status, 'matched');
+  assert.equal(r.file, 'Van 39_ Ford ESeries SWB PASSENGER.pdf');
+});
+
+test('van 42 resolves to the Transit Connect it was renumbered to', () => {
+  const r = load().resolve('42', '', null);
+  assert.equal(r.status, 'matched');
+  assert.equal(r.file, 'Van 42_ Ford Transit Connect.pdf');
+});
+
+test('a conflicted van still blocks even when it has a PDF mapping', () => {
+  // CONFLICTED_VANS is empty today, so seed it to prove the branch still
+  // works the next time a van number is in doubt. Van 28 has a mapping, so
+  // this also pins the precedence: the block wins over VAN_TO_PDF.
+  const pm = load();
+  pm.CONFLICTED_VANS['28'] = 'test conflict: verify with VanLab before packing';
+  try {
+    const r = pm.resolve('28', '', null);
+    assert.equal(r.status, 'missing');
+    assert.equal(r.file, null);
+    assert.match(r.reason, /verify with VanLab/);
+  } finally {
+    delete pm.CONFLICTED_VANS['28'];
+  }
 });
 
 test('unmapped van says which van has no mapping', () => {
