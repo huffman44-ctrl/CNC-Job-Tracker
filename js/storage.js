@@ -436,17 +436,49 @@ const Storage = (() => {
   }
 
   /* ── Print Queue (the "To Print" panel) ── Firestore printQueue/{id} ──
-   * Item: { id, kind:'stickers'|'document', lines, fileId, fileName,
+   * Item: { id, kind:'stickers'|'document', lines, fileId, fileName, pages,
    *         size:'3x1'|'4x6'|'letter', jobName, createdBy, createdAt(ms), printedAt(ms|null) }
-   * Printed items stay in the collection (reprints + "did it get printed?"
-   * from anywhere); the open list is just printedAt == null.
+   * Open items (printedAt == null) live until printed. Printed items are RECENT
+   * history only: the app loads the last PRINT_RETENTION_DAYS of them and
+   * clearPrintedBefore() deletes the rest (retention amendment, 2026-09-23).
+   * Two single-field queries, never an orderBy (see onSheetsChange).
    */
+  const PRINT_RETENTION_DAYS = 30;
+  const PRINT_RETENTION_MS = PRINT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  function printRetentionCutoff(now = Date.now()) { return now - PRINT_RETENTION_MS; }
+
+  // printQueueCache is the MERGE of two query results. Each snapshot handler
+  // replaces only its own source and the merge is rebuilt, so the printed
+  // listener firing can never wipe open items and vice versa.
+  const printQueueSources = { open: {}, printed: {} };
+
+  function printQueueQueries() {
+    const col = db.collection('printQueue');
+    return {
+      // `== null` matches only docs that HAVE printedAt set to null. Every
+      // writer below sets it explicitly (null or a number). Never
+      // FieldValue.delete() it — the doc would drop out of both queries.
+      open:    col.where('printedAt', '==', null),
+      printed: col.where('printedAt', '>=', printRetentionCutoff()),
+    };
+  }
 
   // Docs can be hand-edited in the console; a missing/odd `lines` must
   // not take the whole list down in renderPrintQueue.
   function printItemFromDoc(doc) {
     const d = doc.data() || {};
     return { id: doc.id, ...d, lines: Array.isArray(d.lines) ? d.lines : [] };
+  }
+
+  function applyPrintSnapshot(source, snap) {
+    const next = {};
+    snap.forEach(doc => { next[doc.id] = printItemFromDoc(doc); });
+    printQueueSources[source] = next;
+    Object.keys(printQueueCache).forEach(k => delete printQueueCache[k]);
+    // Open first, printed second: when an id sits in both for an instant (the two
+    // listeners fire back to back on a mark-printed) the printed copy wins, so a
+    // just-marked item never flashes back into Collin's open list.
+    Object.assign(printQueueCache, printQueueSources.open, printQueueSources.printed);
   }
 
   function getPrintQueue() {
@@ -456,8 +488,11 @@ const Storage = (() => {
   }
 
   function getPrintedItems() {
+    // The query cutoff is frozen when the listener starts and the shop PC's tab
+    // lives for days — re-apply the window here so the list stays honest.
+    const cutoff = printRetentionCutoff();
     return Object.values(printQueueCache)
-      .filter(i => i.printedAt != null)
+      .filter(i => i.printedAt != null && i.printedAt >= cutoff)
       .sort((a, b) => (b.printedAt ?? 0) - (a.printedAt ?? 0));
   }
 
@@ -498,11 +533,68 @@ const Storage = (() => {
     item.printedAt = printedAt;
   }
 
+  async function unmarkPrinted(id) {
+    const item = printQueueCache[id];
+    if (!item) throw new Error('unknown print item: ' + id);
+    // A literal null, never FieldValue.delete() — see printQueueQueries.
+    if (db) await db.collection('printQueue').doc(id).update({ printedAt: null });
+    item.printedAt = null;
+  }
+
+  // The cache is rebuilt from the two source maps, so forgetting a source map
+  // here lets the NEXT snapshot on the other listener resurrect the deleted row
+  // as a zombie. Always drop an id from both sources and the merge together.
+  function forgetPrintItem(id) {
+    delete printQueueSources.open[id];
+    delete printQueueSources.printed[id];
+    delete printQueueCache[id];
+  }
+
+  async function deletePrintItem(id) {
+    if (!printQueueCache[id]) throw new Error('unknown print item: ' + id);
+    // Firestore FIRST and the error is NOT swallowed: a delete that didn't
+    // happen must not look like it did. Deleting a 'document' item does not
+    // touch its PDF in the CNC Print Queue Drive folder (retention amendment).
+    if (db) await db.collection('printQueue').doc(id).delete();
+    forgetPrintItem(id);
+  }
+
+  // Docs older than the window are NOT in the cache (that is the point), so
+  // these two go to Firestore directly. Only a numeric printedAt below the
+  // cutoff counts — an open item (null) must never be swept up, whatever the
+  // range filter does with nulls.
+  const isPrintedBefore = (data, cutoff) => typeof data.printedAt === 'number' && data.printedAt < cutoff;
+
+  async function countPrintedBefore(cutoff) {
+    if (!db) return Object.values(printQueueCache).filter(i => isPrintedBefore(i, cutoff)).length;
+    const snap = await db.collection('printQueue').where('printedAt', '<', cutoff).get();
+    return snap.docs.filter(d => isPrintedBefore(d.data() || {}, cutoff)).length;
+  }
+
+  async function clearPrintedBefore(cutoff) {
+    if (!db) {
+      const ids = Object.keys(printQueueCache).filter(id => isPrintedBefore(printQueueCache[id], cutoff));
+      ids.forEach(forgetPrintItem);
+      return ids.length;
+    }
+    const snap = await db.collection('printQueue').where('printedAt', '<', cutoff).get();
+    const docs = snap.docs.filter(d => isPrintedBefore(d.data() || {}, cutoff));
+    for (let i = 0; i < docs.length; i += 500) {          // Firestore write-batch limit
+      const batch = db.batch();
+      docs.slice(i, i + 500).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    docs.forEach(d => forgetPrintItem(d.id));
+    return docs.length;
+  }
+
   async function loadPrintQueue() {
     if (!db) return;
     try {
-      const snap = await db.collection('printQueue').get();
-      snap.forEach(doc => { printQueueCache[doc.id] = printItemFromDoc(doc); });
+      const q = printQueueQueries();
+      const [open, printed] = await Promise.all([q.open.get(), q.printed.get()]);
+      applyPrintSnapshot('open', open);
+      applyPrintSnapshot('printed', printed);
     } catch (e) {
       console.warn('Firestore loadPrintQueue failed:', e);
     }
@@ -510,16 +602,16 @@ const Storage = (() => {
 
   function onPrintQueueChange(callback) {
     if (!db) return;
-    // No orderBy — a query orderBy silently drops docs missing the field
-    // (see onSheetsChange). Sorting is client-side in getPrintQueue.
-    db.collection('printQueue').onSnapshot(snap => {
-      Object.keys(printQueueCache).forEach(k => delete printQueueCache[k]);
-      snap.forEach(doc => { printQueueCache[doc.id] = printItemFromDoc(doc); });
-      callback();
-    }, err => console.warn('Firestore printQueue listener error:', err));
+    const q = printQueueQueries();
+    for (const source of ['open', 'printed']) {
+      q[source].onSnapshot(snap => {
+        applyPrintSnapshot(source, snap);
+        callback();
+      }, err => console.warn(`Firestore printQueue (${source}) listener error:`, err));
+    }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;

@@ -12,7 +12,7 @@ CNC_WebApp/
 ├── js/path-utils.js             — sanitizeForPath(name) helper; builds safe folder names for customer-named export paths
 ├── js/sequence.js               — generateSequence(prefix, start, end) for the To Print panel: numeric or doubling-alpha (A…Z, AA, BB…), cap 500; parseLines, rangeLabel
 ├── js/doc-info.js               — isPdf / sizeFor (4x6 or letter from the first page, ±3 pt, either orientation) / inspectPdf / title — print-queue document staging and the wrong-printer title guard
-├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, printQueue/ collections) with in-memory cache for sync reads
+├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, printQueue/ collections) with in-memory cache for sync reads — printQueue loads open items + printed-in-last-30-days only (two scoped listeners merged into one cache; older printed items are deleted by "Clear printed older than 30 days")
 ├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
 ├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
 ├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, appends rows to the Master Job Log on export; uploadDoc/getDoc for print-queue documents (120 s timeout)

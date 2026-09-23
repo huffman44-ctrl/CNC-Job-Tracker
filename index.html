@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=22">
+  <link rel="stylesheet" href="css/style.css?v=23">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -97,9 +97,11 @@
     <div id="print-queue-panel" class="print-queue-panel" hidden>
       <div class="print-queue-head">
         <span id="print-queue-status" class="vanlab-status"></span>
+        <button class="btn btn-outline btn-sm" id="print-queue-undo" type="button" hidden>Undo</button>
         <label class="print-queue-toggle">
-          <input type="checkbox" id="print-queue-show-printed"> Show printed
+          <input type="checkbox" id="print-queue-show-printed"> Show printed (last 30 days)
         </label>
+        <button class="btn btn-ghost btn-sm" id="print-queue-clear-old" type="button" hidden>Clear printed older than 30 days</button>
       </div>
       <div id="print-queue-list" class="print-queue-list"></div>
       <details class="print-queue-builder" id="pq-builder">
@@ -468,7 +470,7 @@
   <script src="js/endpoint.js?v=4"></script>
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
-  <script src="js/storage.js?v=14"></script>
+  <script src="js/storage.js?v=15"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/markup.js?v=4"></script>
   <script src="js/auth.js?v=2"></script>
@@ -485,6 +487,6 @@
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=33"></script>
+  <script src="js/app.js?v=34"></script>
 </body>
 </html>

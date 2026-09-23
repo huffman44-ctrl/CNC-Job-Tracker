@@ -1821,7 +1821,7 @@ body {
   padding: 10px 20px 14px; border-bottom: 1px solid var(--gray-200);
   display: flex; flex-direction: column; gap: 10px;
 }
-.print-queue-head { display: flex; align-items: center; gap: 12px; min-height: 20px; }
+.print-queue-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 20px; }
 .print-queue-toggle { margin-left: auto; font-size: 0.8rem; color: var(--gray-500); display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .print-queue-list { display: flex; flex-direction: column; gap: 8px; }
 .print-queue-empty { font-size: 0.85rem; color: var(--gray-500); }
@@ -1850,6 +1850,7 @@ body {
 .print-queue-panel.pq-drop--over .pq-drop { border-color: var(--orange); color: var(--orange); background: var(--orange-light); }
 .print-queue-panel.pq-drop--over { outline: 2px dashed var(--orange); outline-offset: -4px; }
 .pq-doc-staged { display: flex; align-items: center; gap: 10px; }
+.pq-row-delete { color: var(--red); margin-left: 12px; }   /* kept apart from Print / Undo printed — a thumb on the shop floor */
 @media (max-width: 480px) {
   .print-queue-panel { padding: 10px 12px 12px; }
   .pq-row-actions { width: 100%; }
