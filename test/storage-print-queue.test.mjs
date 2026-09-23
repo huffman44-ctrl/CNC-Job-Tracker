@@ -63,9 +63,9 @@ test('addPrintItem records pages for documents and null for stickers', async () 
 });
 
 test('loadPrintQueue tolerates a doc with no lines array', async () => {
-  const fakeDb = { collection: () => ({ get: async () => ({
+  const fakeDb = { collection: () => ({ where: () => ({ get: async () => ({
     forEach: fn => fn({ id: 'odd', data: () => ({ kind: 'stickers', size: '3x1', createdAt: 1, printedAt: null }) }),
-  }) }) };
+  }) }) }) };
   Storage.init(fakeDb);
   try {
     await Storage.loadPrintQueue();
