@@ -1817,6 +1817,9 @@ const printQueuePanel       = document.getElementById('print-queue-panel');
 const printQueueStatus      = document.getElementById('print-queue-status');
 const printQueueList        = document.getElementById('print-queue-list');
 const printQueueShowPrinted = document.getElementById('print-queue-show-printed');
+const printQueueUndo     = document.getElementById('print-queue-undo');
+const printQueueClearOld = document.getElementById('print-queue-clear-old');
+let pqUndoId = null;   // item the head-row Undo reverts; any other status change clears it
 let pqLastBlobUrl = null;   // last queue-PDF object URL, revoked before a new one
 
 // Page size / font ceiling / printer name per sticker size (spec § PDF rendering).
@@ -1844,6 +1847,12 @@ function pqDisplayName(email) {
 function pqSetStatus(text, isError) {
   printQueueStatus.textContent = text;
   printQueueStatus.classList.toggle('vanlab-status-error', !!isError);
+  pqUndoId = null;
+  printQueueUndo.hidden = true;
+}
+
+function pqWhat(item) {
+  return item.kind === 'document' ? (item.fileName || 'document') : Sequence.rangeLabel(item.lines);
 }
 
 function pqTitle(item) {
@@ -1860,9 +1869,10 @@ function renderPrintQueue() {
   if (printQueuePanel.hidden) return;
 
   const showPrinted = printQueueShowPrinted.checked;
+  printQueueClearOld.hidden = !showPrinted;
   const items = showPrinted ? Storage.getPrintedItems() : open;
   if (!items.length) {
-    printQueueList.innerHTML = `<div class="print-queue-empty">${showPrinted ? 'Nothing printed yet.' : 'Nothing waiting to print.'}</div>`;
+    printQueueList.innerHTML = `<div class="print-queue-empty">${showPrinted ? `Nothing printed in the last ${Storage.PRINT_RETENTION_DAYS} days.` : 'Nothing waiting to print.'}</div>`;
     return;
   }
   printQueueList.innerHTML = items.map(item => {
@@ -1885,7 +1895,9 @@ function renderPrintQueue() {
             <button class="btn btn-primary btn-sm" data-action="print">Print ${countText} → ${escHtml(spec ? spec.printer : item.size)}</button>
             <div class="pq-row-hint">100% scale · margins none</div>
           </div>
-          ${item.printedAt ? '' : '<button class="btn btn-ghost btn-sm" data-action="printed">Printed</button>'}
+          ${item.printedAt
+            ? '<button class="btn btn-ghost btn-sm" data-action="unprint">Undo printed</button><button class="btn btn-ghost btn-sm pq-row-delete" data-action="delete">Delete</button>'
+            : '<button class="btn btn-ghost btn-sm" data-action="printed">Printed</button>'}
         </div>
       </div>`;
   }).join('');
@@ -1953,13 +1965,68 @@ async function pqMarkPrinted(item, button) {
   button.disabled = true;
   try {
     await Storage.markPrinted(item.id);
-    const what = item.kind === 'document' ? (item.fileName || 'document') : Sequence.rangeLabel(item.lines);
+    const what = pqWhat(item);
     pqSetStatus(`${what} marked printed.`);
+    pqUndoId = item.id;
+    printQueueUndo.disabled = false;   // a previous Undo click leaves it disabled
+    printQueueUndo.hidden = false;
     renderPrintQueue();
   } catch (err) {
     // Row stays in the list; the real reason is the message.
     pqSetStatus(`Couldn't mark it printed — ${err.message}. Try again.`, true);
     button.disabled = false;
+  }
+}
+
+async function pqUnmarkPrinted(id, button) {
+  button.disabled = true;
+  const item = [...Storage.getPrintQueue(), ...Storage.getPrintedItems()].find(i => i.id === id);
+  try {
+    await Storage.unmarkPrinted(id);
+    pqSetStatus(`${item ? pqWhat(item) : 'Item'} is back in the queue.`);
+    renderPrintQueue();
+  } catch (err) {
+    pqSetStatus(`Couldn't undo — ${err.message}. Try again.`, true);
+    button.disabled = false;
+  }
+}
+
+async function pqDelete(item, button) {
+  // Irreversible. confirm() is the repo's destructive-action pattern; if Chrome
+  // has suppressed dialogs for the site it returns false and nothing happens.
+  const printed = item.printedAt ? `, printed ${formatDT(new Date(item.printedAt))}` : '';
+  const drive = item.kind === 'document' ? ' The PDF itself stays in the CNC Print Queue Drive folder.' : '';
+  if (!confirm(`Delete "${pqWhat(item)}"${printed}? This removes it for everyone and can't be undone.${drive}`)) return;
+  button.disabled = true;
+  try {
+    await Storage.deletePrintItem(item.id);
+    pqSetStatus(`${pqWhat(item)} deleted.`);
+    renderPrintQueue();
+  } catch (err) {
+    pqSetStatus(`Couldn't delete — ${err.message}. Try again.`, true);
+    button.disabled = false;
+  }
+}
+
+async function pqClearOld() {
+  const days = Storage.PRINT_RETENTION_DAYS;
+  const cutoff = Storage.printRetentionCutoff();
+  printQueueClearOld.disabled = true;
+  try {
+    pqSetStatus('Counting…');
+    const n = await Storage.countPrintedBefore(cutoff);
+    if (!n) { pqSetStatus(`Nothing printed more than ${days} days ago.`); return; }
+    if (!confirm(`Permanently delete ${n} printed item${n !== 1 ? 's' : ''} older than ${days} days? They aren't shown in this list and can't be recovered.`)) {
+      pqSetStatus('');
+      return;
+    }
+    const deleted = await Storage.clearPrintedBefore(cutoff);
+    pqSetStatus(`Deleted ${deleted} printed item${deleted !== 1 ? 's' : ''}.`);
+    renderPrintQueue();
+  } catch (err) {
+    pqSetStatus(`Couldn't clear — ${err.message}. Try again.`, true);
+  } finally {
+    printQueueClearOld.disabled = false;
   }
 }
 
@@ -1971,6 +2038,8 @@ printQueueList.addEventListener('click', e => {
   if (!item) return;
   if (btn.dataset.action === 'print') pqPrint(item, btn);
   if (btn.dataset.action === 'printed') pqMarkPrinted(item, btn);
+  if (btn.dataset.action === 'unprint') pqUnmarkPrinted(item.id, btn);
+  if (btn.dataset.action === 'delete')  pqDelete(item, btn);
 });
 
 printQueueBtn.addEventListener('click', () => {
@@ -1980,6 +2049,8 @@ printQueueBtn.addEventListener('click', () => {
 });
 
 printQueueShowPrinted.addEventListener('change', renderPrintQueue);
+printQueueUndo.addEventListener('click', () => { if (pqUndoId) pqUnmarkPrinted(pqUndoId, printQueueUndo); });
+printQueueClearOld.addEventListener('click', pqClearOld);
 
 /* ── Builder: + New batch ── */
 const pqBuilder = document.getElementById('pq-builder');
