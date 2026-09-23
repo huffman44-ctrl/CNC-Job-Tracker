@@ -122,3 +122,76 @@ test('getPrintedItems shows 29d23h59m-old items and hides 30d0h1m-old ones, newe
     assert.deepEqual(Storage.getPrintedItems().map(i => i.id), ['recent', 'edge-in']);
   } finally { Storage.init(null); }
 });
+
+test('unmarkPrinted puts the item back in the open queue with a literal null', async () => {
+  await reset();
+  const id = await Storage.addPrintItem({ kind: 'stickers', lines: ['U1'], size: '3x1' });
+  await Storage.markPrinted(id);
+  assert.ok(Storage.getPrintedItems().some(i => i.id === id));
+  await Storage.unmarkPrinted(id);
+  assert.ok(Storage.getPrintQueue().some(i => i.id === id), 'not back in the open queue');
+  assert.ok(!Storage.getPrintedItems().some(i => i.id === id), 'still in printed');
+  assert.equal(Storage.getPrintQueue().find(i => i.id === id).printedAt, null);
+  await assert.rejects(() => Storage.unmarkPrinted('nope'), /unknown print item/);
+});
+
+test('unmarkPrinted writes { printedAt: null } to Firestore (never a field delete)', async () => {
+  const { db, log } = fakeDb({ '==': [], '>=': [doc('p', { printedAt: Date.now() - DAY })] });
+  Storage.init(db);
+  try {
+    await Storage.loadPrintQueue();
+    await Storage.unmarkPrinted('p');
+    assert.deepEqual(log.updates, [{ id: 'p', data: { printedAt: null } }]);
+  } finally { Storage.init(null); }
+});
+
+test('deletePrintItem removes the item from the cache and from Firestore', async () => {
+  const { db, log } = fakeDb({ '==': [doc('o')], '>=': [doc('p', { printedAt: Date.now() - DAY })] });
+  Storage.init(db);
+  try {
+    await Storage.loadPrintQueue();
+    await Storage.deletePrintItem('p');
+    assert.deepEqual(log.deletes, ['p']);
+    assert.ok(!Storage.getPrintedItems().some(i => i.id === 'p'));
+    assert.deepEqual(Storage.getPrintQueue().map(i => i.id), ['o'], 'open item must survive');
+    await assert.rejects(() => Storage.deletePrintItem('nope'), /unknown print item/);
+  } finally { Storage.init(null); }
+});
+
+test('deletePrintItem keeps the cache entry when Firestore rejects', async () => {
+  const { db } = fakeDb({ '==': [], '>=': [doc('p', { printedAt: Date.now() - DAY })], failDelete: true });
+  Storage.init(db);
+  try {
+    await Storage.loadPrintQueue();
+    await assert.rejects(() => Storage.deletePrintItem('p'), /boom/);
+    assert.ok(Storage.getPrintedItems().some(i => i.id === 'p'), 'a failed delete must not look like it happened');
+  } finally { Storage.init(null); }
+});
+
+test('countPrintedBefore / clearPrintedBefore query printedAt < cutoff, chunk at 500, and never touch open items', async () => {
+  const cutoff = Date.now() - 30 * DAY;
+  const old = Array.from({ length: 1001 }, (_, i) => doc('old' + i, { printedAt: cutoff - 1 - i }));
+  // A null-printedAt doc smuggled into the '<' result must be ignored, whatever Firestore does with nulls.
+  const { db, log } = fakeDb({ '==': [doc('open')], '>=': [], '<': [...old, doc('open')] });
+  Storage.init(db);
+  try {
+    await Storage.loadPrintQueue();
+    assert.equal(await Storage.countPrintedBefore(cutoff), 1001);
+    const n = await Storage.clearPrintedBefore(cutoff);
+    assert.equal(n, 1001);
+    assert.deepEqual(log.batches.map(b => b.length), [500, 500, 1]);
+    assert.ok(!log.batches.flat().includes('open'), 'open item was batched for deletion');
+    assert.deepEqual(Storage.getPrintQueue().map(i => i.id), ['open']);
+    assert.ok(log.wheres.some(w => w.op === '<' && w.value === cutoff));
+  } finally { Storage.init(null); }
+});
+
+test('clearPrintedBefore rethrows a batch failure', async () => {
+  const cutoff = Date.now() - 30 * DAY;
+  const { db } = fakeDb({ '==': [], '>=': [], '<': [doc('old', { printedAt: cutoff - 1 })], failBatch: true });
+  Storage.init(db);
+  try {
+    await Storage.loadPrintQueue();
+    await assert.rejects(() => Storage.clearPrintedBefore(cutoff), /batch boom/);
+  } finally { Storage.init(null); }
+});

@@ -533,6 +533,52 @@ const Storage = (() => {
     item.printedAt = printedAt;
   }
 
+  async function unmarkPrinted(id) {
+    const item = printQueueCache[id];
+    if (!item) throw new Error('unknown print item: ' + id);
+    // A literal null, never FieldValue.delete() — see printQueueQueries.
+    if (db) await db.collection('printQueue').doc(id).update({ printedAt: null });
+    item.printedAt = null;
+  }
+
+  async function deletePrintItem(id) {
+    if (!printQueueCache[id]) throw new Error('unknown print item: ' + id);
+    // Firestore FIRST and the error is NOT swallowed: a delete that didn't
+    // happen must not look like it did. Deleting a 'document' item does not
+    // touch its PDF in the CNC Print Queue Drive folder (retention amendment).
+    if (db) await db.collection('printQueue').doc(id).delete();
+    delete printQueueCache[id];
+  }
+
+  // Docs older than the window are NOT in the cache (that is the point), so
+  // these two go to Firestore directly. Only a numeric printedAt below the
+  // cutoff counts — an open item (null) must never be swept up, whatever the
+  // range filter does with nulls.
+  const isPrintedBefore = (data, cutoff) => typeof data.printedAt === 'number' && data.printedAt < cutoff;
+
+  async function countPrintedBefore(cutoff) {
+    if (!db) return Object.values(printQueueCache).filter(i => isPrintedBefore(i, cutoff)).length;
+    const snap = await db.collection('printQueue').where('printedAt', '<', cutoff).get();
+    return snap.docs.filter(d => isPrintedBefore(d.data() || {}, cutoff)).length;
+  }
+
+  async function clearPrintedBefore(cutoff) {
+    if (!db) {
+      const ids = Object.keys(printQueueCache).filter(id => isPrintedBefore(printQueueCache[id], cutoff));
+      ids.forEach(id => delete printQueueCache[id]);
+      return ids.length;
+    }
+    const snap = await db.collection('printQueue').where('printedAt', '<', cutoff).get();
+    const docs = snap.docs.filter(d => isPrintedBefore(d.data() || {}, cutoff));
+    for (let i = 0; i < docs.length; i += 500) {          // Firestore write-batch limit
+      const batch = db.batch();
+      docs.slice(i, i + 500).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    docs.forEach(d => delete printQueueCache[d.id]);
+    return docs.length;
+  }
+
   async function loadPrintQueue() {
     if (!db) return;
     try {
@@ -556,7 +602,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;
