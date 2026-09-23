@@ -1,7 +1,7 @@
 # Print Queue — Design
 
 **Status:** designed 2026-09-10, reviewed against the code 2026-09-10 (7 corrections
-folded in, see *Review notes* at the end) — Phase 1 implemented 2026-09-10 on branch print-queue (plan: ../plans/2026-09-10-print-queue-phase1.md); Phase 3 (documents) implemented 2026-09-11 on branch print-queue-docs (plan: ../plans/2026-09-11-print-queue-phase3-documents.md) — live script redeploy pending; Phase 2 not started
+folded in, see *Review notes* at the end) — Phase 1 implemented 2026-09-10 on branch print-queue (plan: ../plans/2026-09-10-print-queue-phase1.md); Phase 3 (documents) implemented 2026-09-11 on branch print-queue-docs (plan: ../plans/2026-09-11-print-queue-phase3-documents.md) — live script redeploy pending; Phase 2 not started; Retention amendment 2026-09-23 (30-day printed window, undo, delete — plan: ../plans/2026-09-23-print-queue-retention.md)
 **Brainstormed with:** Travis
 **Depends on:** `js/sticker-pdf.js`, `js/endpoint.js`, `js/storage.js`, `js/auth.js`
 
@@ -644,3 +644,21 @@ No folder to create, no id to paste.
 
 Images; editing a queued document; per-page printing; typing text to make a letter
 document; any change to the existing `archiveSheet` / `appendRows` guard status.
+
+## Retention amendment (2026-09-23) — printed history is recent, not all-time
+
+Approved by Travis 2026-09-23. Where this disagrees with *Lifecycle* above, this wins.
+
+| Original | Now | Why |
+|---|---|---|
+| Printed items stay in the collection forever; `loadPrintQueue`/listener read the whole collection | The app loads **open items + items printed in the last 30 days**; older printed items are **deleted** by *Clear printed older than 30 days* | Every batch ever printed was loading on every app start, unbounded |
+| `Printed` is permanent | **Undo** right after the click, and **Undo printed** on any printed row | Collin marks things printed on a busy shop floor; a misclick was permanent |
+| No delete | **Delete** on printed rows, behind a confirm | Nothing could be removed from the list |
+
+- Two single-field queries (`printedAt == null`, `printedAt >= now − 30 d`), no `orderBy`, no composite index. The cache is the merge of both; each listener replaces only its own half.
+- `printedAt` is always a literal `null` or a ms number — never removed from the doc.
+- Deleting a `document` item does **not** delete its PDF from the `CNC Print Queue` Drive folder (would need a new endpoint action and a live redeploy). Travis prunes the folder by hand if it ever matters.
+- Firestore rules: `allow read, write` on `printQueue` already covers delete. No rules change.
+- Reprints are therefore possible for 30 days, not forever.
+- No automatic purge: the clear runs only when the button is pressed (Travis, 2026-09-23).
+- No Delete on open rows: destructive controls stay out of the default view (Travis, 2026-09-23).
