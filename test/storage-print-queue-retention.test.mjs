@@ -195,3 +195,35 @@ test('clearPrintedBefore rethrows a batch failure', async () => {
     await assert.rejects(() => Storage.clearPrintedBefore(cutoff), /batch boom/);
   } finally { Storage.init(null); }
 });
+
+// The cache is rebuilt from the two source maps, so a delete that forgot a source
+// map would be undone by the NEXT snapshot on the OTHER listener — the deleted row
+// reappears as a zombie (Firestore has it gone, so its Undo printed then errors).
+test('a deleted item is not resurrected when the other listener fires', async () => {
+  const printedAt = Date.now() - DAY;
+  const { db, fire } = fakeDb({ '==': [doc('o1')], '>=': [doc('p1', { printedAt })] });
+  Storage.init(db);
+  try {
+    Storage.onPrintQueueChange(() => {});
+    await Storage.deletePrintItem('p1');
+    assert.deepEqual(Storage.getPrintedItems().map(i => i.id), []);
+    // The printed listener is dead/slow, so only the OPEN one fires. The rebuild
+    // must not bring p1 back from the printed source map.
+    fire('==', [doc('o1'), doc('o2')]);
+    assert.deepEqual(Storage.getPrintedItems().map(i => i.id), [], 'p1 came back as a zombie');
+    assert.deepEqual(Storage.getPrintQueue().map(i => i.id), ['o1', 'o2']);
+  } finally { Storage.init(null); }
+});
+
+test('bulk-cleared items are not resurrected either', async () => {
+  const cutoff = Date.now() - 30 * DAY;
+  // The old item is in the cache (a long-lived tab held it) as well as the '<' result.
+  const { db, fire } = fakeDb({ '==': [doc('o1')], '>=': [doc('old', { printedAt: cutoff - 1 })], '<': [doc('old', { printedAt: cutoff - 1 })] });
+  Storage.init(db);
+  try {
+    Storage.onPrintQueueChange(() => {});
+    assert.equal(await Storage.clearPrintedBefore(cutoff), 1);
+    fire('==', [doc('o1')]);
+    assert.deepEqual(Storage.getPrintedItems().map(i => i.id), [], 'cleared item came back');
+  } finally { Storage.init(null); }
+});

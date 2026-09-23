@@ -541,13 +541,22 @@ const Storage = (() => {
     item.printedAt = null;
   }
 
+  // The cache is rebuilt from the two source maps, so forgetting a source map
+  // here lets the NEXT snapshot on the other listener resurrect the deleted row
+  // as a zombie. Always drop an id from both sources and the merge together.
+  function forgetPrintItem(id) {
+    delete printQueueSources.open[id];
+    delete printQueueSources.printed[id];
+    delete printQueueCache[id];
+  }
+
   async function deletePrintItem(id) {
     if (!printQueueCache[id]) throw new Error('unknown print item: ' + id);
     // Firestore FIRST and the error is NOT swallowed: a delete that didn't
     // happen must not look like it did. Deleting a 'document' item does not
     // touch its PDF in the CNC Print Queue Drive folder (retention amendment).
     if (db) await db.collection('printQueue').doc(id).delete();
-    delete printQueueCache[id];
+    forgetPrintItem(id);
   }
 
   // Docs older than the window are NOT in the cache (that is the point), so
@@ -565,7 +574,7 @@ const Storage = (() => {
   async function clearPrintedBefore(cutoff) {
     if (!db) {
       const ids = Object.keys(printQueueCache).filter(id => isPrintedBefore(printQueueCache[id], cutoff));
-      ids.forEach(id => delete printQueueCache[id]);
+      ids.forEach(forgetPrintItem);
       return ids.length;
     }
     const snap = await db.collection('printQueue').where('printedAt', '<', cutoff).get();
@@ -575,7 +584,7 @@ const Storage = (() => {
       docs.slice(i, i + 500).forEach(d => batch.delete(d.ref));
       await batch.commit();
     }
-    docs.forEach(d => delete printQueueCache[d.id]);
+    docs.forEach(d => forgetPrintItem(d.id));
     return docs.length;
   }
 
