@@ -1828,13 +1828,17 @@ const PQ_SIZES = {
 
 // Firebase only gives us the sign-in email. Map the two operators to the
 // names they go by; anything else falls back to the part before the @.
+// Keyed on the LOCAL PART (before the @), not the whole address: this repo is
+// public and app.js is served from Pages, so full addresses here would be
+// harvestable. The local part alone isn't a deliverable address.
 const PQ_DISPLAY_NAMES = {
-  // 'travis@example.com': 'Travis',
-  // 'collin@example.com': 'Collin',
+  'huffman44': 'Travis',
+  '777litch777': 'Collin',
 };
 function pqDisplayName(email) {
   if (!email) return 'Someone';
-  return PQ_DISPLAY_NAMES[email.toLowerCase()] || email.split('@')[0];
+  const local = String(email).split('@')[0].toLowerCase();
+  return PQ_DISPLAY_NAMES[local] || local;
 }
 
 function pqSetStatus(text, isError) {
