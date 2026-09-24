@@ -44,8 +44,15 @@ test('sizeFor: letter either way round; A4 and odd sizes are null', () => {
   assert.equal(DocInfo.sizeFor(612, 792), 'letter');
   assert.equal(DocInfo.sizeFor(792, 612), 'letter');
   assert.equal(DocInfo.sizeFor(595.28, 841.89), null, 'A4');
-  assert.equal(DocInfo.sizeFor(216, 72), null, '3x1 is a sticker, not a document size');
   assert.equal(DocInfo.TOLERANCE, 3);
+});
+
+test('sizeFor: 3x1 sticker PDFs either way round, within 3pt', () => {
+  const { DocInfo } = load();
+  assert.equal(DocInfo.sizeFor(216, 72), '3x1');
+  assert.equal(DocInfo.sizeFor(72, 216), '3x1');
+  assert.equal(DocInfo.sizeFor(218, 70), '3x1');
+  assert.equal(DocInfo.sizeFor(216, 76), null, '4pt off is not 3x1');
 });
 
 test('isPdf checks the %PDF- header, not the name', () => {

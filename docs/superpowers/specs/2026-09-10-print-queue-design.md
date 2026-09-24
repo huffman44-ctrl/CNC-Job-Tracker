@@ -488,7 +488,7 @@ disagrees with the Phase 3 text above, this section wins.
 
 | Original | Now | Why |
 |---|---|---|
-| Documents are always `Letter` | `4x6` or `letter`, **auto-detected** from the PDF's first page; a two-way picker appears only when the page is neither | Travis's main case is 4x6 shipping labels emailed to him, printed on the crate printer |
+| Documents are always `Letter` | `4x6` or `letter` (plus `3x1`, added 2026-09-24), **auto-detected** from the PDF's first page; a picker appears only when the page is none of them | Travis's main case is 4x6 shipping labels emailed to him, printed on the crate printer |
 | PDF or image | **PDF only** | Decided; labels arrive as PDFs |
 | Travis creates a Drive folder and pastes its ID into the live script | The script **creates the folder itself** on first upload and remembers it | Removes a manual step nobody benefits from |
 | Filename appears in the tab | The fetched PDF is **re-titled client-side** (`cut-list.pdf · 4x6 · 8 pages`) before it opens | Same wrong-printer guard as stickers; blob tabs have no filename |
@@ -512,9 +512,10 @@ one queue item.
 
   | first page | size |
   |---|---|
+  | 216 × 72 (3 in × 1 in) | `3x1` (added 2026-09-24: pre-built sticker PDFs) |
   | 288 × 432 (4 in × 6 in) | `4x6` |
   | 612 × 792 (Letter) | `letter` |
-  | anything else | picker shown: `4x6 thermal` · `Letter`; Send disabled until chosen |
+  | anything else | picker shown: `3x1 sticker` · `4x6 thermal` · `Letter`; Send disabled until chosen |
 
 - The staged line reads `cut-list.pdf · 8 pages · 4x6` with **Send to print list** and a
   small clear (×). Nothing is written or uploaded until Send.
@@ -522,7 +523,7 @@ one queue item.
 This lives in a new pure module `js/doc-info.js`:
 
 ```js
-DocInfo.sizeFor(width, height)          // → '4x6' | 'letter' | null
+DocInfo.sizeFor(width, height)          // → '3x1' | '4x6' | 'letter' | null
 DocInfo.inspectPdf(bytes)               // → Promise<{ pages, width, height }> (throws if pdf-lib can't open it)
 DocInfo.isPdf(bytes)                    // → header check
 DocInfo.title(fileName, size, pages)    // → 'cut-list.pdf · 4x6 · 8 pages' (pluralised)
@@ -557,7 +558,7 @@ kind:      'document'
 fileId:    '<drive id>'
 fileName:  'cut-list.pdf'
 pages:     8
-size:      '4x6' | 'letter'
+size:      '3x1' | '4x6' | 'letter'
 lines:     []                 // Storage already normalises a missing lines to []
 jobName / createdBy / createdAt / printedAt as for stickers
 ```
@@ -567,7 +568,7 @@ jobName / createdBy / createdAt / printedAt as for stickers
 - Row: what = `fileName`; count = `8 pages` / `1 page`; size; who / when — same columns
   as stickers.
 - Button: `Print 8 pages → CRATE LABEL 4x6` for `4x6`, `Print 8 pages → letter printer`
-  for `letter`. Hint line under it stays `100% scale · margins none`.
+  for `letter`, `Print 12 pages → STICKERS 1x3` for `3x1`. Hint line under it stays `100% scale · margins none`.
 - Print: `Endpoint.getDoc(fileId, idToken)` → base64 → bytes → pdf-lib `load` →
   `setTitle(DocInfo.title(…))` → `save({ useObjectStreams: false })` → blob → `window.open`.
   If pdf-lib cannot re-open the fetched bytes, open them untitled rather than fail — the

@@ -7,10 +7,11 @@
  */
 const DocInfo = (() => {
   const TOLERANCE = 3;   // points; scanners and label generators are rarely exact
-  const SIZES = { '4x6': [4 * 72, 6 * 72], 'letter': [8.5 * 72, 11 * 72] };
+  const SIZES = { '3x1': [3 * 72, 1 * 72], '4x6': [4 * 72, 6 * 72], 'letter': [8.5 * 72, 11 * 72] };
   const near = (a, b) => Math.abs(a - b) <= TOLERANCE;
 
-  // Either orientation counts: a rotated label is still a 4x6 label.
+  // Either orientation counts: a rotated label is still a 4x6 label. 3x1 is a
+  // pre-built sticker PDF (e.g. the stickers skill's output) for STICKERS 1x3.
   function sizeFor(width, height) {
     for (const [name, [w, h]] of Object.entries(SIZES)) {
       if ((near(width, w) && near(height, h)) || (near(width, h) && near(height, w))) return name;
