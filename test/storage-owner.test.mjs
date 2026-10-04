@@ -11,16 +11,24 @@ function fakeDb(opts = {}) {
   const writes = [];
   return {
     writes,
+    async runTransaction(fn) {
+      if (opts.setFails) throw new Error('write-denied');
+      const tx = {
+        get: async ref => ({ exists: !!opts.existsAtCommit }),
+        set: (ref, d) => writes.push({ name: 'settings', id: ref.id, d }),
+      };
+      return fn(tx);
+    },
     collection(name) {
       return {
         async get() {
           if (opts.getFails) throw new Error('permission-denied');
           const entries = Object.entries(store[name] || {});
-          return { forEach: cb => entries.forEach(([id, d]) => cb({ id, data: () => d })) };
+          return { metadata: { fromCache: !!opts.fromCache }, forEach: cb => entries.forEach(([id, d]) => cb({ id, data: () => d })) };
         },
         onSnapshot() {},
         doc(id) {
-          return { async set(d) {
+          return { id, async set(d) {
             if (opts.setFails) throw new Error('write-denied');
             writes.push({ name, id, d });
           } };
@@ -166,4 +174,29 @@ test('onChange fires on every write', async () => {
   await OwnerStore.setJobBilling('proj_9', { jobName: 'x' }, 'travis@example.com');
   assert.equal(n, 2);
   assert.equal(OwnerStore.getSetting('invoicing').savedBy, 'travis@example.com');
+});
+
+test('P17: a cache-only get (offline, metadata.fromCache) counts as a failed load — no seed', async () => {
+  OwnerStore._resetForTests();
+  const db = fakeDb({ fromCache: true });
+  OwnerStore.init(db);
+  await quiet(() => OwnerStore.loadAll());
+  assert.equal(db.writes.length, 0);
+  assert.deepEqual(OwnerStore.laborTypes(), []);
+});
+
+test('P17: seed transaction does not overwrite a doc that exists at commit time', async () => {
+  OwnerStore._resetForTests();
+  const db = fakeDb({ existsAtCommit: true });
+  OwnerStore.init(db);
+  await OwnerStore.loadAll();
+  assert.equal(db.writes.length, 0, 'transaction saw the doc → no set');
+  assert.deepEqual(OwnerStore.laborTypes(), [], 'optimistic seed rolled back');
+});
+
+test('newLaborLine with 4 args defaults typeName from the seeded labor types', async () => {
+  OwnerStore._resetForTests();
+  await OwnerStore.loadAll();
+  assert.equal(OwnerStore.newLaborLine('cam', 2, 'n', 'a').typeName, 'CAM');
+  assert.equal(OwnerStore.newLaborLine('nope', 2, 'n', 'a').typeName, '');
 });

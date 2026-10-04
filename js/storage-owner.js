@@ -41,6 +41,12 @@ const OwnerStore = (() => {
     try {
       const snap = await db.collection(name).get();
       snap.forEach(doc => { caches[name][doc.id] = doc.data(); });
+      // Firestore compat get() does not reject offline: it resolves from the local cache.
+      // A cache-only answer is not proof the doc is missing, so it counts as a failed load.
+      if (snap.metadata && snap.metadata.fromCache) {
+        console.warn(`Firestore ${name} load came from cache only (offline?) — treating as failed`);
+        return false;
+      }
       return true;
     } catch (e) {
       console.warn(`Firestore ${name} load failed:`, e);
@@ -109,7 +115,7 @@ const OwnerStore = (() => {
   function newLaborLine(typeId, hours, note, by, typeName) {
     return {
       id: 'll_' + now().toString(36) + Math.random().toString(36).slice(2, 6),
-      typeId, typeName: typeName || '', hours: Number(hours), note: note || '', enteredBy: by || '', enteredAt: now(),
+      typeId, typeName: typeName || ((laborTypes().find(t => t.id === typeId) || {}).name) || '', hours: Number(hours), note: note || '', enteredBy: by || '', enteredAt: now(),
       status: 'unbilled', invoiceNumber: null, billedAt: null,
     };
   }
@@ -162,7 +168,15 @@ const OwnerStore = (() => {
     caches.settings[name] = doc;
     if (db) {
       try {
-        await db.collection('settings').doc(name).set(doc);
+        // Transaction: re-reads the doc and sets only if it does not exist. Transactions fail
+        // offline and close the race of two owners signing in at once.
+        const ref = db.collection('settings').doc(name);
+        const created = await db.runTransaction(tx => tx.get(ref).then(snap => {
+          if (snap.exists) return false;
+          tx.set(ref, doc);
+          return true;
+        }));
+        if (!created) { delete caches.settings[name]; return false; }   // listener fills in the real doc
       } catch (e) {
         console.warn(`Firestore settings/${name} seed failed:`, e);
         delete caches.settings[name];
