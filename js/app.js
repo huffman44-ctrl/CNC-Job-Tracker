@@ -206,58 +206,119 @@ function handleFiles(fileList, isFirstLoad) {
     }
   }
 
-  let loadedCount    = 0;
-  let firstNewJobName = null;
-  const alreadyLoaded = [];   // files skipped because a sheet with that name is already loaded
+  let loadedCount = 0;
+  const alreadyLoaded  = [];   // on the board already (in-memory match) — unchanged behaviour
+  const finishedBefore = [];   // { name, doc } — finished sheets live in Firestore, not in `sheets`
+  const unchecked      = [];   // file names whose Firestore read failed — blocked, not saved
+  const savedByJob     = new Map();   // jobName -> [fileKey] saved by THIS drop (Cancel removes only these)
+
   for (const file of htmlFiles) {
     const reader = new FileReader();
     reader.onload = async e => {
-      const parsed = parseJobSheet(e.target.result);
-      const key    = simpleHash(file.name);
-      if (!sheets.find(s => s.fileKey === key)) {
-        const sheet = { fileKey: key, fileName: file.name, ...parsed };
-        if (!firstNewJobName) firstNewJobName = projectKey(sheet);
-        sheets.push(sheet);
-
-        const result = await Storage.saveSheet(sheet);
-        if (!result.ok) {
-          // The sheets listener will drop this sheet from the screen on the
-          // next snapshot — say why, so it isn't a silent disappearance.
-          const idx = sheets.findIndex(s => s.fileKey === key);
-          if (idx !== -1) sheets.splice(idx, 1);
-          showSaveBanner(`Couldn't save "${file.name}" — ${result.error?.message || 'unknown error'}. The file was still archived to Drive.`);
-        } else if (result.mode === 'oversize') {
-          showSaveBanner(`"${file.name}" was saved, but its layout drawing is too large to store. Everything else tracks normally — use the archive link to view the drawing.`);
-        }
-
-        // Archive after the save resolves, so setArchiveUrl's update() has a
-        // document to attach to.
-        Endpoint.archiveSheet(file.name, sheet.jobName || '', e.target.result)
-          .then(url => { if (url) Storage.setArchiveUrl(key, url); })
-          .catch(err => console.warn('Archive upload failed:', err));
-      } else {
-        // A sheet with this exact filename is already loaded. Record it so we
-        // can tell the operator, instead of silently doing nothing (which reads
-        // as "the import is broken").
-        alreadyLoaded.push(file.name);
-      }
-      loadedCount++;
-      if (loadedCount === htmlFiles.length && sheets.length) {
-        if (isFirstLoad) {
-          showProjectsScreen();
+      try {
+        const parsed = parseJobSheet(e.target.result);
+        const key    = simpleHash(file.name);
+        if (sheets.find(s => s.fileKey === key)) {
+          // A sheet with this exact filename is already loaded. Record it so we can tell the
+          // operator, instead of silently doing nothing (which reads as "the import is broken").
+          alreadyLoaded.push(file.name);
         } else {
-          renderAllSheets();
+          // Re-upload guard (spec §5.2): finished sheets are not in the array any more, so ask
+          // Firestore before saving — re-dropping one must never overwrite it. A FAILED read is
+          // not "not found": block this file and say so (the rest of the drop still loads).
+          let existing = null, checked = true;
+          try { existing = await Storage.getSheetDoc(key); }
+          catch (err) { checked = false; console.warn('getSheetDoc failed:', err); }
+          if (!checked) {
+            unchecked.push(file.name);
+          } else if (existing && existing.finished === true) {
+            finishedBefore.push({ name: file.name, doc: existing });
+          } else {
+            const sheet = { fileKey: key, fileName: file.name, ...parsed };
+            sheets.push(sheet);
+
+            const result = await Storage.saveSheet(sheet);
+            if (!result.ok) {
+              // The sheets listener will drop this sheet from the screen on the
+              // next snapshot — say why, so it isn't a silent disappearance.
+              const idx = sheets.findIndex(s => s.fileKey === key);
+              if (idx !== -1) sheets.splice(idx, 1);
+              showSaveBanner(`Couldn't save "${file.name}" — ${result.error?.message || 'unknown error'}. The file was still archived to Drive.`);
+            } else {
+              const jn = projectKey(sheet);
+              if (!savedByJob.has(jn)) savedByJob.set(jn, []);
+              savedByJob.get(jn).push(key);
+              if (result.mode === 'oversize') {
+                showSaveBanner(`"${file.name}" was saved, but its layout drawing is too large to store. Everything else tracks normally — use the archive link to view the drawing.`);
+              }
+            }
+
+            // Archive after the save resolves, so setArchiveUrl's update() has a
+            // document to attach to.
+            Endpoint.archiveSheet(file.name, sheet.jobName || '', e.target.result)
+              .then(url => { if (url) Storage.setArchiveUrl(key, url); })
+              .catch(err => console.warn('Archive upload failed:', err));
+          }
         }
-        if (alreadyLoaded.length) {
-          const msg = alreadyLoaded.length === 1
-            ? `"${alreadyLoaded[0]}" is already loaded — it's on the board, so nothing was changed.`
-            : `${alreadyLoaded.length} sheets were already loaded, so they were left unchanged.`;
-          showNotice(msg);
+      } catch (err) {
+        console.warn('Upload of', file.name, 'failed:', err);
+        unchecked.push(file.name);
+      } finally {
+        loadedCount++;
+        if (loadedCount === htmlFiles.length) {
+          try { await finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, unchecked, savedByJob }); }
+          catch (err) { console.warn('finishUploadBatch failed:', err); }
         }
       }
     };
     reader.readAsText(file);
   }
+}
+
+async function finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, unchecked, savedByJob }) {
+  if (sheets.length) {
+    if (isFirstLoad) showProjectsScreen(); else renderAllSheets();
+  }
+  const notices = [];
+  if (alreadyLoaded.length) {
+    notices.push(alreadyLoaded.length === 1
+      ? `"${alreadyLoaded[0]}" is already loaded — it's on the board, so nothing was changed.`
+      : `${alreadyLoaded.length} sheets were already loaded, so they were left unchanged.`);
+  }
+  for (const { name, doc } of finishedBefore) {
+    const when = doc.finishedAt ? formatDT(new Date(doc.finishedAt)) : 'an earlier export';
+    notices.push(`"${name}" was already cut and finished on ${when} (job ${doc.jobName || 'unknown'}). If this is a new cut, save it from Aspire under a new file name.`);
+  }
+  for (const name of unchecked) {
+    notices.push(`Couldn't check whether "${name}" was already cut — check your connection and drop it again.`);
+  }
+  if (notices.length) showNotice(notices.join('\n\n'));
+
+  // Every new job gets its jobs/ doc (createdAt/createdBy only if missing) whatever the owner
+  // switches say — operator-writable, spec §5.3.
+  const jobNames = [...savedByJob.keys()];
+  for (const jobName of jobNames) await Storage.upsertJob(noteKey(jobName), jobName, currentUserEmail());
+
+  // Owners with the switch on: job details for every NEW job in this drop, one form at a time.
+  // Jobs that already have details (adding more sheets) get no step (spec §7.1).
+  if (jobNames.length && Features.on('jobDetails')) {
+    await JobDetails.promptForNewJobs(
+      jobNames,
+      jobName => sheets.filter(s => projectKey(s) === jobName).sort(compareSheets),
+      jobName => cancelDroppedJob(jobName, savedByJob.get(jobName) || []));
+    if (!projectsScreen.hidden) renderProjects();
+  }
+}
+
+// Job-details Cancel: remove ONLY the sheets this drop saved for the job (they are unfinished and
+// unbilled, so the rules allow it). Pre-existing sheets/completions of the job are never touched.
+async function cancelDroppedJob(jobName, fileKeys) {
+  await Promise.all(fileKeys.map(k => Storage.deleteSheet(k)));
+  const gone = new Set(fileKeys);
+  sheets = sheets.filter(s => !gone.has(s.fileKey));
+  if (!sheets.length) goToUpload();
+  else if (!projectsScreen.hidden) renderProjects();
+  else if (!contentScreen.hidden) renderAllSheets();
 }
 
 function goToUpload() {
@@ -1288,33 +1349,41 @@ function customerKey(name) {
 
 let customerPickerCtx = null; // { jobName, resolve }
 
+// Fills a customer <select> (known customers + "+ New customer…") and pre-selects the job's prior
+// customer. Shared by the export picker and the owner job-details form. Returns the prior name when
+// it is no longer in the directory (kept visible as free text), else null.
+function fillCustomerSelect(selectEl, otherGrpEl, otherEl, jobKey, priorOverride) {
+  otherGrpEl.hidden = true;
+  otherEl.value = '';
+  const known = Storage.getCustomers();
+  selectEl.innerHTML = '<option value="" disabled>Select customer…</option>' +
+    known.map(c => `<option value="${escHtml(c.key)}">${escHtml(c.name)}</option>`).join('') +
+    '<option value="__other__">+ New customer…</option>';
+  const priorName = priorOverride || Storage.getProjectCustomer(jobKey);
+  const priorMatch = priorName && known.find(c => c.name === priorName);
+  if (priorMatch) {
+    selectEl.value = priorMatch.key;
+    return null;
+  }
+  if (priorName) {
+    // Tagged before, but that exact name isn't in the directory anymore
+    // (renamed/deleted since) — keep it visible as free text rather than
+    // silently losing the tag.
+    selectEl.value = '__other__';
+    otherGrpEl.hidden = false;
+    otherEl.value = priorName;
+    return priorName;
+  }
+  selectEl.value = '';
+  return null;
+}
+
+
 function openCustomerPicker(jobName) {
   return new Promise(resolve => {
     customerPickerCtx = { jobName, resolve };
     customerPickerSubtitle.textContent = jobName;
-    customerPickerOtherGrp.hidden = true;
-    customerPickerOther.value = '';
-
-    const known = Storage.getCustomers();
-    customerPickerSelect.innerHTML = '<option value="" disabled>Select customer…</option>' +
-      known.map(c => `<option value="${escHtml(c.key)}">${escHtml(c.name)}</option>`).join('') +
-      '<option value="__other__">+ New customer…</option>';
-
-    const priorName = Storage.getProjectCustomer(noteKey(jobName));
-    const priorMatch = priorName && known.find(c => c.name === priorName);
-    if (priorMatch) {
-      customerPickerSelect.value = priorMatch.key;
-    } else if (priorName) {
-      // Tagged before, but that exact name isn't in the directory anymore
-      // (renamed/deleted since) — keep it visible as free text rather than
-      // silently losing the tag.
-      customerPickerSelect.value = '__other__';
-      customerPickerOtherGrp.hidden = false;
-      customerPickerOther.value = priorName;
-      customerPickerCtx.staleName = priorName;
-    } else {
-      customerPickerSelect.value = '';
-    }
+    customerPickerCtx.staleName = fillCustomerSelect(customerPickerSelect, customerPickerOtherGrp, customerPickerOther, noteKey(jobName));
 
     updateCustomerPickerConfirmState();
     customerPickerOverlay.classList.remove('hidden');
@@ -2297,6 +2366,7 @@ function rerenderCurrent() {
 }
 
 SettingsScreen.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen, currentEmail: currentUserEmail });
+JobDetails.init({ noteKey, customerKey, currentEmail: currentUserEmail, fillCustomerSelect });
 document.getElementById('settings-btn').addEventListener('click', () => SettingsScreen.show());
 Features.onChange(() => { applyFeatureNav(); rerenderCurrent(); });
 

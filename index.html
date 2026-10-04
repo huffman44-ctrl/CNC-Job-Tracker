@@ -507,6 +507,47 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════
+       JOB DETAILS MODAL (owners — upload step and Edit job details)
+  ══════════════════════════════════ -->
+  <div id="job-details-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card--wide">
+      <h2 class="modal-title" id="job-details-title">Job details</h2>
+      <p id="job-details-subtitle" class="modal-subtitle"></p>
+      <div id="job-details-sheets" class="jd-sheets"></div>
+      <p id="job-details-summary" class="jd-summary"></p>
+      <div class="modal-form">
+        <div class="form-group">
+          <label class="form-label" for="job-details-customer">Customer <span class="jd-hint">— names match QuickBooks exactly</span></label>
+          <select id="job-details-customer" class="form-input"></select>
+        </div>
+        <div class="form-group" id="job-details-customer-other-group" hidden>
+          <label class="form-label" for="job-details-customer-other">Customer name</label>
+          <input type="text" id="job-details-customer-other" class="form-input" placeholder="Exactly as QuickBooks spells it">
+        </div>
+        <div class="form-group">
+          <span class="form-label">Material</span>
+          <label class="jd-radio"><input type="radio" name="jd-material" value="customer" checked> Customer supplied — no material charge</label>
+          <label class="jd-radio"><input type="radio" name="jd-material" value="ours" id="job-details-material-ours"> Ours:
+            <select id="job-details-material" class="form-input jd-inline-select"></select></label>
+          <div id="job-details-material-hint" class="jd-hint"></div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Turnaround</span>
+          <label class="jd-radio"><input type="radio" name="jd-turnaround" value="standard" checked> Standard</label>
+          <label class="jd-radio"><input type="radio" name="jd-turnaround" value="rush48"> 48-hour rush (+50%)</label>
+          <label class="jd-radio"><input type="radio" name="jd-turnaround" value="rush24"> 24-hour rush (+75%)</label>
+        </div>
+        <p class="jd-hint">Design / CAM hours get added on the job card when the drawing is done.</p>
+        <p id="job-details-error" class="upload-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="job-details-cancel">Cancel</button>
+        <button class="btn btn-primary" id="job-details-confirm">Add job to the board</button>
+      </div>
+    </div>
+  </div>
+
   <div id="job-ticket" class="job-ticket" hidden>
     <div class="job-ticket__name" id="job-ticket-name"></div>
     <div class="job-ticket__meta" id="job-ticket-meta"></div>
@@ -527,6 +568,7 @@
   <script src="js/storage-owner.js?v=1"></script>
   <script src="js/features.js?v=1"></script>
   <script src="js/settings.js?v=1"></script>
+  <script src="js/job-details.js?v=1"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/pricing.js?v=1"></script>
   <script src="js/log-rows.js?v=1"></script>
