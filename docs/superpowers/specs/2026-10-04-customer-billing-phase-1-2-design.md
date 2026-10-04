@@ -1,7 +1,7 @@
 # Customer Billing inside the Job Tracker — Phases 1 and 2 — design
 
 **Date:** 2026-10-04
-**Status:** Draft for Travis's review. Every decision below was made by Travis on 2026-10-04 (vault note `Brain/Projects/Studio Billing Redesign.md`, plan `~/.claude/plans/pasted-content-id-536b-i-want-lazy-flamingo.md`, design canvas "Customer Billing — New Flow"). Nothing here is built. Nothing in this document re-opens a settled decision; the genuine unknowns are collected in §15.
+**Status:** Approved by Travis 2026-10-04 (§15 answers). Phase 1 implemented 2026-10-04 on branch customer-billing-phase-1 (plan: ../plans/2026-10-04-customer-billing-phase-1.md); Phase 2 not started. Every decision below was made by Travis on 2026-10-04 (vault note `Brain/Projects/Studio Billing Redesign.md`, plan `~/.claude/plans/pasted-content-id-536b-i-want-lazy-flamingo.md`, design canvas "Customer Billing — New Flow"). Nothing in this document re-opens a settled decision; the genuine unknowns are collected in §15.
 **Design target:** the approved canvas screens `Main` (upload + job details), `JobCard`, `BillingB`, `InvoiceConfirm`, `Done`. `Archive`, `CutReport` and `QuickQuote` are Phase 3/4 reference only. BillingA/C and the phone view were dropped.
 **Prerequisite (separate, not in this spec):** Phase 0 — the one-time double-billing audit, run read-only from a CSV download of the `Orville - Season 4` tab. It needs nothing from this spec and this spec needs nothing from it, but Travis should see its result before the first real bill goes out of the new screen.
 

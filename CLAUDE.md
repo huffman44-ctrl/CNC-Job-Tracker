@@ -12,15 +12,23 @@ CNC_WebApp/
 ├── js/path-utils.js             — sanitizeForPath(name) helper; builds safe folder names for customer-named export paths
 ├── js/sequence.js               — generateSequence(prefix, start, end) for the To Print panel: numeric or doubling-alpha (A…Z, AA, BB…), cap 500; parseLines, rangeLabel
 ├── js/doc-info.js               — isPdf / sizeFor (3x1, 4x6 or letter from the first page, ±3 pt, either orientation) / inspectPdf / title — print-queue document staging and the wrong-printer title guard
-├── js/storage.js                — Storage wrapper around Firestore (sheets/, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, printQueue/ collections) with in-memory cache for sync reads — printQueue loads open items + printed-in-last-30-days only (two scoped listeners merged into one cache; older printed items are deleted by "Clear printed older than 30 days")
+├── js/storage.js                — Storage wrapper around Firestore (sheets/ with finished flag, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, jobs/, printQueue/, settings/migrations read) with in-memory cache for sync reads — printQueue loads open items + printed-in-last-30-days only (two scoped listeners merged into one cache; older printed items are deleted by "Clear printed older than 30 days")
+├── js/storage-owner.js          — OwnerStore: the OWNER-ONLY collections (jobBilling/, sheetBilling/, customerBilling/, settings/) — initialised only after Features.isOwner(); Collin's rules deny them, his browser never asks. Owner-panel writes that rebuild a doc from the cache are disabled unless `OwnerStore.loaded(<collection>)` (a cache-only/offline read counts as NOT loaded; seeds and the first-owner settings/features doc are written only inside a transaction that re-checks the doc is missing)
+├── js/features.js               — Features: reads settings/features (owner switches per screen); a denied read = operator, every owner screen off; first owner sign-in seeds the doc. Owner UI is gated on `Features.on(<key>)`, never `Features.isOwner()` alone
+├── js/pricing.js                — Pricing: sheet signature / repeat groups / V-bit rule / local cut dates (Phase 1 helpers). Phase 2 adds priceInvoice() — the ONLY place price math may live
+├── js/log-rows.js               — LogRows.build(): the 14-column Master Job Log row object shared by export and (Phase 2) billing
+├── js/job-details.js            — owner job-details step at upload (customer, material, turnaround) + Edit job details form
+├── js/job-card.js               — owner panel on the job card: statuses/tags, cut-date correction, Design/CAM hours, Done — ready for billing, finished jobs + Put back on the board
+├── js/settings.js               — Settings screen (owners): screens on/off grid, Customers (billing), Maintenance (finished-flag migration)
+├── tools/browser-check-phase1.mjs — Playwright pass in PASTE mode (owner vs Collin); not under test/ because node --test runs everything there. Serves the PASTE temp copy from an in-process node:http server on an ephemeral port (no npx/serve child — a spawned serve leaks on Windows). Run `node tools/browser-check-phase1.mjs` → `SUITE: PASS`
 ├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
 ├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
-├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, appends rows to the Master Job Log on export; uploadDoc/getDoc for print-queue documents (120 s timeout)
+├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, upserts Master Job Log rows on export (`upsertLogRows`, one row per sheet keyed by Sheet Key; `appendLogRows` kept for un-refreshed shop tabs); uploadDoc/getDoc for print-queue documents (120 s timeout)
 ├── js/app.js                    — all UI logic: dark mode, file upload, projects directory, master-detail sheet workspace, modals, CSV export, Firebase init
 ├── package.json                 — `npm run serve` → `npx serve .` (no build step needed)
 ├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root (not in samples/)
 ├── samples/                    — gitignored; local-only scratch space for test HTML files, not committed
-└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append + print-queue uploadDoc/getDoc — Drive folder "CNC Print Queue" self-created on first upload, id kept in a script property); pasted into script.google.com, not executed from the repo
+└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append + upsertRows (one log row per sheet keyed by Sheet Key, Phase 1) + print-queue uploadDoc/getDoc — Drive folder "CNC Print Queue" self-created on first upload, id kept in a script property); pasted into script.google.com, not executed from the repo
 ```
 
 ## ⚠️ Testing safety — read before running this app
@@ -31,6 +39,7 @@ CNC_WebApp/
 2. Overwrite the copy's `js/firebase-config.js` with a `projectId` that starts with `"PASTE"` (e.g. `"PASTE_DISABLED"`).
 3. **Also overwrite the copy's `js/endpoint-config.js`** with `const ENDPOINT_CONFIG = { url: 'PASTE_URL', token: 'x' };` — the tracked file holds the LIVE Apps Script URL and token (GitHub Pages serves it), so without this an upload in the copy calls the real `archiveSheet` and writes into the Drive archive. `Endpoint.enabled()` is false once the URL starts with PASTE.
 4. `initApp()` in app.js (~line 850) checks `FIREBASE_CONFIG.projectId.startsWith('PASTE')` and skips Firebase entirely when true, falling back to in-memory-only mode — uploads, completions, and deletes stay local to that browser tab with zero risk to prod data.
+5. Owner screens in a PASTE copy: there is no sign-in, so `Features` never loads. In the console run `Features._setForTests(Features.defaults('t@x'), 't@x'); OwnerStore.loadAll().then(() => { OwnerStore.onChange(rerenderCurrent); applyFeatureNav(); rerenderCurrent(); })` (add `jobCard: { on: true, users: ['t@x'] }` to the state for the job-card panel). `node tools/browser-check-phase1.mjs` does all of this headlessly.
 
 If you ever suspect a test run touched production, check the `sheets` collection for unexpected docs by filename and delete them immediately — don't leave fake data mixed into real operator records.
 
@@ -43,14 +52,29 @@ If you ever suspect a test run touched production, check the `sheets` collection
   3. **Upload** — drag-drop or browse for HTML files
   4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Export CSV, Reset All (the old "New Job" wipe-everything button was removed 2026-08-29 — + Upload Job on the Projects screen is how jobs are added)
   - Secondary screens reached from the Projects directory header: **Ticket History** (searchable list of past export/print records) and **Manage Customers** (`showManageCustomersScreen()`/`renderCustomersList()` — add, rename, delete customer directory entries)
-- **Storage** (`js/storage.js`) — thin wrapper over Firestore with a synchronous local cache so the UI never blocks on network:
-  - `sheets/{fileKey}` — parsed sheet data plus `archiveUrl` (Drive link to the archived HTML, set post-upload) (`saveSheet`/`loadSheets`/`deleteSheet`/`clearSheets`/`setArchiveUrl`/`onSheetsChange` realtime listener — added 2026-07-17 after shop-computer CSV exports missed sheets uploaded while the page sat open; the listener sorts client-side by `uploadedAt` instead of query `orderBy`, which would silently drop docs missing the field)
-  - `completions/{fileKey}` — completion record `{ status: 'in-progress'|'complete', completedAt, operator, notes }` (`get`/`set`/`clear`/`loadCompletions`/`onCompletionChange` realtime listener)
-  - `projectNotes/{hash(jobName)}` — free-text per-project notes (`getNote`/`setNote`/`loadNotes`/`onNoteChange`)
-  - `sheetNotes/{fileKey}` — per-sheet instruction note `{ text }`, written either from the project card's notes modal or from an Add Note/Edit Note button in the sheet detail header; rendered read-only in the sheet detail (callout) and the sheet nav (icon) (`getSheetNote`/`setSheetNote`/`loadSheetNotes`/`onSheetNoteChange`)
-  - `customers/{key}` — shared customer directory `{ name }`, `key = customerKey(name)` (`getCustomers`/`addCustomer`/`renameCustomer`/`removeCustomer`/`loadCustomers`/`onCustomersChange`); managed from the Manage Customers screen and offered as choices in the export-time customer picker
-  - `projectCustomer/{hash(jobName)}` — the customer name a project is tagged with, set from the export-time customer picker (`getProjectCustomer`/`setProjectCustomer`/`loadProjectCustomers`)
-  - `fileKey` = `simpleHash(filename)` (djb2-style, from parser.js) — namespaces the sheets/completions/sheetNotes collections per uploaded file
+- **Storage** (`js/storage.js`, operator-reachable) and **OwnerStore** (`js/storage-owner.js`, owners only) — thin wrappers over Firestore with synchronous local caches. Rules: `HQ/firestore.rules` (deployed from the HQ repo; a collection with no match block is denied; a console edit is wiped by the next deploy). Roles are the signed-in email: operators = Travis, Collin (+ Eva); owners = Travis, Eva. Owners are operators automatically (`isJtOperator` includes owners); only owners may flip `sheets.finished` true→false. Never write a real email, uid, token or spreadsheet id into this public repo.
+
+### The sheet record (spec 2026-10-04 §5.1 — this is the one place it is written down)
+A "sheet" is one Aspire setup-sheet HTML file. `fileKey = simpleHash(fileName)` is its identity everywhere (Firestore doc ids, the log's Sheet Key column). Its record is spread over documents that share that key:
+
+| Field | Lives in | Meaning | Written by |
+|---|---|---|---|
+| `fileName`, `sheetTitle`, `jobName`, `toolpaths[]`, `materialInfo[]` | `sheets/{fileKey}` | From the Aspire file (`parseJobSheet`) | upload |
+| `totalTime` | `sheets/` | Aspire's estimated cut time `HH:MM:SS` — what the customer is billed on, never wall-clock | upload |
+| `layoutSvg` / `layoutSvgGz` / `layoutOversize` | `sheets/` | The drawing; cleared at finish when `archiveUrl` exists (an owner-restored sheet with no drawing shows the oversize-style notice "Layout preview is not stored here. Open the original sheet") | upload; Collin's export |
+| `archiveUrl` | `sheets/` | Drive download link to the archived HTML — the drawing of record after finish | upload (Apps Script, async) |
+| `uploadedAt` | `sheets/` | Server timestamp | upload |
+| `finished`, `finishedAt`, `finishedBy` | `sheets/` | `true` once the job was exported; finished sheets leave the board for everyone and are **never deleted** (rules) | Collin's export |
+| `status`, `completedAt`, `operator`, `notes` | `completions/{fileKey}` | 3-state record; `completedAt` is the cut time (weekend detection). Absent = not cut | Collin |
+| `text` | `sheetNotes/{fileKey}` | Per-sheet instruction note | anyone |
+| `shapes` | `sheetAnnotations/{fileKey}` | Layout markup | anyone |
+| `status` (`unbilled` default / `in-progress` / `billed` / `external`), `invoiceNumber`, `poNumber`, `billedAt`, `cutAtBilled`, `cutDateOverride`, `priced`, `jobKey`, `customerKey` | `sheetBilling/{fileKey}` | Billing state (flat fields; no doc = unbilled). Phase 1 writes only `cutDateOverride` | owners |
+
+Job-level, keyed `jobKey = noteKey(jobName) = 'proj_' + simpleHash(jobName)`: `projectNotes/` (note), `projectCustomer/` (customer name — Collin's export routes the log by it), `jobs/` (`finished`, `exportCount`, …), `jobBilling/` (owners: customer, material, turnaround, laborLines[], noDesignTime, readyForBilling). Shared: `customers/{customerKey(name)}` (directory), `customerBilling/` (owners: `billedOutsideApp`, remembered material defaults), `settings/*` (owners; `settings/migrations` is readable by operators because the board query needs its flag), `ticketHistory/`, `printQueue/`, `invoices/` (Phase 2).
+
+**Board query:** `Storage.onSheetsChange`/`loadSheets` read `where('finished','==',false)` once `settings/migrations.sheetsFinishedFlag.done` is true (Settings › Maintenance), the whole collection before; finished docs are also dropped client-side. No `orderBy` — sorted client-side by `uploadedAt` (a query orderBy drops docs missing the field, and where+orderBy on different fields needs a composite index).
+
+**Export:** in a real-database session, export refuses to finish a job when the Master Job Log endpoint is unconfigured (offline success only counts in PASTE mode). Owners with the Job card switch on land on the Projects screen even when the board is empty; Collin still lands on Upload.
 - **Sheet ordering** — `getDisplaySheets()` (app.js ~line 232) sorts by `sheetNumber(fileName)`, which regex-matches `/sheet\s*0*(\d+)/i` out of the filename (handles `Sheet 9`, `Sheet01`, etc.) so display order is always numeric regardless of FileReader/upload completion order. Files without a parseable sheet number sort to the end.
 - **Project grouping** — `projectKey(sheet)` = `sheet.jobName || sheet.fileName`; `getProjectGroups()` buckets all loaded sheets by that key for the directory screen.
 - **3-state completion** — no record = Incomplete; `{status:'in-progress'}` = In Progress; `{status:'complete', completedAt, operator, notes}` = Complete. Driven by `applySheetCompletion()` (app.js ~line 659); clicking the action button advances the state, the modal only appears for the In Progress → Complete transition.
