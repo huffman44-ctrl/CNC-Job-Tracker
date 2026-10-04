@@ -1405,12 +1405,8 @@ function updateOverallProgress(displaySheets) {
   progressLabel.textContent = `${done} of ${total} sheet${total !== 1 ? 's' : ''} complete (${pct}%)`;
 }
 
-const VBIT_KEYWORDS = ['V-Carve', 'V-carve', 'V Carve', 'VCarve', 'V-Groove', 'V-groove', 'V Groove'];
-
-function sheetHasVbit(sheet) {
-  const toolpaths = sheet.toolpaths || [];
-  return toolpaths.some(tp => VBIT_KEYWORDS.some(kw => new RegExp(kw, 'i').test(tp.name || '')));
-}
+// One rule for "has a V-bit" — the log column, the CSV and the repeat detection all read Pricing.
+function sheetHasVbit(sheet) { return Pricing.sheetHasVbit(sheet); }
 
 /* ══════════════════════════════════════════
    Export / Reset
