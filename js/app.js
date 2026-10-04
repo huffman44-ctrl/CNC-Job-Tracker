@@ -31,6 +31,10 @@ updateDarkBtns();
 ══════════════════════════════════════════ */
 let sheets         = [];
 let currentProject = null; // jobName string when inside a project, null on directory
+let finishedSheets  = [];     // owners' "Show finished jobs" view (one-shot load, not a listener)
+let showFinished    = false;  // the Projects checkbox
+let viewingFinished = false;  // the open job came from the finished list
+function visibleSheets() { return (showFinished || viewingFinished) ? finishedSheets : sheets; }
 let modalCtx       = null;
 let clearCtx       = null;
 let selectedSheetKey = null;
@@ -145,6 +149,7 @@ document.getElementById('modal-confirm').addEventListener('click', confirmComple
 document.getElementById('clear-cancel').addEventListener('click', closeClearModal);
 document.getElementById('clear-confirm').addEventListener('click', confirmClear);
 document.getElementById('back-to-projects-btn').addEventListener('click', () => {
+  viewingFinished = false;
   currentProject = null;
   showProjectsScreen();
 });
@@ -362,7 +367,17 @@ function hideAllScreens() {
   projectsScreen.hidden      = true;
 }
 
+// The finished view never survives a trip back to the Projects screen (P6): whatever sent us
+// here (Back, put back, the sheets listener, another screen), the board starts on active jobs.
+function resetFinishedView() {
+  showFinished = false;
+  viewingFinished = false;
+  const box = document.getElementById('projects-show-finished');
+  if (box) box.checked = false;
+}
+
 function showProjectsScreen() {
+  resetFinishedView();
   hideAllScreens();
   projectsScreen.hidden      = false;
   renderProjects();
@@ -395,6 +410,15 @@ function showContentScreen() {
   document.getElementById('back-to-projects-btn').hidden = false;
 
   updateJobNoteBanner();
+  contentScreen.classList.toggle('content-screen--finished', viewingFinished);
+  const ownerPanelEl = document.getElementById('owner-panel');
+  if (Features.on('jobCard')) {
+    ownerPanelEl.hidden = false;
+    JobCard.renderOwnerPanel(ownerPanelEl, currentProject, displaySheets);
+  } else {
+    ownerPanelEl.hidden = true;
+    ownerPanelEl.innerHTML = '';
+  }
   renderAllSheets();
 }
 
@@ -571,14 +595,14 @@ function compareSheets(a, b) {
 
 function getDisplaySheets() {
   const result = currentProject
-    ? sheets.filter(s => projectKey(s) === currentProject)
-    : [...sheets];
+    ? visibleSheets().filter(s => projectKey(s) === currentProject)
+    : [...visibleSheets()];
   return result.sort(compareSheets);
 }
 
 function getProjectGroups() {
   const map = {};
-  for (const sheet of sheets) {
+  for (const sheet of visibleSheets()) {
     const key = projectKey(sheet);
     if (!map[key]) map[key] = [];
     map[key].push(sheet);
@@ -604,25 +628,27 @@ function renderProjects() {
   let names  = Object.keys(groups);
 
   document.getElementById('projects-count').textContent =
-    `${names.length} project${names.length !== 1 ? 's' : ''} · ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''}`;
+    `${names.length} project${names.length !== 1 ? 's' : ''} · ${visibleSheets().length} sheet${visibleSheets().length !== 1 ? 's' : ''}`;
 
-  const inProgCount = sheets.filter(s => {
+  const inProgCount = visibleSheets().filter(s => {
     const rec = Storage.get(s.fileKey, 'sheet');
     return rec && rec.status === 'in-progress';
   }).length;
-  const completeCount = sheets.filter(s => {
+  const completeCount = visibleSheets().filter(s => {
     const rec = Storage.get(s.fileKey, 'sheet');
     return rec && rec.status === 'complete';
   }).length;
   const statsBarEl = document.getElementById('stats-bar');
   statsBarEl.innerHTML = `
     <div class="stat-tile"><div class="stat-tile-value">${names.length}</div><div class="stat-tile-label">Project${names.length !== 1 ? 's' : ''}</div></div>
-    <div class="stat-tile"><div class="stat-tile-value">${sheets.length}</div><div class="stat-tile-label">Sheet${sheets.length !== 1 ? 's' : ''}</div></div>
+    <div class="stat-tile"><div class="stat-tile-value">${visibleSheets().length}</div><div class="stat-tile-label">Sheet${sheets.length !== 1 ? 's' : ''}</div></div>
     <div class="stat-tile stat-tile--gold"><div class="stat-tile-value">${inProgCount}</div><div class="stat-tile-label">In Progress</div></div>
     <div class="stat-tile stat-tile--green"><div class="stat-tile-value">${completeCount}</div><div class="stat-tile-label">Complete</div></div>`;
 
   if (!names.length) {
-    container.innerHTML = '<div class="empty-state">No projects loaded.</div>';
+    container.innerHTML = showFinished
+      ? '<div class="empty-state">No finished jobs found. If you expected some and none show, reload the page.</div>'
+      : '<div class="empty-state">No projects loaded.</div>';
     return;
   }
 
@@ -813,8 +839,21 @@ function buildProjectCard(jobName, projectSheets) {
   card.appendChild(hdr);
   card.appendChild(body);
 
+  if (Features.on('jobCard')) hdrText.appendChild(JobCard.cardChip(jobName));
+  if (showFinished) {
+    // Finished jobs: history. No delete, no export; open for the owner panel only.
+    deleteBtn.hidden = true;
+    exportBtn.hidden = true;
+    const fin = document.createElement('span');
+    fin.className = 'jc-chip';
+    const at = projectSheets.map(s => s.finishedAt || 0).reduce((a, b) => Math.max(a, b), 0);
+    fin.textContent = at ? `Finished ${new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'Finished';
+    hdrText.appendChild(fin);
+  }
+
   card.addEventListener('click', () => {
     currentProject = jobName;
+    viewingFinished = showFinished;
     vanlabPanel.hidden = true;
     vanlabEpoch++;
     showContentScreen();
@@ -858,10 +897,11 @@ function renderAllSheets() {
   const active   = displaySheets.filter(s => !isCompleted(s));
   const complete = displaySheets.filter(s =>  isCompleted(s));
 
+  const tagGroups = Features.on('jobCard') ? Pricing.repeatGroups(displaySheets) : null;
   sheetNavEl.innerHTML = '';
   active.forEach((sheet) => {
     const idx = displaySheets.indexOf(sheet);
-    sheetNavEl.appendChild(buildSheetNavRow(sheet, idx));
+    sheetNavEl.appendChild(buildSheetNavRow(sheet, idx, tagGroups));
   });
   if (complete.length) {
     const label = document.createElement('div');
@@ -870,7 +910,7 @@ function renderAllSheets() {
     sheetNavEl.appendChild(label);
     complete.forEach((sheet) => {
       const idx = displaySheets.indexOf(sheet);
-      sheetNavEl.appendChild(buildSheetNavRow(sheet, idx));
+      sheetNavEl.appendChild(buildSheetNavRow(sheet, idx, tagGroups));
     });
   }
 
@@ -896,7 +936,7 @@ function renderAllSheets() {
   updateOverallProgress(displaySheets);
 }
 
-function buildSheetNavRow(sheet, idx) {
+function buildSheetNavRow(sheet, idx, tagGroups) {
   const row = document.createElement('div');
   row.className = `sheet-nav-row ${sheetStatusClass(sheet)}${sheet.fileKey === selectedSheetKey ? ' selected' : ''}`;
   row.dataset.sheetKey = sheet.fileKey;
@@ -915,6 +955,7 @@ function buildSheetNavRow(sheet, idx) {
   subEl.textContent = sheet.totalTime ? `${sheet.totalTime} total` : sheet.fileName.replace(/\.html?$/i, '');
   textWrap.appendChild(titleEl);
   textWrap.appendChild(subEl);
+  if (tagGroups) textWrap.appendChild(JobCard.navRowExtras(sheet, tagGroups));
 
   const dotEl = document.createElement('span');
   dotEl.className = 'nav-row-dot';
@@ -1055,6 +1096,19 @@ function buildSheetDetail(sheet, idx) {
       link.textContent = 'Open the original sheet';
       notice.appendChild(link);
     }
+    wrap.appendChild(notice);
+  } else if (!sheet.layoutSvg && !sheet.layoutSvgGz && sheet.archiveUrl && sheet.finishedAt) {
+    // Finishing drops the stored drawing (the archive is the drawing of record); a sheet put
+    // back on the board keeps that, so say so instead of showing nothing.
+    const notice = document.createElement('div');
+    notice.className = 'layout-svg-archived';
+    notice.textContent = 'The drawing is kept in the archive. ';
+    const link = document.createElement('a');
+    link.href = sheet.archiveUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Open archived drawing';
+    notice.appendChild(link);
     wrap.appendChild(notice);
   } else if (sheet.layoutSvg || sheet.layoutSvgGz) {
     try {
@@ -2406,6 +2460,14 @@ function currentUserEmail() {
 function applyFeatureNav() {
   document.getElementById('settings-btn').hidden = !Features.on('settings');
   if (!Features.on('settings') && !settingsScreen.hidden) showProjectsScreen();
+  document.getElementById('projects-show-finished-wrap').hidden = !Features.on('jobCard');
+  if (!Features.on('jobCard')) { const op = document.getElementById('owner-panel'); op.hidden = true; op.innerHTML = ''; }
+  if (!Features.on('jobCard') && (showFinished || viewingFinished)) {
+    const wasInside = !contentScreen.hidden;
+    resetFinishedView();
+    if (wasInside) { currentProject = null; showProjectsScreen(); }
+    else if (!projectsScreen.hidden) renderProjects();
+  }
 }
 
 // Re-paint whatever is on screen after owner data or a switch changes.
@@ -2417,6 +2479,21 @@ function rerenderCurrent() {
 
 SettingsScreen.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen, currentEmail: currentUserEmail });
 JobDetails.init({ noteKey, customerKey, currentEmail: currentUserEmail, fillCustomerSelect });
+JobCard.init({
+  noteKey, currentEmail: currentUserEmail,
+  openEdit: (jobName, jobSheets) => JobDetails.openEdit(jobName, jobSheets),
+  onChanged: rerenderCurrent,
+  onPutBack: async () => {
+    currentProject = null;
+    showProjectsScreen();   // clears the finished view; the sheets listener brings the job back onto the board
+  },
+});
+JobCard.setSheetsProvider(() => getDisplaySheets());
+document.getElementById('projects-show-finished').addEventListener('change', async e => {
+  showFinished = e.target.checked;
+  if (showFinished) finishedSheets = await Storage.loadFinishedSheets();
+  renderProjects();
+});
 document.getElementById('settings-btn').addEventListener('click', () => SettingsScreen.show());
 Features.onChange(() => { applyFeatureNav(); rerenderCurrent(); });
 
@@ -2467,8 +2544,8 @@ async function loadDataAndShowApp() {
     if (!projectsScreen.hidden) renderProjects();
     if (!contentScreen.hidden) {
       const remaining = currentProject
-        ? sheets.filter(s => projectKey(s) === currentProject)
-        : sheets;
+        ? visibleSheets().filter(s => projectKey(s) === currentProject)
+        : visibleSheets();
       if (!remaining.length) {
         showProjectsScreen();
         return;

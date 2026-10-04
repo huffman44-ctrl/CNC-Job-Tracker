@@ -1882,3 +1882,41 @@ body {
 .jd-radio { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; padding: 3px 0; cursor: pointer; }
 .jd-inline-select { max-width: 280px; }
 .notice-modal-card .modal-body-text { white-space: pre-line; }
+
+/* ── Job card owner panel (owners only; Collin's screen never renders it) ── */
+.owner-panel { margin: 0 20px 12px; padding: 12px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 12px; font-size: 0.88rem; }
+.owner-panel[hidden] { display: none; }
+.jc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.jc-head strong { font-size: 1rem; }
+.jc-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; border: 1px solid var(--gray-200); background: var(--gray-100); color: var(--gray-500); white-space: nowrap; }
+.jc-chip--needs { background: var(--gold-light); color: var(--gold); border-color: #fde68a; }
+.jc-chip--ready { background: var(--green-light); color: var(--green); border-color: #a7e8bf; }
+.jc-chip--muted { background: var(--gray-100); color: var(--gray-500); }
+.jc-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.jc-table th { text-align: left; font-weight: 600; color: var(--gray-500); padding: 4px 8px; border-bottom: 1px solid var(--gray-200); }
+.jc-table td { padding: 5px 8px; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
+.jc-table .jc-link, .jc-labor .jc-link { background: none; border: 0; padding: 0; color: var(--cyan); cursor: pointer; font: inherit; text-decoration: underline; }
+.jc-link:disabled { opacity: 0.5; cursor: not-allowed; }
+.jc-tags { color: var(--gray-500); }
+.jc-cutdate-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.jc-cutdate-edit .form-input { max-width: 170px; padding: 4px 8px; }
+.jc-labor { display: flex; flex-direction: column; gap: 8px; }
+.jc-labor-title { font-weight: 700; }
+.jc-labor-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.jc-labor-add .form-input { padding: 6px 8px; }
+.jc-labor-add .jc-hours { max-width: 90px; }
+.jc-labor-add .jc-note { flex: 1 1 220px; }
+.jc-caption { font-size: 0.78rem; color: var(--gray-500); }
+.jc-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.jc-status { font-size: 0.82rem; }
+.jc-row-tags { font-size: 0.72rem; color: var(--gray-500); margin-top: 2px; }
+.jc-row-tags .jc-row-weekend { color: var(--gold); font-weight: 700; }
+.layout-svg-archived { margin: 0 20px 12px; font-size: 0.85rem; color: var(--gray-500); }
+/* A finished job is read-only for everyone: it left the board; "Put back on the board" reopens it. */
+#content-screen.content-screen--finished #export-btn,
+#content-screen.content-screen--finished #reset-btn,
+#content-screen.content-screen--finished .add-sheets-row,
+#content-screen.content-screen--finished .sheet-complete-footer,
+#content-screen.content-screen--finished .nav-row-delete,
+#content-screen.content-screen--finished .detail-delete-btn { display: none; }
+@media (max-width: 480px) { .owner-panel { margin: 0 12px 10px; padding: 10px; } .jc-table th:nth-child(3), .jc-table td:nth-child(3) { display: none; } }
