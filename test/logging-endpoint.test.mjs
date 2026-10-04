@@ -11,7 +11,8 @@ const source = readFileSync(
 );
 
 const HEADER = ['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit',
-  'Completed Time', 'Operator', 'Final Notes', 'Archive Link', 'Customer'];
+  'Completed Time', 'Operator', 'Final Notes', 'Archive Link', 'Customer',
+  'Invoice #', 'PO #', 'Sheet Key', 'Billed'];
 
 function fakeSheet(name, rows = []) {
   return {
