@@ -145,7 +145,7 @@ test('a tab that already has K–N headers is left alone; headers are never rena
   assert.equal(tab.rows[0][10], 'Inv');
 });
 
-test('P11: ensureLogHeaders fills only blank K1–N1 on an existing tab — A1–J1 never touched, no column inserted mid-sheet', () => {
+test('P11: logEnsureHeaders_ fills only blank K1–N1 on an existing tab — A1–J1 never touched, no column inserted mid-sheet', () => {
   const odd = HEADER12.slice();
   odd[0] = '';            // blank A1 must stay blank
   odd[4] = 'Vbit?';       // renamed E1 must stay

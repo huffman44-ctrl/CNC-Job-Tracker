@@ -29,7 +29,7 @@ const LOG_HEADER = ['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit',
   'Completed Time', 'Operator', 'Final Notes', 'Archive Link', 'Customer',
   'Invoice #', 'PO #', 'Sheet Key', 'Billed'];
 // 0-based column positions in a LOG_HEADER-wide row.
-const COL = { sheet: 0, job: 1, totalTime: 2, toolpathCount: 3, hasVbit: 4, completedTime: 5, operator: 6,
+const LOG_COL = { sheet: 0, job: 1, totalTime: 2, toolpathCount: 3, hasVbit: 4, completedTime: 5, operator: 6,
   notes: 7, archiveLink: 8, customer: 9, invoice: 10, po: 11, key: 12, billed: 13 };
 const UNASSIGNED_TAB = 'Unassigned';
 
@@ -167,44 +167,44 @@ function upsertRows(body) {
   if (!Array.isArray(rows) || !rows.length) return { ok: false, error: 'no rows' };
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    if (!r || typeof r !== 'object' || Array.isArray(r) || !str(r.key)) return { ok: false, error: 'row ' + (i + 1) + ' has no key' };
+    if (!r || typeof r !== 'object' || Array.isArray(r) || !logStr_(r.key)) return { ok: false, error: 'row ' + (i + 1) + ' has no key' };
   }
-  const carriesBilling = rows.some(function (r) { return hasValue(r.invoice) || hasValue(r.po) || hasValue(r.billed); });
+  const carriesBilling = rows.some(function (r) { return logHasValue_(r.invoice) || logHasValue_(r.po) || logHasValue_(r.billed); });
   if (carriesBilling && OWNER_UIDS.indexOf(auth.uid) === -1) return { ok: false, error: 'owner only' };
 
   const ss = SpreadsheetApp.openById(LOG_SPREADSHEET_ID);
   const groups = Object.create(null);
   rows.forEach(function (r) {
-    const customer = str(r.customer) || UNASSIGNED_TAB;
+    const customer = logStr_(r.customer) || UNASSIGNED_TAB;
     (groups[customer] || (groups[customer] = [])).push(r);
   });
   var updated = 0, appended = 0, claimed = 0;
   Object.keys(groups).forEach(function (customer) {
     const sheet = findOrCreateCustomerTab(ss, customer);
-    ensureLogHeaders(sheet);
+    logEnsureHeaders_(sheet);
     const values = sheet.getDataRange().getValues();          // values[i] is sheet row i + 1
     const byKey = Object.create(null), byJobSheet = Object.create(null);
     for (var i = 1; i < values.length; i++) {
-      const key = str(values[i][COL.key]);
+      const key = logStr_(values[i][LOG_COL.key]);
       if (key) { if (byKey[key] === undefined) byKey[key] = i; }
-      else { const js = jobSheetKey(values[i][COL.job], values[i][COL.sheet]); if (byJobSheet[js] === undefined) byJobSheet[js] = i; }
+      else { const js = logJobSheetKey_(values[i][LOG_COL.job], values[i][LOG_COL.sheet]); if (byJobSheet[js] === undefined) byJobSheet[js] = i; }
     }
     groups[customer].forEach(function (r) {
-      const key = str(r.key);
+      const key = logStr_(r.key);
       var idx = byKey[key], isClaim = false;
       if (idx === undefined) {
-        const js = jobSheetKey(r.job, r.sheet);
+        const js = logJobSheetKey_(r.job, r.sheet);
         idx = byJobSheet[js];
         if (idx !== undefined) { isClaim = true; delete byJobSheet[js]; }   // one claim per legacy row
       }
       if (idx === undefined) {
-        const fresh = newLogRow(r);
+        const fresh = logNewRow_(r);
         sheet.getRange(sheet.getLastRow() + 1, 1, 1, LOG_HEADER.length).setValues([fresh]);
         values.push(fresh);
         byKey[key] = values.length - 1;
         appended++;
       } else {
-        const merged = mergeLogRow(values[idx], r);
+        const merged = logMergeRow_(values[idx], r);
         sheet.getRange(idx + 1, 1, 1, LOG_HEADER.length).setValues([merged]);
         values[idx] = merged;
         byKey[key] = idx;
@@ -217,92 +217,92 @@ function upsertRows(body) {
 
 // On an EXISTING tab: appends columns at the right end if it is narrower than LOG_HEADER, and
 // fills only BLANK header cells K1–N1. Never touches A1–J1, never inserts mid-sheet, never renames.
-function ensureLogHeaders(sheet) {
+function logEnsureHeaders_(sheet) {
   const need = LOG_HEADER.length;
   const have = sheet.getMaxColumns();
   if (have < need) sheet.insertColumnsAfter(have, need - have);
   const range = sheet.getRange(1, 1, 1, need);
   const header = range.getValues()[0];
   var changed = false;
-  for (var i = COL.invoice; i < need; i++) {
-    if (str(header[i]) === '') { header[i] = LOG_HEADER[i]; changed = true; }
+  for (var i = LOG_COL.invoice; i < need; i++) {
+    if (logStr_(header[i]) === '') { header[i] = LOG_HEADER[i]; changed = true; }
   }
   if (changed) range.setValues([header]);
 }
 
-function str(v) { return v == null ? '' : String(v).trim(); }
-function hasValue(v) { return v !== undefined && v !== null; }
-function jobSheetKey(job, sheetName) { return str(job) + '\u0000' + str(sheetName); }
+function logStr_(v) { return v == null ? '' : String(v).trim(); }
+function logHasValue_(v) { return v !== undefined && v !== null; }
+function logJobSheetKey_(job, sheetName) { return logStr_(job) + '\u0000' + logStr_(sheetName); }
 
-function newLogRow(r) {
+function logNewRow_(r) {
   const row = [];
   for (var i = 0; i < LOG_HEADER.length; i++) row.push('');
-  writeCoreCells(row, r);
-  row[COL.completedTime] = str(r.completedTime);
-  row[COL.notes] = str(r.notes);
-  writeBillingCells(row, r);
+  logWriteCoreCells_(row, r);
+  row[LOG_COL.completedTime] = logStr_(r.completedTime);
+  row[LOG_COL.notes] = logStr_(r.notes);
+  logWriteBillingCells_(row, r);
   return row;
 }
 
 // A–E, G, I, J, M: always from the payload.
-function writeCoreCells(row, r) {
-  row[COL.sheet] = str(r.sheet);
-  row[COL.job] = str(r.job);
-  row[COL.totalTime] = str(r.totalTime);
-  row[COL.toolpathCount] = str(r.toolpathCount);
-  row[COL.hasVbit] = str(r.hasVbit);
-  row[COL.operator] = str(r.operator);
-  row[COL.archiveLink] = str(r.archiveLink);
-  row[COL.customer] = str(r.customer);
-  row[COL.key] = str(r.key);
+function logWriteCoreCells_(row, r) {
+  row[LOG_COL.sheet] = logStr_(r.sheet);
+  row[LOG_COL.job] = logStr_(r.job);
+  row[LOG_COL.totalTime] = logStr_(r.totalTime);
+  row[LOG_COL.toolpathCount] = logStr_(r.toolpathCount);
+  row[LOG_COL.hasVbit] = logStr_(r.hasVbit);
+  row[LOG_COL.operator] = logStr_(r.operator);
+  row[LOG_COL.archiveLink] = logStr_(r.archiveLink);
+  row[LOG_COL.customer] = logStr_(r.customer);
+  row[LOG_COL.key] = logStr_(r.key);
 }
 
 // K, L, N: only when the payload carries them (owner-only, checked above).
-function writeBillingCells(row, r) {
-  if (hasValue(r.invoice)) row[COL.invoice] = str(r.invoice);
-  if (hasValue(r.po)) row[COL.po] = str(r.po);
-  if (hasValue(r.billed)) row[COL.billed] = str(r.billed);
+function logWriteBillingCells_(row, r) {
+  if (logHasValue_(r.invoice)) row[LOG_COL.invoice] = logStr_(r.invoice);
+  if (logHasValue_(r.po)) row[LOG_COL.po] = logStr_(r.po);
+  if (logHasValue_(r.billed)) row[LOG_COL.billed] = logStr_(r.billed);
 }
 
 // Returns exactly LOG_HEADER.length (A–N) cells: a tab wider than N keeps its extra columns
 // untouched because callers write back only that many.
-function mergeLogRow(existing, r) {
+function logMergeRow_(existing, r) {
   const row = existing.slice(0, LOG_HEADER.length);
   while (row.length < LOG_HEADER.length) row.push('');
-  writeCoreCells(row, r);
-  const invoiceSet = str(row[COL.invoice]) !== '';
+  logWriteCoreCells_(row, r);
+  const invoiceSet = logStr_(row[LOG_COL.invoice]) !== '';
   if (!invoiceSet) {
-    row[COL.completedTime] = str(r.completedTime);
-    row[COL.notes] = str(r.notes);
+    row[LOG_COL.completedTime] = logStr_(r.completedTime);
+    row[LOG_COL.notes] = logStr_(r.notes);
   } else {
     // Billed row: the cut time it was priced on is frozen. A different incoming time is a
     // re-cut — record it in the notes without moving F (spec §6.2).
-    const incoming = str(r.completedTime);
-    if (incoming && !sameMoment(row[COL.completedTime], incoming)) {
+    const incoming = logStr_(r.completedTime);
+    if (incoming && !logSameMoment_(row[LOG_COL.completedTime], incoming)) {
       const note = 'Re-cut ' + incoming;
-      const notes = str(row[COL.notes]);
-      if (notes.indexOf(note) === -1) row[COL.notes] = notes ? notes + ' · ' + note : note;
+      const notes = logStr_(row[LOG_COL.notes]);
+      if (notes.indexOf(note) === -1) row[LOG_COL.notes] = notes ? notes + ' · ' + note : note;
     }
   }
-  writeBillingCells(row, r);
+  logWriteBillingCells_(row, r);
   return row;
 }
 
 // Sheets may have auto-converted a typed "Oct 1, 2026, 9:12 AM" into a Date; Chrome writes a
 // narrow no-break space before AM/PM. Compare as moments when both parse, else as text.
-// (isDate uses toString, not instanceof, so it also works across script realms.)
-function isDate(v) { return Object.prototype.toString.call(v) === '[object Date]'; }
-function sameMoment(cell, incoming) {
-  const a = toMoment(cell), b = toMoment(incoming);
+// (logIsDate_ uses toString, not instanceof, so it also works across script realms.)
+function logIsDate_(v) { return Object.prototype.toString.call(v) === '[object Date]'; }
+function logSameMoment_(cell, incoming) {
+  const a = logToMoment_(cell), b = logToMoment_(incoming);
   if (a !== null && b !== null) return Math.abs(a - b) < 60000;
-  return normalizeTimeText(cell) === normalizeTimeText(incoming);
+  return logNormalizeTimeText_(cell) === logNormalizeTimeText_(incoming);
 }
-function normalizeTimeText(v) {
-  return (isDate(v) ? v.toString() : str(v)).replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim();
+function logNormalizeTimeText_(v) {
+  return (logIsDate_(v) ? v.toString() : logStr_(v)).replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim();
 }
-function toMoment(v) {
-  if (isDate(v)) return isNaN(v.getTime()) ? null : v.getTime();
-  const t = new Date(normalizeTimeText(v)).getTime();
+function logToMoment_(v) {
+  if (logIsDate_(v)) return isNaN(v.getTime()) ? null : v.getTime();
+  const t = new Date(logNormalizeTimeText_(v)).getTime();
   return isNaN(t) ? null : t;
 }
 
