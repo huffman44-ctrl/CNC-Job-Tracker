@@ -4,6 +4,7 @@
  *
  * Local cache enables synchronous reads so UI never blocks on Firestore.
  * All writes update the cache immediately and persist to Firestore async.
+ * Sheets carry `finished` (Phase 1 billing redesign): finished sheets stay forever and leave the board.
  */
 const Storage = (() => {
   let db = null;
@@ -317,6 +318,7 @@ const Storage = (() => {
         totalTime:    sheet.totalTime    || '',
         toolpaths:    sheet.toolpaths    || [],
         materialInfo: sheet.materialInfo || [],
+        finished:     false,   // leaves the board only when Collin's export finishes the job (spec 5.2)
         layoutSvg:    packed.layoutSvg,
         layoutSvgGz:  packed.layoutSvgGz,
         // Tells the render path to show the "too large" notice instead of
@@ -343,11 +345,54 @@ const Storage = (() => {
     }
   }
 
+  /* ── Sheets: the board query ──
+   * Finished sheets stay in Firestore forever (Phase 1 of the billing redesign); the board
+   * shows only `finished == false`. A Firestore equality filter EXCLUDES docs that lack the
+   * field, and every pre-Phase-1 doc lacks it, so the filtered query is used only once
+   * settings/migrations says the one-time stamp has run (Settings › Maintenance). Until then
+   * the whole collection is read and finished docs are dropped here. Both modes drop them
+   * client-side, so a finished sheet never shows on any device whatever the flag says.
+   * settings/migrations is the ONE settings doc operators can read (rules) — Collin's board
+   * needs the flag too. No orderBy: where + orderBy on different fields needs a composite
+   * index that fails only in production; sort client-side like before.
+   */
+  let migrationFlags = {};
+
+  async function loadMigrationState() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('settings').doc('migrations').get();
+      migrationFlags = snap.exists ? (snap.data() || {}) : {};
+    } catch (e) {
+      console.warn('Firestore loadMigrationState failed (board falls back to the unfiltered query):', e);
+      migrationFlags = {};
+    }
+  }
+
+  function migrationState() { return migrationFlags.sheetsFinishedFlag || null; }
+  function sheetsFilterReady() { const f = migrationState(); return !!(f && f.done); }
+
+  function activeSheetsQuery() {
+    const col = db.collection('sheets');
+    return sheetsFilterReady() ? col.where('finished', '==', false) : col;
+  }
+
+  function filterActive(docs) { return docs.filter(d => d.finished !== true); }
+
+  function sortByUploadedAt(docs) {
+    // Nulls sort last here instead of disappearing (a query orderBy would drop them).
+    return docs.slice().sort((a, b) => {
+      const ta = a.uploadedAt?.toMillis?.() ?? Infinity;
+      const tb = b.uploadedAt?.toMillis?.() ?? Infinity;
+      return ta - tb;
+    });
+  }
+
   async function loadSheets() {
     if (!db) return [];
     try {
-      const snap = await db.collection('sheets').orderBy('uploadedAt').get();
-      return snap.docs.map(doc => doc.data());
+      const snap = await activeSheetsQuery().get();
+      return sortByUploadedAt(filterActive(snap.docs.map(doc => doc.data())));
     } catch (e) {
       console.warn('Firestore loadSheets failed:', e);
       return [];
@@ -356,18 +401,110 @@ const Storage = (() => {
 
   function onSheetsChange(callback) {
     if (!db) return;
-    db.collection('sheets').onSnapshot(snap => {
-      // Sort client-side rather than orderBy('uploadedAt') — a query orderBy
-      // silently excludes docs missing the field (and pending serverTimestamps
-      // on the writing device); nulls sort last here instead of disappearing.
-      const docs = snap.docs.map(doc => doc.data());
-      docs.sort((a, b) => {
-        const ta = a.uploadedAt?.toMillis?.() ?? Infinity;
-        const tb = b.uploadedAt?.toMillis?.() ?? Infinity;
-        return ta - tb;
-      });
-      callback(docs);
+    activeSheetsQuery().onSnapshot(snap => {
+      callback(sortByUploadedAt(filterActive(snap.docs.map(doc => doc.data()))));
     }, err => console.warn('Firestore sheets listener error:', err));
+  }
+
+  // Owners' "Show finished jobs" view (one-shot, not a listener — finished jobs are history).
+  async function loadFinishedSheets() {
+    if (!db) return [];
+    try {
+      const snap = await db.collection('sheets').where('finished', '==', true).get();
+      return snap.docs.map(doc => doc.data()).sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
+    } catch (e) {
+      console.warn('Firestore loadFinishedSheets failed:', e);
+      return [];
+    }
+  }
+
+  // The re-upload guard reads Firestore, not the in-memory array: finished sheets are not in
+  // the array any more, and re-dropping one must not silently overwrite it (spec §5.2).
+  // CONTRACT: resolves the doc data when it exists; resolves null ONLY for a confirmed missing
+  // doc (or PASTE/in-memory mode, where storage keeps no sheet cache); THROWS when the read
+  // itself fails. The upload guard must treat a throw as "could not check" and block the file —
+  // a failed read must never look like "not found".
+  async function getSheetDoc(fileKey) {
+    if (!db) return null;
+    const snap = await db.collection('sheets').doc(fileKey).get();
+    return snap.exists ? snap.data() : null;
+  }
+
+  /* ── Finishing (Collin's export) ── */
+  const WRITE_BATCH = 500;   // Firestore write-batch limit
+
+  function finishPatch(sheet, by, nowMs) {
+    const patch = { finished: true, finishedAt: nowMs, finishedBy: by || '' };
+    // The archived HTML is the drawing of record once a sheet is finished; dropping the
+    // stored SVG keeps the board's initial load from growing by every drawing ever cut.
+    if (sheet.archiveUrl) { patch.layoutSvg = ''; patch.layoutSvgGz = ''; patch.layoutOversize = false; }
+    return patch;
+  }
+
+  // NOT swallowed: if this throws, exportJob keeps the job on the board and says so.
+  async function finishSheets(sheetList, by) {
+    if (!db) return { count: sheetList.length };
+    const now = Date.now();
+    for (let i = 0; i < sheetList.length; i += WRITE_BATCH) {
+      const batch = db.batch();
+      sheetList.slice(i, i + WRITE_BATCH).forEach(s => batch.update(db.collection('sheets').doc(s.fileKey), finishPatch(s, by, now)));
+      await batch.commit();
+    }
+    return { count: sheetList.length };
+  }
+
+  async function unfinishSheets(fileKeys) {
+    if (!db) return;
+    for (let i = 0; i < fileKeys.length; i += WRITE_BATCH) {
+      const batch = db.batch();
+      fileKeys.slice(i, i + WRITE_BATCH).forEach(k => batch.update(db.collection('sheets').doc(k), { finished: false }));
+      await batch.commit();
+    }
+  }
+
+  /* ── Jobs (jobs/{jobKey}) — one job-level home for "finished" (spec §5.3) ── */
+  async function upsertJob(jobKey, jobName, by) {
+    if (!db) return;
+    try {
+      const ref = db.collection('jobs').doc(jobKey);
+      const snap = await ref.get();
+      if (snap.exists) return;
+      await ref.set({ jobName: jobName || '', finished: false, finishedAt: null, finishedBy: '', exportCount: 0, lastExportAt: null, createdAt: Date.now(), createdBy: by || '' });
+    } catch (e) {
+      console.warn('Firestore upsertJob failed:', e);
+    }
+  }
+
+  async function finishJob(jobKey, jobName, by) {
+    if (!db) return;
+    const now = Date.now();
+    await db.collection('jobs').doc(jobKey).set({
+      jobName: jobName || '', finished: true, finishedAt: now, finishedBy: by || '',
+      exportCount: firebase.firestore.FieldValue.increment(1), lastExportAt: now,
+    }, { merge: true });
+  }
+
+  async function reopenJob(jobKey) {
+    if (!db) return;
+    await db.collection('jobs').doc(jobKey).set({ finished: false }, { merge: true });
+  }
+
+  /* ── One-time migration: stamp finished:false on every legacy sheet (spec §11.1 step 6) ── */
+  async function migrateFinishedFlag(onProgress) {
+    if (!db) return { stamped: 0, total: 0 };
+    const snap = await db.collection('sheets').get();
+    const todo = snap.docs.filter(d => (d.data() || {}).finished === undefined);
+    for (let i = 0; i < todo.length; i += WRITE_BATCH) {
+      const batch = db.batch();
+      todo.slice(i, i + WRITE_BATCH).forEach(d => batch.update(d.ref, { finished: false }));
+      await batch.commit();
+      if (onProgress) onProgress(Math.min(i + WRITE_BATCH, todo.length), todo.length);
+    }
+    const prior = migrationState() || { count: 0 };
+    const flag = { done: true, at: Date.now(), count: (prior.count || 0) + todo.length, total: snap.size };
+    await db.collection('settings').doc('migrations').set({ sheetsFinishedFlag: flag }, { merge: true });
+    migrationFlags = { ...migrationFlags, sheetsFinishedFlag: flag };
+    return { stamped: todo.length, total: snap.size };
   }
 
   async function deleteSheet(fileKey) {
@@ -611,7 +748,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, finishJob, reopenJob, migrateFinishedFlag };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;
