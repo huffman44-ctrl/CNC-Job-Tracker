@@ -787,7 +787,7 @@ function buildProjectCard(jobName, projectSheets) {
   exportBtn.addEventListener('click', async e => {
     e.stopPropagation();
     const jobSheets = [...projectSheets].sort(compareSheets);
-    const customerName = await openCustomerPicker(jobName);
+    const customerName = await customerForExport(jobName);
     if (!customerName) return;
     await exportJob(jobName, jobSheets, customerName);
   });
@@ -1539,6 +1539,13 @@ function printJobTicket(jobName, displaySheets) {
   showTicketAndPrint(ticketMeta(jobName, displaySheets));
 }
 
+// Known from upload/job details or an earlier export -> no question. Missing (legacy job) ->
+// today's picker, which saves its answer to projectCustomer itself.
+function customerForExport(jobName) {
+  const known = jobName ? Storage.getProjectCustomer(noteKey(jobName)) : null;
+  return known ? Promise.resolve(known) : openCustomerPicker(jobName);
+}
+
 async function exportJob(jobName, jobSheets, customerName) {
   if (!jobSheets.length) { alert('No sheets loaded to export.'); return; }
   const dataRows = jobSheets.map(sheet => {
@@ -1580,15 +1587,17 @@ async function exportJob(jobName, jobSheets, customerName) {
   showTicketAndPrint(meta);
   Storage.saveTicketRecord(meta);
 
-  // Master Job Log: same rows plus the archive link as column 9, Customer as column 10.
+  // Master Job Log: ONE object per sheet, upserted by Sheet Key - exporting the same job twice
+  // updates the same rows and can never append a second copy (spec 6.2 / 7.3).
   let logged = false;
   let failReason = ' (endpoint unreachable)';
   try {
-    logged = await Endpoint.appendLogRows(
-      dataRows.map((r, i) => [...r, jobSheets[i].archiveUrl || '', customerName || ''])
-    );
+    const idToken = Endpoint.enabled() ? await Auth.getIdToken() : null;
+    const rows = jobSheets.map(sheet => LogRows.build(sheet, Storage.get(sheet.fileKey, 'sheet'), customerName));
+    const result = await Endpoint.upsertLogRows(rows, idToken);
+    logged = !!(result && result.ok);
   } catch (err) {
-    console.warn('Master Job Log append failed:', err);
+    console.warn('Master Job Log upsert failed:', err);
     if (err && err.endpointError) failReason = `: ${err.message}`;
   }
 
@@ -1597,14 +1606,27 @@ async function exportJob(jobName, jobSheets, customerName) {
     return;
   }
 
-  if (!jobName) return;
-  if (!confirm(`Delete "${jobName}"? This removes all ${jobSheets.length} sheet${jobSheets.length !== 1 ? 's' : ''} and completion records for everyone.`)) return;
-  await deleteProject(jobName);
-  if (sheets.length) showProjectsScreen();
+  // Finish, don't delete: sheets stay in Firestore with finished:true and leave the board.
+  // Job doc first, sheets second: if the sheets write fails the job really is still on the
+  // board, so "stays on the board" is true; a retry re-runs both.
+  try {
+    const by = currentUserEmail();
+    if (jobName) await Storage.finishJob(noteKey(jobName), jobName, by);
+    await Storage.finishSheets(jobSheets, by);
+  } catch (err) {
+    console.warn('Finish after export failed:', err);
+    alert(`The Master Job Log was updated, but the job could not be marked finished (${err.message}). It stays on the board - export it again once the connection is back; the log rows will not be duplicated.`);
+    return;
+  }
+
+  const finishedKeys = new Set(jobSheets.map(s => s.fileKey));
+  sheets = sheets.filter(s => !finishedKeys.has(s.fileKey));
+  currentProject = null;
+  if (sheets.length) showProjectsScreen(); else goToUpload();
 }
 
 async function doExport() {
-  const customerName = await openCustomerPicker(currentProject);
+  const customerName = await customerForExport(currentProject);
   if (!customerName) return;
   await exportJob(currentProject, getDisplaySheets(), customerName);
 }
