@@ -331,9 +331,15 @@ async function cancelDroppedJob(jobName, fileKeys) {
   await Promise.all(fileKeys.map(k => Storage.deleteSheet(k)));
   const gone = new Set(fileKeys);
   sheets = sheets.filter(s => !gone.has(s.fileKey));
-  if (!sheets.length) goToUpload();
+  if (!sheets.length) showBoardOrUpload();
   else if (!projectsScreen.hidden) renderProjects();
   else if (!contentScreen.hidden) renderAllSheets();
+}
+
+// An empty board sends Collin to Upload as always; owners with the job card on go to the
+// Projects screen so "Show finished jobs" / Put back stay reachable.
+function showBoardOrUpload() {
+  if (sheets.length || Features.on('jobCard')) showProjectsScreen(); else goToUpload();
 }
 
 function goToUpload() {
@@ -411,15 +417,19 @@ function showContentScreen() {
 
   updateJobNoteBanner();
   contentScreen.classList.toggle('content-screen--finished', viewingFinished);
+  renderAllSheets();
+}
+
+// Owner panel on the job card; redrawn from renderAllSheets so completion changes keep it fresh.
+function drawOwnerPanel(displaySheets) {
   const ownerPanelEl = document.getElementById('owner-panel');
-  if (Features.on('jobCard')) {
+  if (Features.on('jobCard') && currentProject) {
     ownerPanelEl.hidden = false;
     JobCard.renderOwnerPanel(ownerPanelEl, currentProject, displaySheets);
   } else {
     ownerPanelEl.hidden = true;
     ownerPanelEl.innerHTML = '';
   }
-  renderAllSheets();
 }
 
 function updateJobNoteBanner() {
@@ -683,7 +693,7 @@ async function deleteProject(jobName) {
   ]));
   sheets = sheets.filter(s => projectKey(s) !== jobName);
   if (!sheets.length) {
-    goToUpload();
+    showBoardOrUpload();
   } else {
     renderProjects();
   }
@@ -879,6 +889,7 @@ function sheetStatusClass(sheet) {
 
 function renderAllSheets() {
   const displaySheets = getDisplaySheets();
+  drawOwnerPanel(displaySheets);
   headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
 
   if (!displaySheets.length) {
@@ -1101,13 +1112,13 @@ function buildSheetDetail(sheet, idx) {
     // Finishing drops the stored drawing (the archive is the drawing of record); a sheet put
     // back on the board keeps that, so say so instead of showing nothing.
     const notice = document.createElement('div');
-    notice.className = 'layout-svg-archived';
-    notice.textContent = 'The drawing is kept in the archive. ';
+    notice.className = 'layout-svg-oversize';
+    notice.textContent = 'Layout preview is not stored here. ';
     const link = document.createElement('a');
     link.href = sheet.archiveUrl;
     link.target = '_blank';
     link.rel = 'noopener';
-    link.textContent = 'Open archived drawing';
+    link.textContent = 'Open the original sheet';
     notice.appendChild(link);
     wrap.appendChild(notice);
   } else if (sheet.layoutSvg || sheet.layoutSvgGz) {
@@ -1694,7 +1705,7 @@ async function exportJob(jobName, jobSheets, customerName) {
   const finishedKeys = new Set(jobSheets.map(s => s.fileKey));
   sheets = sheets.filter(s => !finishedKeys.has(s.fileKey));
   currentProject = null;
-  if (sheets.length) showProjectsScreen(); else goToUpload();
+  showBoardOrUpload();
 }
 
 async function doExport() {
@@ -2534,10 +2545,8 @@ async function loadDataAndShowApp() {
     Storage.loadPrintQueue(),
   ]);
 
-  if (storedSheets.length > 0) {
-    sheets = storedSheets;
-    showProjectsScreen();
-  }
+  sheets = storedSheets;
+  if (sheets.length > 0 || Features.on('jobCard')) showProjectsScreen();
 
   Storage.onSheetsChange(newSheets => {
     sheets = newSheets;

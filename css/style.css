@@ -1911,7 +1911,6 @@ body {
 .jc-status { font-size: 0.82rem; }
 .jc-row-tags { font-size: 0.72rem; color: var(--gray-500); margin-top: 2px; }
 .jc-row-tags .jc-row-weekend { color: var(--gold); font-weight: 700; }
-.layout-svg-archived { margin: 0 20px 12px; font-size: 0.85rem; color: var(--gray-500); }
 /* A finished job is read-only for everyone: it left the board; "Put back on the board" reopens it. */
 #content-screen.content-screen--finished #export-btn,
 #content-screen.content-screen--finished #reset-btn,
