@@ -21,9 +21,11 @@ function fakeSheet(name, rows = []) {
     frozen: 0,
     getName() { return this._name; },
     getLastRow() { return this.rows.length; },
+    getMaxRows() { return Math.max(1000, this.rows.length); },
     getRange(row, col, numRows, numCols) {
       const sheet = this;
       return {
+        setNumberFormat() {},
         setValues(values) {
           assert.equal(values.length, numRows);
           for (const v of values) assert.equal(v.length, numCols);

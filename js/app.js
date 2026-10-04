@@ -336,10 +336,12 @@ async function cancelDroppedJob(jobName, fileKeys) {
   else if (!contentScreen.hidden) renderAllSheets();
 }
 
-// An empty board sends Collin to Upload as always; owners with the job card on go to the
-// Projects screen so "Show finished jobs" / Put back stay reachable.
+// An empty board sends Collin to Upload as always; owners with the job card or Settings on go to
+// the Projects screen so Settings / "Show finished jobs" / Put back stay reachable (the Upload
+// screen has no way to either).
+function ownerHomeOnEmpty() { return Features.on('jobCard') || Features.on('settings'); }
 function showBoardOrUpload() {
-  if (sheets.length || Features.on('jobCard')) showProjectsScreen(); else goToUpload();
+  if (sheets.length || ownerHomeOnEmpty()) showProjectsScreen(); else goToUpload();
 }
 
 function goToUpload() {
@@ -2546,7 +2548,7 @@ async function loadDataAndShowApp() {
   ]);
 
   sheets = storedSheets;
-  if (sheets.length > 0 || Features.on('jobCard')) showProjectsScreen();
+  if (sheets.length > 0 || ownerHomeOnEmpty()) showProjectsScreen();
 
   Storage.onSheetsChange(newSheets => {
     sheets = newSheets;

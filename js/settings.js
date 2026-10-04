@@ -123,7 +123,7 @@ const SettingsScreen = (() => {
     const st = Storage.migrationState();
     els.migStatus.textContent = st
       ? `Done ${formatDT(new Date(st.at))} — ${st.count} sheet${st.count !== 1 ? 's' : ''} stamped. Running again is safe; it finds nothing to do.`
-      : 'Not run yet. Until it runs, every device loads all sheets and hides finished ones in the browser. Run it once after this version is live.';
+      : 'Not run yet. Until it runs, every device loads all sheets and hides finished ones in the browser. Run it once after every device, including the shop PC, has hard-refreshed onto this version.';
     els.migBtn.textContent = st ? 'Run again' : 'Run';
   }
 

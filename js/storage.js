@@ -454,6 +454,7 @@ const Storage = (() => {
   }
 
   async function unfinishSheets(fileKeys) {
+    // finishedAt/finishedBy are deliberately kept: the put-back archive notice uses finishedAt.
     if (!db) return;
     for (let i = 0; i < fileKeys.length; i += WRITE_BATCH) {
       const batch = db.batch();

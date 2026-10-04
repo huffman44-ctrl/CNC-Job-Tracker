@@ -183,6 +183,7 @@ function upsertRows(body) {
     const sheet = findOrCreateCustomerTab(ss, customer);
     logEnsureHeaders_(sheet);
     const values = sheet.getDataRange().getValues();          // values[i] is sheet row i + 1
+    var nextRow = sheet.getLastRow() + 1;                       // next free row; tracked locally so appends don't force a flush each
     const byKey = Object.create(null), byJobSheet = Object.create(null);
     for (var i = 1; i < values.length; i++) {
       const key = logStr_(values[i][LOG_COL.key]);
@@ -199,7 +200,8 @@ function upsertRows(body) {
       }
       if (idx === undefined) {
         const fresh = logNewRow_(r);
-        sheet.getRange(sheet.getLastRow() + 1, 1, 1, LOG_HEADER.length).setValues([fresh]);
+        sheet.getRange(nextRow, 1, 1, LOG_HEADER.length).setValues([fresh]);
+        nextRow++;
         values.push(fresh);
         byKey[key] = values.length - 1;
         appended++;
@@ -221,6 +223,7 @@ function logEnsureHeaders_(sheet) {
   const need = LOG_HEADER.length;
   const have = sheet.getMaxColumns();
   if (have < need) sheet.insertColumnsAfter(have, need - have);
+  logTextKeyColumn_(sheet);
   const range = sheet.getRange(1, 1, 1, need);
   const header = range.getValues()[0];
   var changed = false;
@@ -228,6 +231,12 @@ function logEnsureHeaders_(sheet) {
     if (logStr_(header[i]) === '') { header[i] = LOG_HEADER[i]; changed = true; }
   }
   if (changed) range.setValues([header]);
+}
+
+// Sheet Key (column M) must be plain text: keys are base-36, so one like "12e5" would otherwise be
+// converted to a number by setValues and never match again (a new row every export). Idempotent.
+function logTextKeyColumn_(sheet) {
+  sheet.getRange(1, LOG_COL.key + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
 }
 
 function logStr_(v) { return v == null ? '' : String(v).trim(); }
@@ -316,6 +325,7 @@ function findOrCreateCustomerTab(ss, customer) {
     if (sheets[i].getName().trim().toLowerCase() === target) return sheets[i];
   }
   const sheet = ss.insertSheet(wanted, sheets.length);
+  logTextKeyColumn_(sheet);
   sheet.getRange(1, 1, 1, LOG_HEADER.length).setValues([LOG_HEADER]);
   sheet.setFrozenRows(1);
   return sheet;

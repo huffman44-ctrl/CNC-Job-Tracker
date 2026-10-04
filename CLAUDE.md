@@ -38,7 +38,7 @@ CNC_WebApp/
 1. Copy the app to a temp directory.
 2. Overwrite the copy's `js/firebase-config.js` with a `projectId` that starts with `"PASTE"` (e.g. `"PASTE_DISABLED"`).
 3. **Also overwrite the copy's `js/endpoint-config.js`** with `const ENDPOINT_CONFIG = { url: 'PASTE_URL', token: 'x' };` — the tracked file holds the LIVE Apps Script URL and token (GitHub Pages serves it), so without this an upload in the copy calls the real `archiveSheet` and writes into the Drive archive. `Endpoint.enabled()` is false once the URL starts with PASTE.
-4. `initApp()` in app.js (~line 850) checks `FIREBASE_CONFIG.projectId.startsWith('PASTE')` and skips Firebase entirely when true, falling back to in-memory-only mode — uploads, completions, and deletes stay local to that browser tab with zero risk to prod data.
+4. `initApp()` in app.js (~line 2626) checks `FIREBASE_CONFIG.projectId.startsWith('PASTE')` and skips Firebase entirely when true, falling back to in-memory-only mode — uploads, completions, and deletes stay local to that browser tab with zero risk to prod data.
 5. Owner screens in a PASTE copy: there is no sign-in, so `Features` never loads. In the console run `Features._setForTests(Features.defaults('t@x'), 't@x'); OwnerStore.loadAll().then(() => { OwnerStore.onChange(rerenderCurrent); applyFeatureNav(); rerenderCurrent(); })` (add `jobCard: { on: true, users: ['t@x'] }` to the state for the job-card panel). `node tools/browser-check-phase1.mjs` does all of this headlessly.
 
 If you ever suspect a test run touched production, check the `sheets` collection for unexpected docs by filename and delete them immediately — don't leave fake data mixed into real operator records.

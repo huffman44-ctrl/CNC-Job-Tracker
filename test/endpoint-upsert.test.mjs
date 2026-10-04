@@ -27,7 +27,7 @@ const LIVE = { url: 'https://example.test/exec', token: 'JUNKTOKEN' };
 const ok = (body) => async () => ({ json: async () => ({ ok: true, ...body }) });
 const rows = [{ key: 'fk1', sheet: 'Job Layout Sheet 2', job: 'NL_Bridge', customer: 'Northlight Studios' }];
 
-test('upsertLogRows posts action, rows (objects) and idToken with the default 20 s timeout', async () => {
+test('upsertLogRows posts action, rows (objects) and idToken with a 60 s timeout', async () => {
   const { Endpoint, calls, timeouts } = loadEndpoint({ config: LIVE, fetchImpl: ok({ updated: 1, appended: 0, claimed: 0 }) });
   const res = await Endpoint.upsertLogRows(rows, 'IDTOKEN1');
   assert.deepEqual(plain(res), { ok: true, updated: 1, appended: 0, claimed: 0 });
@@ -37,7 +37,7 @@ test('upsertLogRows posts action, rows (objects) and idToken with the default 20
   assert.equal(sent.token, 'JUNKTOKEN');
   assert.deepEqual(sent.rows, rows);
   assert.equal(calls[0].opts.headers['Content-Type'], 'text/plain;charset=utf-8');
-  assert.deepEqual(plain(timeouts), [20000]);
+  assert.deepEqual(plain(timeouts), [60000]);
 });
 
 test('PASTE-disabled: resolves ok/offline without touching the network', async () => {

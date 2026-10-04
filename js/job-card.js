@@ -9,6 +9,7 @@ const JobCard = (() => {
   let hooks = { noteKey: null, currentEmail: () => '', openEdit: async () => false, onChanged() {}, onPutBack: async () => {} };
   let editingCutDateKey = null;   // fileKey whose cut-date editor is open
   let statusText = '';
+  let statusJob = null;   // the job statusText belongs to; a different job's panel starts clean
   let sheetsProvider = () => [];
   const TURNAROUND = { standard: 'Standard', rush48: '48-hour rush', rush24: '24-hour rush' };
   const NOT_LOADED = "Owner data didn't load — reload the page.";
@@ -82,7 +83,40 @@ const JobCard = (() => {
   }
 
   /* ── The panel ── */
+  // Typed-but-unsaved owner inputs survive a redraw (any shop-floor snapshot re-renders the panel).
+  const KEEP_SEL = ['[data-line-type]', '[data-line-hours]', '[data-line-note]', '[data-cutdate-input]'];
+  function snapshotInputs(container) {
+    const snap = { values: {}, focus: null };
+    KEEP_SEL.forEach(sel => { const el = container.querySelector(sel); if (el) snap.values[sel] = el.value; });
+    const a = document.activeElement;
+    if (a && container.contains(a)) {
+      const sel = KEEP_SEL.find(x => a.matches(x));
+      if (sel) snap.focus = { sel, start: a.selectionStart, end: a.selectionEnd };
+    }
+    return snap;
+  }
+  function restoreInputs(container, snap) {
+    KEEP_SEL.forEach(sel => {
+      if (!(sel in snap.values)) return;
+      const el = container.querySelector(sel);
+      if (!el) return;
+      if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === snap.values[sel])) return;
+      el.value = snap.values[sel];
+    });
+    if (snap.focus) {
+      const el = container.querySelector(snap.focus.sel);
+      if (el && !el.disabled) {
+        el.focus();
+        try { if (snap.focus.start != null) el.setSelectionRange(snap.focus.start, snap.focus.end); } catch (_) { /* number/date inputs have no caret */ }
+      }
+    }
+  }
+
   function renderOwnerPanel(container, jobName, orderedSheets) {
+    if (statusJob !== jobName) { statusText = ''; statusJob = jobName; editingCutDateKey = null; }
+    const sameJob = container.dataset.jobName === jobName;
+    const snap = sameJob ? snapshotInputs(container) : null;
+    const prevCutKey = container.dataset.cutKey || '';
     if (!container.dataset.jcBound) { container.addEventListener('click', onClick); container.addEventListener('change', onChange); container.dataset.jcBound = '1'; }
     const e = escHtml;
     const jobKey = hooks.noteKey(jobName);
@@ -170,7 +204,12 @@ const JobCard = (() => {
       html += `<div class="jc-caption">Set the customer, material and turnaround so this job can be billed. Collin can still cut and export it meanwhile.</div>`;
     }
     html += `<div class="jc-status${/^Couldn/.test(statusText) ? ' vanlab-status-error' : ''}">${e(statusText)}</div>`;
+    container.dataset.cutKey = editingCutDateKey || '';
     container.innerHTML = html;
+    if (snap) {
+      if (prevCutKey !== (editingCutDateKey || '')) delete snap.values['[data-cutdate-input]'];
+      restoreInputs(container, snap);
+    }
   }
 
   function setStatus(t) { statusText = t || ''; hooks.onChanged(); }
@@ -214,6 +253,7 @@ const JobCard = (() => {
         if (!typeId) { setStatus("Couldn't add — pick a type."); return; }
         if (!(hours > 0)) { setStatus("Couldn't add — hours must be more than 0."); return; }
         await OwnerStore.setJobBilling(jobKey, { laborLines: [...(jb.laborLines || []), OwnerStore.newLaborLine(typeId, hours, note, by)] }, by);
+        container.querySelectorAll('[data-line-hours], [data-line-note]').forEach(el => { el.value = ''; });   // added: next line starts empty
         setStatus(`${hours} h added.`);
       } else if (action === 'line-remove') {
         await OwnerStore.setJobBilling(jobKey, { laborLines: (jb.laborLines || []).filter(l => !(l.id === btn.dataset.line && (l.status || 'unbilled') === 'unbilled')) }, by);

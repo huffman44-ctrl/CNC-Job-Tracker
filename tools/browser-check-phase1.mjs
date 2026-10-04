@@ -201,6 +201,16 @@ async function main() {
   assert(await page.$eval('#owner-panel [data-action="done"]', b => !b.disabled), 'panel: Done enabled after a labor line');
   const typeOptions = await page.$$eval('#owner-panel [data-line-type] option', os => os.map(o => o.textContent));
   assert(typeOptions.some(t => /Design — \$150\/hr \(min 1 h\)/.test(t)) && typeOptions.some(t => /CAM — \$85\/hr \(min 0.5 h\)/.test(t)), 'panel: labor types come from the seeded settings doc');
+  // Half-typed input survives a shop-floor completion change (owner panel redraw), focus included.
+  await page.fill('#owner-panel [data-line-hours]', '2.25');
+  await page.fill('#owner-panel [data-line-note]', 'Half typed note');
+  await page.focus('#owner-panel [data-line-note]');
+  await page.evaluate(async () => { await Storage.set(sheets[0].fileKey, 'sheet', { status: 'complete', completedAt: Date.now(), operator: 'Collin', notes: '' }); renderAllSheets(); });
+  assert(/1 of 1 sheet cut/.test(await page.textContent('#owner-panel')), 'panel: the completion change really redrew the panel');
+  assert(await page.inputValue('#owner-panel [data-line-hours]') === '2.25' && await page.inputValue('#owner-panel [data-line-note]') === 'Half typed note', 'panel: typed hours + note survive a completion-driven redraw');
+  assert(await page.evaluate(() => document.activeElement && document.activeElement.matches('#owner-panel [data-line-note]')), 'panel: focus stays in the note box');
+  await page.fill('#owner-panel [data-line-hours]', '');
+  await page.fill('#owner-panel [data-line-note]', '');
   // Owner data did not load (jobBilling): every write control is disabled and the notice shows.
   await page.evaluate(() => { window.__realLoaded = OwnerStore.loaded; OwnerStore.loaded = (n) => n === 'jobBilling' ? false : window.__realLoaded(n); rerenderCurrent(); });
   const writeOff = await page.evaluate(() => ['[data-action="edit"]', '[data-action="done"]', '[data-action="line-add"]', '[data-line-hours]', '[data-line-note]', '[data-line-type]', '[data-action="nodesign"]']
@@ -214,6 +224,14 @@ async function main() {
   await page.setViewportSize({ width: 320, height: 700 });
   await page.waitForTimeout(200);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= 320), 'panel: no horizontal scroll at 320px');
+  await page.close();
+
+  // ── Owner with Settings on, job card OFF, empty board → Projects (not the Upload dead end) ──
+  page = await fresh();
+  await setOwner(page);
+  await page.evaluate(() => showBoardOrUpload());
+  assert(await page.isVisible('#projects-screen') && await page.isHidden('#upload-screen'), 'owner (settings on, jobCard off): empty board lands on Projects');
+  assert(await page.isVisible('#settings-btn'), 'owner (settings on, jobCard off): Settings button visible on the empty board');
   await page.close();
 
   // ── Put-back sheet whose drawing was cleared shows the archive note ──

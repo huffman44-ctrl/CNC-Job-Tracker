@@ -18,7 +18,9 @@ function fakeSheet(name, rows, maxColumns) {
   return {
     _name: name, rows, frozen: 0, maxColumns: maxColumns || Math.max(26, ...rows.map(r => r.length)),
     getName() { return this._name; },
-    getLastRow() { return this.rows.length; },
+    getLastRow() { this.lastRowCalls = (this.lastRowCalls || 0) + 1; return this.rows.length; },
+    getMaxRows() { return Math.max(1000, this.rows.length); },
+    textCols: new Set(),
     getMaxColumns() { return this.maxColumns; },
     insertColumnsAfter(after, n) { assert.equal(after, this.maxColumns, 'columns must be appended at the right end'); this.maxColumns += n; },
     getDataRange() {
@@ -29,6 +31,13 @@ function fakeSheet(name, rows, maxColumns) {
     getRange(row, col, numRows, numCols) {
       const sheet = this;
       return {
+        setNumberFormat(fmt) {
+          assert.equal(fmt, '@');
+          assert.equal(numCols, 1);
+          assert.equal(row, 1, 'format applies from the header row down');
+          assert.ok(numRows >= sheet.rows.length, 'format covers every existing row');
+          sheet.textCols.add(col);
+        },
         getValues() {
           const out = [];
           for (let i = 0; i < numRows; i++) {
@@ -43,7 +52,8 @@ function fakeSheet(name, rows, maxColumns) {
           assert.ok(col - 1 + numCols <= sheet.maxColumns, 'write past the last column');
           values.forEach((v, i) => {
             const r = sheet.rows[row - 1 + i] || (sheet.rows[row - 1 + i] = []);
-            v.forEach((cell, j) => { r[col - 1 + j] = cell; });
+            // Emulate Sheets: an unformatted cell turns "12e5"-style text into a number.
+            v.forEach((cell, j) => { r[col - 1 + j] = (!sheet.textCols.has(col + j) && typeof cell === 'string' && /^\d+e\d+$/i.test(cell)) ? Number(cell) : cell; });
           });
         },
       };
@@ -267,4 +277,35 @@ test('doPost dispatches upsertRows and still knows appendRows', () => {
   assert.deepEqual(plain(sandbox.__out), { ok: true, updated: 0, appended: 1, claimed: 0 });
   sandbox.doPost({ postData: { contents: JSON.stringify({ token: 'TOK', action: 'appendRows', rows: [['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'Northlight Studios']] }) } });
   assert.equal(sandbox.__out.ok, true);
+});
+
+test('Sheet Key column M is formatted as plain text before any write; a key like 12e5 round-trips as a string (no new row per export)', () => {
+  const tab = fakeSheet('Northlight Studios', [HEADER14.slice()]);
+  const g = loadEndpoint(fakeSpreadsheet([tab]));
+  assert.equal(tab.textCols.has(13), false);
+  const a = g.upsertRows({ idToken: 'T', rows: [row({ key: '12e5' })] });
+  assert.deepEqual(plain(a), { ok: true, updated: 0, appended: 1, claimed: 0 });
+  assert.ok(tab.textCols.has(13), 'column M set to @');
+  assert.strictEqual(tab.rows[1][12], '12e5', 'stored as the string, not the number 1200000');
+  const b = g.upsertRows({ idToken: 'T', rows: [row({ key: '12e5', notes: 'again' })] });
+  assert.deepEqual(plain(b), { ok: true, updated: 1, appended: 0, claimed: 0 });
+  assert.equal(tab.rows.length, 2);
+});
+
+test('a brand-new customer tab gets the text format on M before its header is written', () => {
+  const ss = fakeSpreadsheet([]);
+  const g = loadEndpoint(ss);
+  g.upsertRows({ idToken: 'T', rows: [row({ key: '7e3', customer: 'Fresh Customer' })] });
+  const tab = ss.sheets[0];
+  assert.ok(tab.textCols.has(13));
+  assert.strictEqual(tab.rows[1][12], '7e3');
+});
+
+test('appending many rows reads getLastRow once per tab, not once per row', () => {
+  const tab = fakeSheet('Northlight Studios', [HEADER14.slice()]);
+  const g = loadEndpoint(fakeSpreadsheet([tab]));
+  g.upsertRows({ idToken: 'T', rows: [1, 2, 3, 4, 5].map(n => row({ key: 'k' + n, sheet: 'S' + n })) });
+  assert.equal(tab.rows.length, 6);
+  assert.deepEqual(plain(tab.rows.slice(1).map(r => r[12])), ['k1', 'k2', 'k3', 'k4', 'k5']);
+  assert.equal(tab.lastRowCalls, 1);
 });

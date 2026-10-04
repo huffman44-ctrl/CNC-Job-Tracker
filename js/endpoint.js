@@ -51,7 +51,7 @@ const Endpoint = (() => {
   // (invoice/po/billed) are accepted by the script only from an owner uid.
   async function upsertLogRows(rows, idToken) {
     if (!enabled()) return { ok: true, updated: 0, appended: 0, claimed: 0, offline: true };
-    return post({ action: 'upsertRows', rows, idToken });
+    return post({ action: 'upsertRows', rows, idToken }, { timeoutMs: 60000 });
   }
 
   async function lookupOrder(orderNum, idToken) {
