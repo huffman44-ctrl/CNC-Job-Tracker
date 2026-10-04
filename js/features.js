@@ -43,6 +43,7 @@ const Features = (() => {
     db = firestore;
     email = norm(currentEmail);
     state = null;
+    if (!email) return false;   // no identity: nothing read, nothing written, never seed users: ['']
     try {
       const ref = db.collection('settings').doc('features');
       const snap = await ref.get();
@@ -96,14 +97,21 @@ const Features = (() => {
     if (enabled) users.push(norm(userEmail));
     sw.users = users;
     sw.on = users.length > 0;
-    if (key === 'settings' && users.length === 0) throw new Error('Settings must stay on for at least one owner.');
+    // Validate the RESULT: any change that leaves Settings with no owner is refused.
+    const st = next.settings;
+    if (!(st && st.on && Array.isArray(st.users) && st.users.length)) throw new Error('Settings must stay on for at least one owner.');
     return next;
   }
 
   async function setSwitch(key, userEmail, enabled) {
-    const next = applySwitch(state, key, userEmail, enabled);
+    if (state === null) throw new Error('Owner settings not loaded.');
+    const prev = state;
+    const next = applySwitch(prev, key, userEmail, enabled);
     state = next;
-    if (db) await db.collection('settings').doc('features').set(next);
+    if (db) {
+      try { await db.collection('settings').doc('features').set(next); }
+      catch (e) { state = prev; emit(); throw e; }
+    }
     emit();
   }
 

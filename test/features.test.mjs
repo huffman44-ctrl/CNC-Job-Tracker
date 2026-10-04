@@ -157,3 +157,39 @@ test('getState returns a copy (null for operators)', () => {
   Features._setForTests(null, 'collin@example.com');
   assert.equal(Features.getState(), null);
 });
+
+test('fix: setSwitch with no loaded owner state rejects and leaves state null', async () => {
+  Features._setForTests(null, 'collin@example.com');
+  await assert.rejects(() => Features.setSwitch('jobCard', 'collin@example.com', true), /Owner settings not loaded/);
+  assert.equal(Features.isOwner(), false);
+  assert.equal(Features.on('jobCard'), false);
+});
+
+test('fix: applySwitch refuses a doc with no settings key, and turning off the last Settings user', () => {
+  assert.throws(() => Features.applySwitch(null, 'jobCard', T, true), /Settings must stay on/);
+  assert.throws(() => Features.applySwitch({ jobCard: { on: false, users: [] } }, 'jobCard', T, true), /Settings must stay on/);
+  assert.throws(() => Features.applySwitch(Features.defaults(T), 'settings', T, false), /Settings must stay on/);
+  assert.deepEqual(Features.applySwitch(Features.defaults(T), 'billing', T, true).billing, { on: true, users: [T] });
+});
+
+test('fix: a failed write restores the previous state and rethrows', async () => {
+  const db = fakeDb({ existing: Features.defaults(T) });
+  await Features.load(db, T);
+  db.collection = () => ({ doc: () => ({ set: async () => { throw new Error('denied'); } }) });
+  await assert.rejects(() => Features.setSwitch('jobCard', T, true), /denied/);
+  assert.equal(Features.on('jobCard'), false);
+});
+
+test('fix: empty or missing email = all off, no read, no write', async () => {
+  for (const e of ['', '  ', undefined, null]) {
+    const db = fakeDb({ existing: null });
+    let reads = 0;
+    const orig = db.collection;
+    db.collection = (...a) => { reads++; return orig(...a); };
+    assert.equal(await Features.load(db, e), false);
+    assert.equal(Features.isOwner(), false);
+    assert.equal(reads, 0);
+    assert.deepEqual(db.calls.set, []);
+    assert.equal(db.calls.tx, 0);
+  }
+});
