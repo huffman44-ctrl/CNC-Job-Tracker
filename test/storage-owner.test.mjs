@@ -200,3 +200,23 @@ test('newLaborLine with 4 args defaults typeName from the seeded labor types', a
   assert.equal(OwnerStore.newLaborLine('cam', 2, 'n', 'a').typeName, 'CAM');
   assert.equal(OwnerStore.newLaborLine('nope', 2, 'n', 'a').typeName, '');
 });
+
+test('loaded(): true after a clean read (and with no db); false for fromCache and for a failed read', async () => {
+  OwnerStore._resetForTests();
+  assert.equal(OwnerStore.loaded('jobBilling'), true, 'no db → nothing to wait for');
+
+  OwnerStore._resetForTests();
+  OwnerStore.init(fakeDb());
+  await OwnerStore.loadAll();
+  assert.equal(OwnerStore.loaded('jobBilling'), true);
+
+  OwnerStore._resetForTests();
+  OwnerStore.init(fakeDb({ fromCache: true }));
+  await quiet(() => OwnerStore.loadAll());
+  assert.equal(OwnerStore.loaded('jobBilling'), false, 'cache-only answer is not a load');
+
+  OwnerStore._resetForTests();
+  OwnerStore.init(fakeDb({ getFails: true }));
+  await quiet(() => OwnerStore.loadAll());
+  assert.equal(OwnerStore.loaded('jobBilling'), false);
+});

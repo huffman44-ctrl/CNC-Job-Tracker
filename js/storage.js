@@ -475,6 +475,16 @@ const Storage = (() => {
     }
   }
 
+  // Upload path (spec §5.3): the job exists and is OPEN afterwards. upsertJob keeps createdAt/createdBy
+  // only-if-missing; reopenJob then clears a stale finished:true when sheets are re-uploaded for a
+  // previously finished job name. (Edit-job-details keeps using plain upsertJob and never reopens.)
+  async function upsertJobForUpload(jobKey, jobName, by) {
+    if (!db) return;
+    await upsertJob(jobKey, jobName, by);
+    try { await reopenJob(jobKey); }
+    catch (e) { console.warn('Firestore reopenJob (upload) failed:', e); }
+  }
+
   async function finishJob(jobKey, jobName, by) {
     if (!db) return;
     const now = Date.now();
@@ -748,7 +758,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, finishJob, reopenJob, migrateFinishedFlag };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, upsertJobForUpload, finishJob, reopenJob, migrateFinishedFlag };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;

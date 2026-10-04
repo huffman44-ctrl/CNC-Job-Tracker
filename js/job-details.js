@@ -143,7 +143,9 @@ const JobDetails = (() => {
       await Storage.setProjectCustomer(ctx.jobKey, customerName);
       await Storage.upsertJob(ctx.jobKey, ctx.jobName, by);
       await OwnerStore.setJobBilling(ctx.jobKey, { jobName: ctx.jobName, customerKey, customerName, material, turnaround, thicknessIn: ctx.thicknessIn }, by);
-      await OwnerStore.rememberMaterialDefault(customerKey, customerName, ctx.thicknessIn, material);
+      // The details are saved; a failed remembered-default must not strand the form.
+      try { await OwnerStore.rememberMaterialDefault(customerKey, customerName, ctx.thicknessIn, material); }
+      catch (err) { console.warn('rememberMaterialDefault failed:', err); }
       close(true);
     } catch (err) {
       showError(`Couldn't save — ${err.message}`);

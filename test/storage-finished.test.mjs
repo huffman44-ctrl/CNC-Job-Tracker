@@ -111,3 +111,15 @@ test('migrateFinishedFlag stamps only docs lacking the field, writes the flag, i
   assert.deepEqual(second, { stamped: 0, total: 3 });
   assert.equal(db.docs['settings/migrations'].sheetsFinishedFlag.count, 2, 'count is the running total, not reset');
 });
+
+test('upsertJobForUpload: creates once with createdAt/createdBy kept, and always ends finished:false', async () => {
+  const db = fakeDb({ 'jobs/proj_9': { jobName: 'Old Job', finished: true, finishedBy: 'collin@example.com', createdAt: 111, createdBy: 'first@example.com' } });
+  Storage.init(db);
+  await Storage.upsertJobForUpload('proj_9', 'Old Job', 'travis@example.com');
+  assert.equal(db.docs['jobs/proj_9'].finished, false, 'a re-uploaded finished job is open again');
+  assert.equal(db.docs['jobs/proj_9'].createdAt, 111, 'createdAt untouched');
+  assert.equal(db.docs['jobs/proj_9'].createdBy, 'first@example.com');
+  await Storage.upsertJobForUpload('proj_new', 'New Job', 'travis@example.com');
+  assert.equal(db.docs['jobs/proj_new'].finished, false);
+  assert.equal(db.docs['jobs/proj_new'].createdBy, 'travis@example.com');
+});

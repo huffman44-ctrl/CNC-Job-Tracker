@@ -17,6 +17,9 @@ const OwnerStore = (() => {
   // Seeding is allowed only then: seeding after a failed/denied load would overwrite the
   // real settings with defaults.
   let settingsLoaded = false;
+  // Per-collection: true only after a successful, non-fromCache read (or no db at all).
+  const loadedFlags = {};
+  function loaded(name) { return !db || loadedFlags[name] === true; }
 
   // Seeded once, on the first owner sign-in after Phase 1 ships (Travis's 2026-10-04 answers:
   // Design $150 / 1 h minimum, CAM $85 / 0.5 h minimum, both the QuickBooks item "Digital
@@ -66,6 +69,7 @@ const OwnerStore = (() => {
   async function loadAll() {
     const names = Object.keys(caches);
     const results = await Promise.all(names.map(loadCollection));
+    names.forEach((n, i) => { loadedFlags[n] = results[i]; });
     settingsLoaded = results[names.indexOf('settings')];
     if (settingsLoaded) {
       for (const name of Object.keys(SEEDS)) { try { await ensureSeeded(name, SEEDS[name]); } catch (e) { /* already warned; keep loading */ } }
@@ -191,13 +195,13 @@ const OwnerStore = (() => {
 
   function _resetForTests() {
     Object.values(caches).forEach(c => Object.keys(c).forEach(k => delete c[k]));
-    changeListeners.length = 0; db = null; settingsLoaded = false;
+    changeListeners.length = 0; db = null; settingsLoaded = false; Object.keys(loadedFlags).forEach(k => delete loadedFlags[k]);
   }
   function _seedForTests(name, id, doc) { caches[name][id] = doc; }
 
   return { SEEDS, init, loadAll, onChange, getJobBilling, newJobBilling, setJobBilling, hasJobDetails, newLaborLine,
     getSheetBilling, setCutDateOverride, getCustomerBilling, setCustomerBilling, rememberMaterialDefault,
-    getSetting, setSetting, ensureSeeded, laborTypes, materials, _resetForTests, _seedForTests };
+    getSetting, setSetting, ensureSeeded, laborTypes, materials, loaded, _resetForTests, _seedForTests };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = OwnerStore;

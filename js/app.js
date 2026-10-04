@@ -181,6 +181,10 @@ modalOperator.addEventListener('change', () => {
   if (isOther) setTimeout(() => modalOperatorOther.focus(), 50);
 });
 
+// fileKeys being checked/saved right now. Claimed synchronously next to the in-memory check so a
+// re-drop (or the same name twice in one FileList) can't slip past the await on getSheetDoc.
+const uploadsInFlight = new Set();
+
 function handleFiles(fileList, isFirstLoad) {
   const htmlFiles = Array.from(fileList).filter(f => f.name.match(/\.(html?|htm)$/i));
   if (!htmlFiles.length) {
@@ -215,14 +219,17 @@ function handleFiles(fileList, isFirstLoad) {
   for (const file of htmlFiles) {
     const reader = new FileReader();
     reader.onload = async e => {
+      let claimedKey = null;
       try {
         const parsed = parseJobSheet(e.target.result);
         const key    = simpleHash(file.name);
-        if (sheets.find(s => s.fileKey === key)) {
+        if (sheets.find(s => s.fileKey === key) || uploadsInFlight.has(key)) {
           // A sheet with this exact filename is already loaded. Record it so we can tell the
           // operator, instead of silently doing nothing (which reads as "the import is broken").
           alreadyLoaded.push(file.name);
         } else {
+          uploadsInFlight.add(key);
+          claimedKey = key;
           // Re-upload guard (spec §5.2): finished sheets are not in the array any more, so ask
           // Firestore before saving — re-dropping one must never overwrite it. A FAILED read is
           // not "not found": block this file and say so (the rest of the drop still loads).
@@ -264,6 +271,7 @@ function handleFiles(fileList, isFirstLoad) {
         console.warn('Upload of', file.name, 'failed:', err);
         unchecked.push(file.name);
       } finally {
+        if (claimedKey) uploadsInFlight.delete(claimedKey);
         loadedCount++;
         if (loadedCount === htmlFiles.length) {
           try { await finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, unchecked, savedByJob }); }
@@ -297,11 +305,13 @@ async function finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, u
   // Every new job gets its jobs/ doc (createdAt/createdBy only if missing) whatever the owner
   // switches say — operator-writable, spec §5.3.
   const jobNames = [...savedByJob.keys()];
-  for (const jobName of jobNames) await Storage.upsertJob(noteKey(jobName), jobName, currentUserEmail());
+  for (const jobName of jobNames) await Storage.upsertJobForUpload(noteKey(jobName), jobName, currentUserEmail());
 
   // Owners with the switch on: job details for every NEW job in this drop, one form at a time.
   // Jobs that already have details (adding more sheets) get no step (spec §7.1).
-  if (jobNames.length && Features.on('jobDetails')) {
+  // Skipped when jobBilling was not read successfully: the step would otherwise re-appear for a job
+  // that already has details and confirming would overwrite its labor lines / ready state.
+  if (jobNames.length && Features.on('jobDetails') && OwnerStore.loaded('jobBilling')) {
     await JobDetails.promptForNewJobs(
       jobNames,
       jobName => sheets.filter(s => projectKey(s) === jobName).sort(compareSheets),
