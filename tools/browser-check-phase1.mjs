@@ -3,17 +3,16 @@
 //   node tools/browser-check-phase1.mjs
 // Prints PASS:/FAIL: lines and SUITE: PASS|FAIL; exits 1 on any FAIL or thrown error.
 import { createRequire } from 'node:module';
-import { mkdtempSync, cpSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, cpSync, writeFileSync, rmSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import http from 'node:http';
 
 const require = createRequire('C:/Users/Golden Boys/Documents/Agemtic Workflows/HQ/package.json');
 const { chromium } = require('playwright');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = 5058;
+let BASE = '';   // set once the in-process server is listening on an ephemeral port
 let failed = false;
 const assert = (c, m) => { console.log((c ? 'PASS: ' : 'FAIL: ') + m); if (!c) failed = true; };
 
@@ -21,23 +20,36 @@ const dst = mkdtempSync(join(tmpdir(), 'cnc-p1-'));
 for (const f of ['index.html', 'css', 'js', 'assets', 'package.json']) cpSync(join(ROOT, f), join(dst, f), { recursive: true });
 const sample = readdirSync(ROOT).find(f => /^260520_.*\.html$/.test(f));
 cpSync(join(ROOT, sample), join(dst, sample));
-// PASTE mode: BOTH configs are overwritten in the COPY before anything is served.
+// A second sheet under another name (parses as Sheet 10 → different fileKey) for the mixed-drop case.
+const sample2 = sample.replace(/Sheet 9\.html$/, 'Sheet 10.html');
+cpSync(join(ROOT, sample), join(dst, sample2));
+// PASTE mode: BOTH configs are overwritten in the COPY, fully written before the server listens.
 writeFileSync(join(dst, 'js/firebase-config.js'), "const FIREBASE_CONFIG = { apiKey: 'x', authDomain: 'x', projectId: 'PASTE_DISABLED', appId: 'x' };\n");
 writeFileSync(join(dst, 'js/endpoint-config.js'), "const ENDPOINT_CONFIG = { url: 'PASTE_URL', token: 'x' };\n");
 
-const server = spawn('npx', ['serve', '.', '-l', String(PORT), '--no-clipboard'], { cwd: dst, shell: true, stdio: 'ignore' });
+// In-process static server: serves ONLY the temp copy, port 0 = ephemeral. No child process to
+// orphan and no fixed port a stale server could be holding.
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon' };
+const dstRoot = resolve(dst);
+const server = http.createServer((req, res) => {
+  try {
+    let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (rel.endsWith('/')) rel += 'index.html';
+    const file = resolve(dstRoot, '.' + sep + rel.replace(/^[/\\]+/, ''));
+    if (file !== dstRoot && !file.startsWith(dstRoot + sep)) { res.writeHead(404); res.end('not found'); return; }
+    if (!statSync(file).isFile()) throw new Error('not a file');
+    res.writeHead(200, { 'Content-Type': MIME[extname(file).toLowerCase()] || 'application/octet-stream' });
+    res.end(readFileSync(file));
+  } catch { res.writeHead(404); res.end('not found'); }
+});
+
 let browser;
 let dialogs = [];
 
 async function main() {
-  await new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    (function poll() {
-      const s = net.connect(PORT, '127.0.0.1');
-      s.once('connect', () => { s.end(); resolve(); });
-      s.once('error', () => { if (Date.now() - t0 > 20000) reject(new Error('serve did not start')); else setTimeout(poll, 250); });
-    })();
-  });
+  await new Promise((ok, bad) => { server.once('error', bad); server.listen(0, '127.0.0.1', ok); });
+  BASE = `http://127.0.0.1:${server.address().port}/`;
+  console.log('serving the temp copy at ' + BASE);
 
   browser = await chromium.launch();
   async function fresh() {
@@ -45,7 +57,7 @@ async function main() {
     page.on('dialog', d => { dialogs.push(d.type() + ':' + d.message()); d.accept(); });
     page.on('pageerror', e => { console.log('FAIL: uncaught page error: ' + e.message); failed = true; });
     await page.addInitScript(() => { window.print = () => {}; });
-    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#upload-screen:not([hidden])', { timeout: 10000 });
     return page;
   }
@@ -116,6 +128,7 @@ async function main() {
   await page.waitForTimeout(300);
   assert(await page.$eval('#customer-picker-overlay', el => el.classList.contains('hidden')), 'owner-tagged job: export asks NO customer question');
   assert(!dialogs.some(d => d.startsWith('confirm:')), 'owner-tagged job: no delete prompt');
+  assert(await page.isVisible('#projects-screen') && await page.evaluate(() => sheets.length === 0), 'owner (jobCard on): after export the board is empty and the owner lands on Projects');
   await page.close();
 
   // ── Re-upload guard ──
@@ -136,14 +149,31 @@ async function main() {
   assert(await page.evaluate(() => sheets.length === 0), 'guard: failed lookup saved nothing');
   await page.close();
 
-  // Guard: same file dropped twice while in flight saves once
+  // Guard: same file dropped twice while in flight saves once, and says so
   page = await fresh();
   await page.evaluate(() => { Storage.getSheetDoc = () => new Promise(r => setTimeout(() => r(null), 400)); });
-  await page.setInputFiles('#file-input', join(dst, sample));
-  await page.setInputFiles('#file-input', join(dst, sample));
+  await page.setInputFiles('#file-input', [join(dst, sample), join(dst, sample)]);
   await page.waitForSelector('#projects-screen:not([hidden])', { timeout: 10000 });
-  await page.waitForTimeout(900);
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 5000 });
   assert(await page.evaluate(() => sheets.length === 1), 'guard: same file dropped twice while in flight saves once');
+  assert(/already loaded/.test(await page.textContent('#notice-modal-text')), 'guard: the duplicate gets the "already loaded" notice');
+  await page.close();
+
+  // Guard: a finished file in a mixed drop blocks only itself; the other file still loads
+  page = await fresh();
+  await page.evaluate((finishedName) => {
+    window.__saved = [];
+    window.__finishedKey = simpleHash(finishedName);
+    Storage.getSheetDoc = async (k) => k === window.__finishedKey ? { finished: true, finishedAt: Date.now(), jobName: 'Old Job' } : null;
+    const realSave = Storage.saveSheet;
+    Storage.saveSheet = async (sh) => { window.__saved.push(sh.fileKey); return realSave(sh); };
+  }, sample);
+  await page.setInputFiles('#file-input', [join(dst, sample), join(dst, sample2)]);
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 10000 });
+  assert(/already cut and finished/.test(await page.textContent('#notice-modal-text')), 'mixed drop: the finished notice appears');
+  const mixed = await page.evaluate(() => ({ files: sheets.map(s => s.fileName), saved: window.__saved, finishedKey: window.__finishedKey }));
+  assert(mixed.files.length === 1 && mixed.files[0] === sample2, 'mixed drop: exactly one sheet loaded and it is the second file');
+  assert(mixed.saved.length === 1 && !mixed.saved.includes(mixed.finishedKey), 'mixed drop: saveSheet was never called with the finished key');
   await page.close();
 
   // ── Owner panel on the job card (jobCard switch on) ──
@@ -171,12 +201,31 @@ async function main() {
   assert(await page.$eval('#owner-panel [data-action="done"]', b => !b.disabled), 'panel: Done enabled after a labor line');
   const typeOptions = await page.$$eval('#owner-panel [data-line-type] option', os => os.map(o => o.textContent));
   assert(typeOptions.some(t => /Design — \$150\/hr \(min 1 h\)/.test(t)) && typeOptions.some(t => /CAM — \$85\/hr \(min 0.5 h\)/.test(t)), 'panel: labor types come from the seeded settings doc');
+  // Owner data did not load (jobBilling): every write control is disabled and the notice shows.
+  await page.evaluate(() => { window.__realLoaded = OwnerStore.loaded; OwnerStore.loaded = (n) => n === 'jobBilling' ? false : window.__realLoaded(n); rerenderCurrent(); });
+  const writeOff = await page.evaluate(() => ['[data-action="edit"]', '[data-action="done"]', '[data-action="line-add"]', '[data-line-hours]', '[data-line-note]', '[data-line-type]', '[data-action="nodesign"]']
+    .map(sel => { const el = document.querySelector('#owner-panel ' + sel); return !!el && el.disabled; }));
+  assert(writeOff.every(v => v === true), 'panel: jobBilling not loaded -> every write control is disabled');
+  assert((await page.textContent('#owner-panel')).includes("Owner data didn't load — reload the page."), 'panel: shows "Owner data didn\'t load — reload the page."');
+  await page.evaluate(() => { OwnerStore.loaded = window.__realLoaded; rerenderCurrent(); });
   await page.click('#owner-panel [data-action="done"]');
   await page.waitForTimeout(200);
   assert(/Ready for billing ✓/.test(await page.textContent('#owner-panel')), 'panel: Done marks the job ready');
   await page.setViewportSize({ width: 320, height: 700 });
   await page.waitForTimeout(200);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= 320), 'panel: no horizontal scroll at 320px');
+  await page.close();
+
+  // ── Put-back sheet whose drawing was cleared shows the archive note ──
+  page = await fresh();
+  await upload(page);
+  await setOwner(page, jobCardOn);
+  await page.evaluate(() => { const s = sheets[0]; s.layoutSvg = ''; s.layoutSvgGz = null; s.layoutOversize = false; s.archiveUrl = 'https://example.invalid/archived-sheet'; s.finishedAt = Date.now(); rerenderCurrent(); });
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.waitForSelector('.layout-svg-oversize', { timeout: 5000 });
+  assert(/Layout preview is not stored here\./.test(await page.textContent('.layout-svg-oversize')), 'put-back: cleared drawing shows "Layout preview is not stored here."');
+  assert(await page.isVisible('.layout-svg-oversize a'), 'put-back: the note links to the archived sheet');
   await page.close();
 
   // ── Settings screen ──
@@ -208,9 +257,9 @@ try {
   console.log('FAIL: script error: ' + ((e && e.stack) || e));
   failed = true;
 } finally {
-  try { if (browser) await browser.close(); } catch {}
-  server.kill();
-  try { rmSync(dst, { recursive: true, force: true }); } catch {}
+  try { if (browser) await browser.close(); } catch (e) { console.log('WARN: browser close: ' + e.message); }
+  try { server.closeAllConnections?.(); if (server.listening) await new Promise(r => server.close(r)); } catch (e) { console.log('WARN: server close: ' + e.message); }
+  try { rmSync(dst, { recursive: true, force: true }); } catch (e) { console.log('WARN: could not remove temp dir ' + dst + ': ' + e.message); }
   console.log(failed ? 'SUITE: FAIL' : 'SUITE: PASS');
   process.exit(failed ? 1 : 0);
 }
