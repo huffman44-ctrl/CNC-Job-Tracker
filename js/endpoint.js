@@ -1,5 +1,5 @@
 /**
- * Thin client for the Apps Script endpoint (apps-script/logging-endpoint.gs).
+ * Thin client for the Apps Script endpoint (apps-script/logging-endpoint.gs): archive on upload, append (legacy) / upsert (Phase 1) log rows on export, order lookup, packing PDFs, print-queue documents.
  * Content-Type must stay text/plain — anything else triggers a CORS
  * preflight that Apps Script web apps cannot answer.
  */
@@ -45,6 +45,15 @@ const Endpoint = (() => {
     return true;
   }
 
+  // Master Job Log, ONE object per sheet, upserted by Sheet Key (spec §6.2) — exporting the
+  // same job twice updates the same rows. Carries the Firebase ID token: the script verifies
+  // it before writing (closes the 2026-08-18 gap for the log write path). Billing columns
+  // (invoice/po/billed) are accepted by the script only from an owner uid.
+  async function upsertLogRows(rows, idToken) {
+    if (!enabled()) return { ok: true, updated: 0, appended: 0, claimed: 0, offline: true };
+    return post({ action: 'upsertRows', rows, idToken });
+  }
+
   async function lookupOrder(orderNum, idToken) {
     if (!enabled()) return null;
     const data = await post({ action: 'lookupOrder', orderNum, idToken });
@@ -71,5 +80,5 @@ const Endpoint = (() => {
     return data.pdfBase64;
   }
 
-  return { enabled, archiveSheet, appendLogRows, lookupOrder, getPackingPdf, uploadDoc, getDoc, DOC_TIMEOUT_MS };
+  return { enabled, archiveSheet, appendLogRows, upsertLogRows, lookupOrder, getPackingPdf, uploadDoc, getDoc, DOC_TIMEOUT_MS };
 })();
