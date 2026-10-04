@@ -2270,10 +2270,7 @@ function escHtml(s) {
 }
 
 function formatDT(date) {
-  return date.toLocaleString(undefined, {
-    month:'short', day:'numeric', year:'numeric',
-    hour:'numeric', minute:'2-digit',
-  });
+  return LogRows.formatCompletedTime(date);
 }
 
 function localIso(date) {
