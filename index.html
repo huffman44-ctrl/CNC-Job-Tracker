@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=23">
+  <link rel="stylesheet" href="css/style.css?v=24">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -91,6 +91,7 @@
         <button class="btn btn-ghost btn-sm" id="print-queue-btn">To Print</button>
         <button class="btn btn-ghost btn-sm" id="ticket-history-btn">Ticket History</button>
         <button class="btn btn-ghost btn-sm" id="manage-customers-btn">Manage Customers</button>
+        <button class="btn btn-ghost btn-sm" id="settings-btn" hidden>Settings</button>
         <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
       </div>
     </header>
@@ -210,6 +211,57 @@
         <button class="btn btn-primary btn-sm" id="customers-add-btn">+ Add</button>
       </div>
       <div id="customers-list" class="ticket-history-list"></div>
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════
+       SETTINGS SCREEN (owners only — Collin's account cannot read settings/*)
+  ══════════════════════════════════ -->
+  <div id="settings-screen" hidden>
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn btn-ghost btn-sm" id="settings-back-btn">← Projects</button>
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span class="header-file-title">Settings</span>
+          <span class="header-job-name">Owners only</span>
+        </div>
+      </div>
+    </header>
+    <main class="content-main">
+      <p id="settings-status" class="vanlab-status" hidden></p>
+
+      <section class="settings-card">
+        <h2 class="settings-card-title">Screens on/off</h2>
+        <p class="settings-card-hint">A switch shows or hides that screen for that owner on the next render. It never changes data and never affects Collin — his account cannot read this page at all. Settings stays on for at least one owner.</p>
+        <div id="settings-screens-grid" class="settings-grid"></div>
+        <div class="settings-add-owner">
+          <input type="email" id="settings-add-owner-email" class="form-input" placeholder="Another owner's sign-in email…" autocomplete="off">
+          <button type="button" class="btn btn-outline btn-sm" id="settings-add-owner-btn">Add column</button>
+        </div>
+        <p class="settings-card-hint">The column appears for this session; it is remembered once any switch is ticked for it. The account itself is created in the Firebase console and added to the Firestore rules by hand.</p>
+      </section>
+
+      <section class="settings-card">
+        <h2 class="settings-card-title">Customers (billing)</h2>
+        <p class="settings-card-hint">From Manage Customers. <strong>Billed outside this app</strong> keeps a customer's sheets out of Billing (VanLab until its own build; Golden Boys' in-house work). Sheets are still recorded, finished and logged.</p>
+        <div id="settings-customers-list" class="settings-list"></div>
+      </section>
+
+      <section class="settings-card">
+        <h2 class="settings-card-title">Maintenance</h2>
+        <div class="settings-row">
+          <div>
+            <strong>Mark existing sheets as on the board</strong>
+            <div id="settings-migration-status" class="settings-card-hint"></div>
+            <div class="settings-card-hint">Run this when no one is exporting a job.</div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="settings-migrate-btn">Run</button>
+        </div>
+      </section>
+
+      <p class="settings-card-hint">Prices, labor types, QuickBooks items, materials and the invoice seed arrive with Phase 2.</p>
     </main>
   </div>
 
@@ -474,6 +526,7 @@
   <script src="js/storage.js?v=16"></script>
   <script src="js/storage-owner.js?v=1"></script>
   <script src="js/features.js?v=1"></script>
+  <script src="js/settings.js?v=1"></script>
   <script src="js/parser.js?v=7"></script>
   <script src="js/pricing.js?v=1"></script>
   <script src="js/log-rows.js?v=1"></script>
@@ -492,6 +545,6 @@
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=34"></script>
+  <script src="js/app.js?v=35"></script>
 </body>
 </html>

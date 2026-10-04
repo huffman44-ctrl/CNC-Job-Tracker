@@ -1855,3 +1855,19 @@ body {
   .print-queue-panel { padding: 10px 12px 12px; }
   .pq-row-actions { width: 100%; }
 }
+
+/* ── Settings screen (owners) ── */
+.settings-card { background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+.settings-card-title { font-size: 1.05rem; font-weight: 800; margin: 0 0 6px; }
+.settings-card-hint { font-size: 0.8rem; color: var(--gray-500); margin: 4px 0 10px; }
+.settings-grid { display: grid; gap: 6px 14px; align-items: center; font-size: 0.9rem; }
+.settings-grid .settings-grid-head { font-size: 0.75rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.04em; }
+.settings-grid label { display: flex; justify-content: center; }
+.settings-add-owner { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.settings-add-owner .form-input { max-width: 320px; }
+.settings-list { display: flex; flex-direction: column; gap: 6px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--gray-200); }
+.settings-row:first-of-type { border-top: 0; }
+.settings-row label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; }
+.settings-status--error { color: var(--red); }
+@media (max-width: 480px) { .settings-card { padding: 12px; } }

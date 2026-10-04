@@ -56,6 +56,7 @@ const projectsScreen      = document.getElementById('projects-screen');
 const contentScreen       = document.getElementById('content-screen');
 const ticketHistoryScreen = document.getElementById('ticket-history-screen');
 const customersScreen     = document.getElementById('customers-screen');
+const settingsScreen      = document.getElementById('settings-screen');
 
 const loginForm     = document.getElementById('login-form');
 const loginEmail    = document.getElementById('login-email');
@@ -281,11 +282,17 @@ function hideSaveBanner()    { saveBannerEl.hidden = true; }
 /* ══════════════════════════════════════════
    Screen Navigation
 ══════════════════════════════════════════ */
-function showProjectsScreen() {
+function hideAllScreens() {
   uploadScreen.hidden        = true;
   contentScreen.hidden       = true;
   ticketHistoryScreen.hidden = true;
   customersScreen.hidden     = true;
+  settingsScreen.hidden      = true;
+  projectsScreen.hidden      = true;
+}
+
+function showProjectsScreen() {
+  hideAllScreens();
   projectsScreen.hidden      = false;
   renderProjects();
   renderPrintQueue();
@@ -298,6 +305,7 @@ function showLoginScreen() {
   contentScreen.hidden       = true;
   ticketHistoryScreen.hidden = true;
   customersScreen.hidden     = true;
+  settingsScreen.hidden      = true;
   authBar.hidden              = true;
   loginError.hidden           = true;
   loginForm.reset();
@@ -337,6 +345,7 @@ async function showTicketHistoryScreen() {
   projectsScreen.hidden      = true;
   contentScreen.hidden       = true;
   ticketHistoryScreen.hidden = false;
+  settingsScreen.hidden      = true;
   document.getElementById('ticket-history-search').value = '';
   const loaded = await Storage.loadTicketHistory();
   ticketHistoryLoadFailed = loaded === null;
@@ -394,6 +403,7 @@ function showManageCustomersScreen() {
   contentScreen.hidden       = true;
   ticketHistoryScreen.hidden = true;
   customersScreen.hidden     = false;
+  settingsScreen.hidden      = true;
   document.getElementById('customers-add-input').value = '';
   renderCustomersList();
 }
@@ -2261,6 +2271,36 @@ document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => r.addEventLi
 pqDocSendBtn.addEventListener('click', pqDocSend);
 
 /* ══════════════════════════════════════════
+   Owner screens - switches, Settings (customer billing redesign, Phase 1)
+   Spec: docs/superpowers/specs/2026-10-04-customer-billing-phase-1-2-design.md
+   app.js only gains the hooks to open them; each screen lives in its own file.
+══════════════════════════════════════════ */
+// PASTE-mode guard (same as pqSend): firebase.auth() throws if no app was initialised.
+function currentUserEmail() {
+  const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
+  const user = app ? app.auth().currentUser : null;
+  return user ? (user.email || '') : '';
+}
+
+// Nav buttons exist only when the switch for THIS owner is on. For Collin, Features.on() is
+// always false, so this is a no-op that leaves the header exactly as today.
+function applyFeatureNav() {
+  document.getElementById('settings-btn').hidden = !Features.on('settings');
+  if (!Features.on('settings') && !settingsScreen.hidden) showProjectsScreen();
+}
+
+// Re-paint whatever is on screen after owner data or a switch changes.
+function rerenderCurrent() {
+  if (!projectsScreen.hidden) renderProjects();
+  if (!contentScreen.hidden)  showContentScreen();
+  if (!settingsScreen.hidden) SettingsScreen.render();
+}
+
+SettingsScreen.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen, currentEmail: currentUserEmail });
+document.getElementById('settings-btn').addEventListener('click', () => SettingsScreen.show());
+Features.onChange(() => { applyFeatureNav(); rerenderCurrent(); });
+
+/* ══════════════════════════════════════════
    Helpers
 ══════════════════════════════════════════ */
 function escHtml(s) {
@@ -2284,6 +2324,8 @@ function localIso(date) {
 let dataLoaded = false;
 
 async function loadDataAndShowApp() {
+  // Must come first: it decides whether loadSheets()/onSheetsChange use the finished filter.
+  await Storage.loadMigrationState();
   const [storedSheets] = await Promise.all([
     Storage.loadSheets(),
     Storage.loadCompletions(),
@@ -2356,6 +2398,25 @@ async function loadDataAndShowApp() {
   loadingScreen.classList.add('hidden');
 }
 
+// Owner state first: Features decides whether OwnerStore is even asked (Collin's read of
+// settings/features is denied by the rules -> operator -> nothing else is loaded).
+// Any failure = operator view (all owner screens off); the app must never stick on the loader.
+async function loadOwnerStateThen(db, email) {
+  try {
+    await Features.load(db, email);
+    if (Features.isOwner()) {
+      OwnerStore.init(db);
+      await OwnerStore.loadAll();
+      OwnerStore.onChange(rerenderCurrent);
+    }
+    applyFeatureNav();
+  } catch (err) {
+    console.warn('Owner state failed to load - continuing as operator:', err);
+    try { Features._setForTests(null, ''); } catch (e) { /* ignore */ }   // drop any half-loaded owner state
+    try { applyFeatureNav(); } catch (e) { /* ignore */ }
+  }
+}
+
 async function initApp() {
   try {
     const configured = typeof FIREBASE_CONFIG !== 'undefined'
@@ -2378,14 +2439,13 @@ async function initApp() {
       loginScreen.hidden = true;
       if (!dataLoaded) {
         dataLoaded = true;
-        loadDataAndShowApp();
+        loadOwnerStateThen(db, user.email).then(loadDataAndShowApp);
       } else {
-        // Signing back in mid-session (e.g. Travis -> Collin switch on a
-        // shared PC) - data + listeners are already live from the first
-        // sign-in, just get back to a sane screen instead of re-registering
-        // duplicate Firestore listeners.
-        loadingScreen.classList.add('hidden');
-        showProjectsScreen();
+        // Signing back in after the session was lost (user went null, login
+        // screen shown). A DIFFERENT account may be signing in, and Features /
+        // OwnerStore / caches hold the previous account's owner state - reload
+        // so everything starts clean (Firebase persists the new session).
+        location.reload();
       }
     });
 
