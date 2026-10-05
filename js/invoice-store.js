@@ -235,14 +235,14 @@ const InvoiceStore = (() => {
   const cache = {};                 // number(string) -> invoice doc
   const listeners = [];
   const unsubs = [];
-  let loadedFlag = false;
+  const loadedFlags = { one: false, recent: false, prog: false };   // all three must be true
   const nowMs = () => Date.now();
   const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)));
 
   function init(firestore, d) { db = firestore || null; deps = d || {}; }
   function onChange(cb) { listeners.push(cb); }
   function emit() { listeners.forEach(cb => { try { cb(); } catch (e) { console.warn('InvoiceStore listener threw:', e); } }); }
-  const loaded = () => !db || loadedFlag;
+  const loaded = () => !db || (loadedFlags.one && loadedFlags.recent && loadedFlags.prog);
   const putCache = doc => { cache[String(doc.number)] = clone(doc); };
   const hasDatabase = () => (deps.hasDatabase ? !!deps.hasDatabase() : !!db);
 
@@ -252,7 +252,7 @@ const InvoiceStore = (() => {
   }
 
   async function loadAll() {
-    if (!db) { loadedFlag = true; return true; }
+    if (!db) { loadedFlags.one = loadedFlags.recent = loadedFlags.prog = true; return true; }
     unsubs.splice(0).forEach(u => { try { u(); } catch (e) { /* ignore */ } });
     let ok = false;
     try {
@@ -260,11 +260,19 @@ const InvoiceStore = (() => {
       absorb(snap);
       ok = !(snap.metadata && snap.metadata.fromCache);
     } catch (e) { console.warn('InvoiceStore load failed:', e); }
-    loadedFlag = ok;
+    loadedFlags.one = ok; loadedFlags.recent = false; loadedFlags.prog = false;
     const onErr = e => console.warn('InvoiceStore listener error:', e);
-    const onSnap = snap => { loadedFlag = !(snap.metadata && snap.metadata.fromCache); absorb(snap); };
-    unsubs.push(db.collection('invoices').orderBy('number', 'desc').limit(40).onSnapshot(onSnap, onErr));
-    unsubs.push(db.collection('invoices').where('status', '==', 'in-progress').onSnapshot(onSnap, onErr));
+    const flagOf = snap => !(snap.metadata && snap.metadata.fromCache);
+    unsubs.push(db.collection('invoices').orderBy('number', 'desc').limit(40).onSnapshot(snap => { loadedFlags.recent = flagOf(snap); absorb(snap); }, onErr));
+    unsubs.push(db.collection('invoices').where('status', '==', 'in-progress').onSnapshot(snap => {
+      loadedFlags.prog = flagOf(snap);
+      absorb(snap);
+      // A cached in-progress invoice that left this query (another owner imported/cancelled it) is re-read.
+      const ids = new Set(); snap.forEach(d => ids.add(d.id));
+      all().filter(i => i.status === 'in-progress' && !ids.has(String(i.number))).forEach(i => {
+        db.collection('invoices').doc(String(i.number)).get().then(s => { if (s.exists) { putCache(s.data()); emit(); } }).catch(onErr);
+      });
+    }, onErr));
     emit();
     return ok;
   }
@@ -283,7 +291,8 @@ const InvoiceStore = (() => {
     const s = String(n == null ? '' : n).trim();
     if (!/^[1-9]\d*$/.test(s)) return { state: 'invalid' };
     let inv;
-    if (db) { const snap = await db.collection('invoices').doc(s).get(); inv = snap.exists ? snap.data() : null; }
+    // 'unknown' = the answer came from the offline cache, so the number could not be checked.
+    if (db) { const snap = await db.collection('invoices').doc(s).get(); if (snap.metadata && snap.metadata.fromCache) return { state: 'unknown' }; inv = snap.exists ? snap.data() : null; }
     else inv = get(s);
     if (!inv) return { state: 'free' };
     return inv.status === 'cancelled' ? { state: 'cancelled', invoice: inv } : { state: 'used', invoice: inv };
@@ -337,10 +346,12 @@ const InvoiceStore = (() => {
   }
 
   function afterCommit(plan) {
+    const owner = [];
     for (const wr of plan.writes) {
       if (wr.col === 'invoices') putCache(wr.doc);
-      else OS()._putLocal(wr.col, wr.id, clone(wr.doc));   // immediate screen update
+      else owner.push({ name: wr.col, id: wr.id, doc: clone(wr.doc) });
     }
+    OS()._putLocalMany(owner);   // immediate screen update, one emit
     emit();
   }
 
@@ -361,24 +372,33 @@ const InvoiceStore = (() => {
     return plan.invoice;
   }
 
-  const lockAndCreate = (draft, by) => execute(gatherLock, planLock, { draft, by });
+  const lockAndCreate = async (draft, by) => {
+    const n = Number(draft && draft.number);
+    if (!draft || !draft.customerKey || !Number.isInteger(n) || n <= 0) throw refuse('bad-draft', 'The invoice draft needs a customer and a whole invoice number above zero.');
+    return execute(gatherLock, planLock, { draft, by });
+  };
   const cancel = (number, by) => execute(gatherStored, planCancel, { number, by });
 
-  async function markImported(number, by) {
-    const inv = await execute(gatherStored, planImport, { number, by });
-    return writeBack(inv.number, by);
+  // The money change has committed; a failure of the log update must not look like a failed import.
+  async function finishLog(inv, by) {
+    try { return await writeBack(inv.number, by, inv); }
+    catch (e) {
+      const next = { ...inv, logWritten: false, logError: String((e && e.message) || e || 'Master Job Log update failed') };
+      putCache(next); emit();   // local only, so Retry log update shows
+      return next;
+    }
   }
-  async function addPo(number, po, by) {
-    const inv = await execute(gatherStored, planAddPo, { number, po, by });
-    return writeBack(inv.number, by);
-  }
+  async function markImported(number, by) { return finishLog(await execute(gatherStored, planImport, { number, by }), by); }
+  async function addPo(number, po, by) { return finishLog(await execute(gatherStored, planAddPo, { number, po, by }), by); }
 
   // Master Job Log write-back. Never changes money state: the invoice stays imported either way.
   // Only logWritten/logError/logWrittenAt/updatedAt/updatedBy change (rules hasOnly).
-  async function writeBack(number, by) {
+  // `committed` = the invoice just written by markImported/addPo (rows are built from it). Retry passes nothing
+  // and reads the stored invoice from the server (db) or the cache (no db).
+  async function writeBack(number, by, committed) {
     number = Number(number);
-    let cur;
-    if (db) { const s = await db.collection('invoices').doc(String(number)).get(); cur = s.exists ? s.data() : null; }
+    let cur = committed || null;
+    if (cur) { /* use as given */ } else if (db) { const s = await db.collection('invoices').doc(String(number)).get(); cur = s.exists ? s.data() : null; }
     else cur = get(number);
     if (!cur) throw refuse('state', `Invoice ${number} was not found.`);
     if (cur.status !== 'imported') throw refuse('state', `Invoice ${number} is ${cur.status}, not imported.`);
@@ -416,7 +436,7 @@ const InvoiceStore = (() => {
 
   function _resetForTests() {
     Object.keys(cache).forEach(k => delete cache[k]);
-    listeners.length = 0; unsubs.splice(0).forEach(u => u()); db = null; deps = {}; loadedFlag = false;
+    listeners.length = 0; unsubs.splice(0).forEach(u => u()); db = null; deps = {}; loadedFlags.one = loadedFlags.recent = loadedFlags.prog = false;
   }
 
   return {

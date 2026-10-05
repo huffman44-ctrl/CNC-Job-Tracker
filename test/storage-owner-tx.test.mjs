@@ -269,3 +269,11 @@ test('priceListFor returns null for a partial or non-numeric list', async () => 
   await OwnerStore.setSetting('pricing', { lists: { standard: full } }, 'a');
   assert.deepEqual(OwnerStore.priceListFor('c'), full);
 });
+
+test('_putLocalMany writes several cache docs with one emit', () => {
+  fresh(makeDb());
+  let n = 0; OwnerStore.onChange(() => n++);
+  OwnerStore._putLocalMany([{ name: 'sheetBilling', id: 'a', doc: { status: 'billed' } }, { name: 'jobBilling', id: 'b', doc: { x: 1 } }]);
+  assert.equal(OwnerStore.getSheetBilling('a').status, 'billed'); assert.equal(OwnerStore.getJobBilling('b').x, 1);
+  assert.equal(n, 1);
+});

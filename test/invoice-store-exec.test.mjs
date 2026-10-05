@@ -205,3 +205,41 @@ test('no-db mode: lock, import, cancel against the caches', async () => {
   assert.equal(OwnerStore.getSheetBilling('s1').status, 'unbilled');
   assert.equal(OwnerStore.getCustomerBilling('cust_nl').openInvoice, null);
 });
+
+test('truly concurrent locks on one sheet: one winner, one sheet-taken, one invoice doc', async () => {
+  const db = setup();
+  db._seed('customerBilling', 'cust_b', customerDoc());
+  const base = draft();
+  const mk = (number, customerKey) => draft({ number, customerKey, sheetKeys: ['s1'], laborLineRefs: [], perSheet: { s1: base.perSheet.s1 }, fingerprint: { sheets: { s1: base.fingerprint.sheets.s1 }, jobs: { proj_a: { ...base.fingerprint.jobs.proj_a, labor: {} } } } });
+  const res = await Promise.allSettled([InvoiceStore.lockAndCreate(mk(3598, 'cust_nl'), BY), InvoiceStore.lockAndCreate(mk(3599, 'cust_b'), BY)]);
+  const won = res.filter(r => r.status === 'fulfilled'), lost = res.filter(r => r.status === 'rejected');
+  assert.equal(won.length, 1); assert.equal(lost.length, 1); assert.equal(lost[0].reason.code, 'sheet-taken');
+  assert.deepEqual(Object.keys(db._data.invoices), [String(won[0].value.number)]);
+  assert.equal(dataOf(db, 'sheetBilling', 's1').invoiceNumber, won[0].value.number);
+});
+
+test('import still resolves when the log write-back write itself is rejected', async () => {
+  const db = setup();
+  await InvoiceStore.lockAndCreate(draft(), BY);
+  upsertImpl = async () => { db._hooks.failWrites = col => col === 'invoices'; return { ok: true }; };
+  const inv = await InvoiceStore.markImported(3598, BY);
+  assert.equal(inv.status, 'imported'); assert.equal(inv.logWritten, false); assert.match(inv.logError, /permission-denied/);
+  assert.equal(dataOf(db, 'sheetBilling', 's1').status, 'billed');
+  assert.equal(InvoiceStore.get(3598).status, 'imported'); assert.equal(InvoiceStore.get(3598).logWritten, false);
+});
+
+test('lock refuses a draft without a customer or a valid number before reading anything', async () => {
+  setup();
+  await rejectsWith(InvoiceStore.lockAndCreate(draft({ customerKey: '' }), BY), 'bad-draft');
+  await rejectsWith(InvoiceStore.lockAndCreate(draft({ number: 'abc' }), BY), 'bad-draft');
+});
+
+test('an in-progress invoice another owner imported leaves inProgress()', async () => {
+  const db = setup();
+  db._seed('invoices', '3598', { number: 3598, status: 'in-progress', customerName: 'X', sheetKeys: [] });
+  await InvoiceStore.loadAll();
+  assert.equal(InvoiceStore.inProgress().length, 1);
+  await db.collection('invoices').doc('3598').set({ number: 3598, status: 'imported', customerName: 'X', sheetKeys: [] });
+  await new Promise(r => setTimeout(r, 5));
+  assert.equal(InvoiceStore.inProgress().length, 0);
+});
