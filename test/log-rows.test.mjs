@@ -61,3 +61,16 @@ test('formatCompletedTime tolerates garbage', () => {
   assert.equal(LogRows.formatCompletedTime(''), '');
   assert.equal(LogRows.formatCompletedTime('not a date'), '');
 });
+
+test('withBilling: copies invoice/po/billed as strings, skips null/undefined/empty, never mutates', () => {
+  const base = LogRows.build(sheet, completion, 'Northlight Studios');
+  const frozen = JSON.parse(JSON.stringify(base));
+  const full = LogRows.withBilling(base, { invoiceNumber: 3598, poNumber: 'PO-77', billed: 'Y' });
+  assert.equal(full.invoice, '3598'); assert.equal(full.po, 'PO-77'); assert.equal(full.billed, 'Y');
+  assert.deepEqual(base, frozen, 'input row untouched');
+  assert.notEqual(full, base);
+  const skipped = LogRows.withBilling(base, { invoiceNumber: 3598, poNumber: '', billed: null });
+  assert.equal(skipped.invoice, '3598');
+  assert.ok(!('po' in skipped) && !('billed' in skipped), 'an empty PO never blanks column L');
+  assert.deepEqual(LogRows.withBilling(base, { invoiceNumber: undefined, poNumber: undefined }), base);
+});

@@ -43,7 +43,19 @@ const LogRows = (() => {
     return row;
   }
 
-  return { COLUMNS, build, formatCompletedTime };
+  // A copy of `row` with K/L/N set from billing. A key is copied only when its value is not
+  // null/undefined/'' — an empty PO must never blank column L on the log. Does not mutate `row`.
+  function withBilling(row, billing) {
+    const out = { ...row };
+    const b = billing || {};
+    const has = v => v !== null && v !== undefined && v !== '';
+    if (has(b.invoiceNumber)) out.invoice = String(b.invoiceNumber);
+    if (has(b.poNumber))      out.po      = String(b.poNumber);
+    if (has(b.billed))        out.billed  = String(b.billed);
+    return out;
+  }
+
+  return { COLUMNS, build, withBilling, formatCompletedTime };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = LogRows;
