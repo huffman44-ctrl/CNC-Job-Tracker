@@ -76,15 +76,15 @@ const BillingModel = (() => {
         const fk = s.fileKey;
         const sb = sheetBillingOf(fk) || null;
         const status = (sb && sb.status) || 'unbilled';
-        const cutDate = P.effectiveCutDate(completionOf(fk) || null, sb);
+        const comp = completionOf(fk) || null;
+        const cutDate = P.effectiveCutDate(comp, sb);
         const known = ['unbilled', 'in-progress', 'billed', 'external'];
         const toolpathCount = Array.isArray(s.toolpaths) ? s.toolpaths.length : 0;
         const sheetInput = {
           fileKey: fk, jobKey: jk, order: i + 1, sheetLabel: s.sheetTitle || s.fileName || '',
           totalTimeSec: P.parseTimeSec(s.totalTime), toolpathCount, hasVbit: P.sheetHasVbit(s), cutDate,
         };
-        const comp = completionOf(fk) || null;
-        const entry = { captured: { sheet: s, completion: comp ? { ...comp } : null, cutDateOverride: nz(sb && sb.cutDateOverride) }, fileKey: fk, jobKey: jk, sheetLabel: sheetInput.sheetLabel, cutDate, invoiceNumber: sb && sb.invoiceNumber != null ? sb.invoiceNumber : null, sheetInput };
+        const entry = { captured: { sheet: { ...s, toolpaths: Array.isArray(s.toolpaths) ? s.toolpaths.map(t => ({ ...t })) : s.toolpaths }, completion: comp ? { ...comp } : null, cutDateOverride: nz(sb && sb.cutDateOverride) }, fileKey: fk, jobKey: jk, sheetLabel: sheetInput.sheetLabel, cutDate, invoiceNumber: sb && sb.invoiceNumber != null ? sb.invoiceNumber : null, sheetInput };
         if (status === 'external') buckets.external.push(entry);
         else if (status === 'billed') buckets.billed.push({ ...entry, prior: { jobKey: jk, signature: P.signatureOf(sheetInput), order: i + 1 } });
         else if (status === 'in-progress' || !known.includes(status)) buckets.locked.push(entry);   // an unknown status is never billable

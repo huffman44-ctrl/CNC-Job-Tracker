@@ -264,22 +264,31 @@ test('integration: draft locks against the same world; a changed completedAt is 
 });
 
 /* ---- fix round 1 ---- */
-test('draft fingerprint is the priced snapshot: a completion changed after build -> changed', () => {
-  const { w, draft } = draftFor({ proj_NL_Arch: { sheets: true } });
-  w.comps.fk_NL_Arch_1.completedAt = iso(2026, 10, 2);   // live world moves on after the screen was drawn
-  const docs = {
-    invoice: null, customer: { name: NL, billedOutsideApp: false, openInvoice: null },
-    sheetBilling: Object.fromEntries(draft.sheetKeys.map(k => [k, w.input.sheetBillingOf(k)])),
-    completions: Object.fromEntries(draft.sheetKeys.map(k => [k, w.input.completionOf(k)])),
-    jobBilling: { proj_NL_Arch: w.input.jobBillingOf('proj_NL_Arch') },
+test('draft fingerprint is the priced snapshot: world changes AFTER build() -> original values, lock refuses', () => {
+  const jobs = { NL_Arch: { customer: NL, ready: true, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design' })] } };
+  const sheets = [{ job: 'NL_Arch', n: 1, sec: 720, cut: T }];
+  const run = mutate => {
+    const w = world({ jobs, sheets });
+    const c = cust(w.model, NL);
+    const sel = { proj_NL_Arch: { sheets: true } };
+    const priced = Pricing.priceInvoice(BillingModel.pricingInput(c, sel, ctx));
+    mutate(w);   // the live world moves on between render and click
+    const draft = BillingModel.buildDraft({ customer: c, selection: sel, priced, lines: [], number: 3604, invoiceDate: '2026-10-05', dueDate: null, dueTerm: 'receipt', poNumber: '', throughDate: '2026-10-03',
+      settings: { priceList: STANDARD, laborTypes: LABOR, qbItems: {} }, sheetsByKey: Object.fromEntries(w.sheetDocs.map(s => [s.fileKey, s])),
+      completionOf: w.input.completionOf, sheetBillingOf: w.input.sheetBillingOf, jobBillingOf: w.input.jobBillingOf, csv: '' });
+    const docs = { invoice: null, customer: { openInvoice: null }, sheetBilling: { fk_NL_Arch_1: w.input.sheetBillingOf('fk_NL_Arch_1') },
+      completions: { fk_NL_Arch_1: w.input.completionOf('fk_NL_Arch_1') }, jobBilling: { proj_NL_Arch: w.input.jobBillingOf('proj_NL_Arch') } };
+    return { draft, lock: () => InvoiceStore._plan.lock(docs, { draft, by: 'x@example.com', now: 1 }) };
   };
-  assert.equal(draft.fingerprint.sheets.fk_NL_Arch_1.completedAt, T);
-  assert.throws(() => InvoiceStore._plan.lock(docs, { draft, by: 'x@example.com', now: 1 }), e => e.code === 'changed');
-  // job-level change after build is caught too
-  const { w: w2, draft: d2 } = draftFor({ proj_NL_Arch: { sheets: true } });
-  w2.jobDocs.proj_NL_Arch.turnaround = 'rush24';
-  const docs2 = { invoice: null, customer: { openInvoice: null }, sheetBilling: {}, completions: {}, jobBilling: { proj_NL_Arch: w2.jobDocs.proj_NL_Arch } };
-  assert.throws(() => InvoiceStore._plan.lock(docs2, { draft: d2, by: 'x', now: 1 }), e => e.code === 'changed');
+  const a = run(w => { w.comps.fk_NL_Arch_1.completedAt = iso(2026, 10, 2); });
+  assert.equal(a.draft.fingerprint.sheets.fk_NL_Arch_1.completedAt, T, 'fingerprint keeps the priced completedAt');
+  assert.equal(a.draft.perSheet.fk_NL_Arch_1.cutAt, T);
+  assert.throws(a.lock, e => e.code === 'changed');
+  const b = run(w => { w.jobDocs.proj_NL_Arch.turnaround = 'rush24'; });
+  assert.equal(b.draft.fingerprint.jobs.proj_NL_Arch.turnaround, 'rush48');
+  assert.throws(b.lock, e => e.code === 'changed');
+  const ok = run(() => {});
+  assert.doesNotThrow(ok.lock);
 });
 
 test('unknown sheet status is locked, never eligible', () => {
