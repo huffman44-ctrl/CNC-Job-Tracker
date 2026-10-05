@@ -72,6 +72,9 @@ const byJob = new Map();
 let used = 0, skipped = 0;
 for (const f of files) {
   const text = fs.readFileSync(path.join(SRC, f), 'utf8');
+  // Accept any file with the job-export header. Orv_* staging-tab exports are DELIBERATELY included when they carry
+  // this header: they hold real cut data, duplicate the regular exports where they overlap, and the dedupe below
+  // (job + sheet title, latest Completed At) keeps one row per sheet. Files without the header are skipped.
   if (!text.replace(/^\ufeff/, '').startsWith(HEAD)) { skipped++; continue; }
   const rows = parseCsv(text); const head = rows.shift();
   const col = n => head.indexOf(n);
@@ -96,8 +99,8 @@ const fakeFor = new Map(realCustomers.map((n, i) => [n, FAKE[i % FAKE.length]]))
 const jobNames = [...byJob.keys()].sort();
 const fixtures = jobNames.map((job, i) => {
   const e = byJob.get(job);
-  const legacy = !e.has9 || e.customers.size === 0;
-  const cust = legacy ? null : fakeFor.get([...e.customers].sort()[0]);
+  const legacy = !e.has9; // true only for an 8-column export
+  const cust = e.customers.size === 0 ? null : fakeFor.get([...e.customers].sort()[0]);
   const nn = String(i + 1).padStart(2, '0');
   const sheets = [...e.rows.values()].sort((a, b) => compareSheets(a.title, b.title)).map((r, k) => ({
     order: k + 1, sheetLabel: `Sheet ${k + 1}`, totalTimeSec: r.sec, toolpathCount: r.tp, hasVbit: r.vbit, cutDate: r.cut || null }));
