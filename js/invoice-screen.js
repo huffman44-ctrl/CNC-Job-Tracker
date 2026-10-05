@@ -107,6 +107,20 @@ const InvoiceScreen = (() => {
     return { invoice, saveError };
   }
 
+  // The decision logic of the Download click, free of the DOM so it can be tested with stubs.
+  // `shown` = the total on screen when the button was clicked (captured BEFORE any repaint).
+  // Returns { kind: 'view-error'|'note'|'too-big'|'changed'|'locked', ... }; a rejected lock throws.
+  async function attemptDownload(d) {
+    const view = d.computeView();
+    if (view.error) return { kind: 'view-error', view };
+    if (view.note) return { kind: 'note', view };
+    if (view.sheetCount > MAX_SHEETS) return { kind: 'too-big', view };
+    if (view.total !== d.shown) return { kind: 'changed', view };   // never lock a total the owner has not seen
+    const draft = d.buildDraft(view);
+    const res = await lockThenSave(draft, d.by, { lock: d.lock, save: d.save });
+    return { kind: 'locked', view, draft, ...res };
+  }
+
   function saveCsv(csv, customerName, number) {
     const url = URL.createObjectURL(new Blob([InvoiceLines.BOM + csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
@@ -260,7 +274,7 @@ const InvoiceScreen = (() => {
     const view = computeView();
     st.view = view;
     st.shownTotal = view.error ? null : view.total;
-    const due = st.locked && st.mode === 'existing' ? { ok: true, dueDate: st.customYmd || null, message: '' } : dueNow();
+    const due = st.locked ? { ok: true, dueDate: (view.stored && view.stored.dueDate) || st.lockedDue || st.customYmd || null, message: '' } : dueNow();
 
     // status line
     els.status.textContent = st.msg ? st.msg.text : '';
@@ -273,7 +287,7 @@ const InvoiceScreen = (() => {
 
     // step 1 (fields are persistent; only state is mirrored)
     els.number.disabled = st.locked || st.busy;
-    els.po.disabled = st.locked && st.mode === 'existing';
+    els.po.disabled = st.locked || st.busy;
     els.date.textContent = longDate(st.invoiceDate);
     els.caption.textContent = st.suggested != null && !st.locked
       ? `Suggested ${st.suggested} — the last number used here was ${st.suggested - 1}. Check it's the next number in QuickBooks (VanLab invoices use the same numbers).`
@@ -283,11 +297,11 @@ const InvoiceScreen = (() => {
     els.check.className = 'invoice-check invoice-check--' + nm.kind;
     els.picks.querySelectorAll('button[data-term]').forEach(b => {
       b.classList.toggle('is-active', b.dataset.term === st.term);
-      b.disabled = st.locked;
+      b.disabled = st.locked || st.busy;
     });
-    els.due.disabled = st.locked;
+    els.due.disabled = st.locked || st.busy;
     if (st.term !== 'custom') els.due.value = due.dueDate || '';
-    else if (st.locked && els.due.value !== st.customYmd) els.due.value = st.customYmd;
+    else if (st.locked) els.due.value = due.dueDate || '';
     els.dueMsg.textContent = st.locked ? '' : due.message;
 
     const ready = readiness({ ownerOk: ownerOk(), check: st.check, numberText: st.numberText, due, view, busy: st.busy });
@@ -321,7 +335,7 @@ const InvoiceScreen = (() => {
     if (st.locked) {
       return `${head}<div class="invoice-preview">${preview}</div>
         <button type="button" class="btn btn-outline" data-act="again"${st.busy ? ' disabled' : ''}>Download again</button>
-        <p class="settings-card-hint">Invoice ${esc(n)} is locked — ${esc(sheets)}, in progress, so nothing else can bill them. In QuickBooks: Sales › Invoices › Import, pick this file.</p>`;
+        <p class="settings-card-hint">${view.stored && view.stored.status !== 'in-progress' ? `Invoice ${esc(n)} is ${esc(view.stored.status)}.` : `Invoice ${esc(n)} is locked — ${esc(sheets)}, in progress, so nothing else can bill them. In QuickBooks: Sales › Invoices › Import, pick this file.`}</p>`;
     }
     const label = n ? `Download QuickBooks file for #${esc(n)}` : 'Download QuickBooks file';
     const back = st.msg && st.msg.back ? '<button type="button" class="btn btn-outline btn-sm" data-act="back">Back to Billing</button>' : '';
@@ -333,10 +347,12 @@ const InvoiceScreen = (() => {
 
   function step3Html(view) {
     const head = '<h2 class="settings-card-title"><span class="invoice-step-n">3</span> Did it import into QuickBooks?</h2>';
-    const open = st.locked && ownerOk() && !st.busy && !view.error;
+    const inProg = !view.stored || view.stored.status === 'in-progress';
+    const open = st.locked && inProg && ownerOk() && !st.busy && !view.error;
     const dis = open ? '' : ' disabled';
     const n = st.number;
     const what = view.sheetCount ? `mark ${plural(view.sheetCount, 'sheet', 'sheets')} billed` : 'mark the invoice billed';
+    if (st.locked && !inProg) return `${head}<p class="settings-card-hint">Invoice ${esc(n)} is ${esc(view.stored.status)} — nothing more to do here.</p>`;
     if (!st.locked) return `${head}<p class="settings-card-hint">Available once the file has been downloaded.</p>
       <div class="invoice-step3-actions"><button type="button" class="btn btn-primary" disabled>Imported OK — ${esc(what)}</button></div>`;
     return `${head}<div class="invoice-step3-actions">
@@ -364,29 +380,31 @@ const InvoiceScreen = (() => {
     const due = dueNow();
     const gate = readiness({ ownerOk: ownerOk(), check: st.check, numberText: st.numberText, due, view: st.view, busy: st.busy });
     if (!gate.enabled) return;
+    const shown = st.shownTotal;   // what the owner is looking at — captured before paint() refreshes it
+    const number = Number(st.numberText);
     st.busy = true; setMsg(''); paint();
     try {
-      // 1. rebuild from the current caches and compare with what is on screen
-      const view = computeView();
-      if (view.error) { setMsg(view.error, 'error', { back: true }); return; }
-      if (view.note) { setMsg(view.note, 'error'); return; }
-      if (view.sheetCount > MAX_SHEETS) { setMsg(TOO_BIG, 'error'); return; }
-      if (view.total !== st.shownTotal) { setMsg(CHANGED_TEXT, 'error'); return; }   // finally{} repaints with the new total
-      const number = Number(st.numberText);
-      const draft = buildDraft(view, due, number);
-      // 2 + 3. lock, and only then the file
-      const res = await lockThenSave(draft, by(), {
+      const r = await attemptDownload({
+        shown, by: by(),
+        computeView,
+        buildDraft: view => buildDraft(view, due, number),
         lock: (d, b) => InvoiceStore.lockAndCreate(d, b),
         save: d => saveCsv(d.csv, d.customerName, d.number),
       });
-      st.locked = true; st.number = number;
+      if (r.kind === 'view-error') { setMsg(r.view.error, 'error', { back: true }); return; }
+      if (r.kind === 'note') { setMsg(r.view.note, 'error'); return; }
+      if (r.kind === 'too-big') { setMsg(TOO_BIG, 'error'); return; }
+      if (r.kind === 'changed') { setMsg(CHANGED_TEXT, 'error'); return; }   // finally{} repaints with the new total
+      const res = r;
+      st.locked = true; st.number = number; st.lockedDue = due.dueDate;
       st.msg = res.saveError
         ? { text: `Invoice ${number} is locked, but the file couldn't be saved (${(res.saveError && res.saveError.message) || res.saveError}). Use Download again.`, kind: 'error' }
         : null;
     } catch (e) {
       // 4. rejected (or thrown before the lock): nothing was created, nothing downloaded
       const info = refusalInfo(e);
-      setMsg(info.text, 'error', info.back ? { back: true } : undefined);
+      if (info.kind === 'number') setMsg('');   // said once, under the number in step 1
+      else setMsg(info.text, 'error', info.back ? { back: true } : undefined);
       if (info.kind === 'number') st.check = { forText: st.numberText, state: 'used', message: info.text };
     } finally {
       st.busy = false; paint();
@@ -432,7 +450,7 @@ const InvoiceScreen = (() => {
     st.busy = false; paint();
   }
 
-  return { show, render, fmtMoney, dueState, numberMessage, readiness, refusalInfo, lockThenSave, saveCsv, MAX_SHEETS };
+  return { show, render, attemptDownload, fmtMoney, dueState, numberMessage, readiness, refusalInfo, lockThenSave, saveCsv, MAX_SHEETS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = InvoiceScreen;

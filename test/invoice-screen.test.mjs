@@ -89,3 +89,41 @@ test('fmtMoney: negatives read −$0.88', () => {
   assert.equal(IS.fmtMoney(1527.5), '$1,527.50');
   assert.equal(IS.fmtMoney(1865), '$1,865');
 });
+
+test('attemptDownload: a price change between paint and click -> no lock, no save', async () => {
+  const calls = [];
+  const r = await IS.attemptDownload({
+    shown: 230, by: 'a@x',
+    computeView: () => ({ total: 245, sheetCount: 2, lines: [] }),   // the fresh price differs from what was shown
+    buildDraft: () => { calls.push('draft'); return { csv: 'c' }; },
+    lock: async () => { calls.push('lock'); return {}; },
+    save: () => calls.push('save'),
+  });
+  assert.equal(r.kind, 'changed');
+  assert.equal(r.view.total, 245);          // the caller repaints with this new total
+  assert.deepEqual(calls, []);
+  assert.match(IS.refusalInfo({ code: 'changed' }).text, /^Something changed since this screen was drawn/);
+});
+
+test('attemptDownload: unchanged total -> lock, then save, in that order', async () => {
+  const calls = [];
+  const r = await IS.attemptDownload({
+    shown: 230, by: 'a@x',
+    computeView: () => ({ total: 230, sheetCount: 2, lines: [] }),
+    buildDraft: () => ({ csv: 'c', number: 1 }),
+    lock: async () => { calls.push('lock'); return { number: 1 }; },
+    save: () => calls.push('save'),
+  });
+  assert.equal(r.kind, 'locked');
+  assert.deepEqual(calls, ['lock', 'save']);
+});
+
+test('attemptDownload: a rejected lock throws and never saves; view problems never lock', async () => {
+  let saved = 0, locked = 0;
+  const base = { shown: 1, by: 'a', buildDraft: () => ({}), lock: async () => { locked++; }, save: () => { saved++; } };
+  await assert.rejects(IS.attemptDownload({ ...base, computeView: () => ({ total: 1, sheetCount: 1 }), lock: () => Promise.reject(err('sheet-taken')) }), e => e.code === 'sheet-taken');
+  assert.equal((await IS.attemptDownload({ ...base, computeView: () => ({ error: 'x' }) })).kind, 'view-error');
+  assert.equal((await IS.attemptDownload({ ...base, computeView: () => ({ note: 'mixed', total: 1 }) })).kind, 'note');
+  assert.equal((await IS.attemptDownload({ ...base, computeView: () => ({ total: 1, sheetCount: 401 }) })).kind, 'too-big');
+  assert.equal(saved + locked, 0);
+});
