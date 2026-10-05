@@ -18,7 +18,14 @@ const cncRequire = createRequire(path.join(root, 'package.json'));
 
 function fail(m) { console.error('FAIL: ' + m); process.exitCode = 1; }
 function assert(c, m) { if (!c) fail(m); else console.log('PASS: ' + m); }
-async function denied(p) { try { await p; return false; } catch { return true; } }
+// A rules denial is exactly Firestore's 'permission-denied'; any other rejection is NOT proof.
+async function deniedByRules(p, msg) {
+  try { await p; fail(msg + ' (it succeeded)'); }
+  catch (e) {
+    if (e && e.code === 'permission-denied') console.log('PASS: ' + msg);
+    else fail(msg + ' (rejected with code ' + (e && e.code) + ': ' + (e && e.message) + ', not permission-denied)');
+  }
+}
 async function threw(p) { try { await p; return null; } catch (e) { return e; } }
 
 async function main() {
@@ -29,7 +36,6 @@ async function main() {
   const firebase = hqRequire('firebase/compat/app');
   hqRequire('firebase/compat/auth');
   hqRequire('firebase/compat/firestore');
-  const { ensureUserWithUid, seedDoc } = hqRequire('./.verify/auth-helper');
 
   // Allowlists parsed from the rules, never printed.
   const rules = fs.readFileSync(path.join(HQ, 'firestore.rules'), 'utf8');
@@ -44,8 +50,30 @@ async function main() {
 
   const [fsHost, fsPort] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
   const authAddr = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  const authAddr0 = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  // Own helpers (the HQ helper logs emails): Auth emulator signUp with a chosen uid, and a REST seeder
+  // that bypasses rules and uses FIRESTORE_EMULATOR_HOST. Nothing here prints an email.
+  async function ensureUser(localId, email) {
+    const res = await fetch(`http://${authAddr0}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
+      body: JSON.stringify({ localId, email, password: 'password123', returnSecureToken: true }),
+    });
+    const body = await res.json();
+    if (!res.ok && !(body.error && body.error.message === 'EMAIL_EXISTS')) throw new Error('auth signUp failed: ' + (body.error && body.error.message));
+    return { email };
+  }
+  const fv = v => v === null || v === undefined ? { nullValue: null } : typeof v === 'string' ? { stringValue: v } : typeof v === 'boolean' ? { booleanValue: v }
+    : typeof v === 'number' ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v })
+    : Array.isArray(v) ? { arrayValue: { values: v.map(fv) } } : { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fv(x)])) } };
+  async function seedDoc(col, id, data) {
+    const res = await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/projects/cnc-job-tracker/databases/(default)/documents/${col}/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
+      body: JSON.stringify({ fields: Object.fromEntries(Object.entries(data).map(([k, x]) => [k, fv(x)])) }),
+    });
+    if (!res.ok) throw new Error(`seed ${col}/${id} failed: ${res.status}`);
+  }
   async function clientFor(name, localId, email) {
-    const account = await ensureUserWithUid({ localId, email, password: 'password123' });
+    const account = await ensureUser(localId, email);
     const app = firebase.initializeApp({ projectId: 'cnc-job-tracker', apiKey: 'fake-api-key' }, name);
     const auth = app.auth(); auth.useEmulator('http://' + authAddr, { disableWarnings: true });
     await auth.signInWithEmailAndPassword(account.email || email, 'password123');
@@ -60,7 +88,7 @@ async function main() {
   const InvoiceStore = cncRequire('./js/invoice-store.js');
 
   // ── fake data ──
-  const cut1 = '2026-10-01T16:12:00.000Z', cut2 = '2026-10-02T17:00:00.000Z', cut3 = '2026-10-03T15:00:00.000Z';
+  const cut1 = '2026-10-01T16:12:00.000Z', cut2 = '2026-10-02T17:00:00.000Z', cut3 = '2026-10-03T15:00:00.000Z', cut4 = '2026-10-04T15:00:00.000Z';
   const mkSheet = k => ({ fileKey: k, sheetTitle: 'Sheet ' + k, jobName: 'NL_Bridge_Wall_Panels', totalTime: '00:18:00', toolpaths: [{ name: 'Profile' }], archiveUrl: '' });
   const rowFor = (k, cutAt) => LogRows.build(mkSheet(k), { completedAt: cutAt, operator: 'Collin' }, 'Northlight Studios');
   const priced = n => ({ handling: 10, timeCharge: n, weekendPremium: 0, repeatOf: null, hourlyRate: 80, priceList: 'standard' });
@@ -73,7 +101,7 @@ async function main() {
   });
   const customerDoc = name => ({ name, billedOutsideApp: false, priceList: 'standard', defaultMaterialByThickness: {}, notes: '', openInvoice: null });
   const baseJobFp = labor => ({ proj_a: { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, readyForBilling: true, labor } });
-  const cuts = { s1: cut1, s2: cut2, s3: cut3 };
+  const cuts = { s1: cut1, s2: cut2, s3: cut3, s4: cut4 };
   const draft = (number, sheetKeys, over = {}) => {
     const perSheet = {}, fsheets = {};
     sheetKeys.forEach(k => { perSheet[k] = { jobKey: 'proj_a', cutAt: cuts[k], cutDate: cuts[k].slice(0, 10), operator: 'Collin', priced: priced(24), row: rowFor(k, cuts[k]) }; fsheets[k] = { completedAt: cuts[k], cutDateOverride: null }; });
@@ -88,7 +116,7 @@ async function main() {
 
   await seedDoc('customerBilling', 'cust_nl', customerDoc('Northlight Studios'));
   await seedDoc('customerBilling', 'cust_hl', customerDoc('Harbor Lane Pictures'));
-  for (const k of ['s1', 's2', 's3']) {
+  for (const k of ['s1', 's2', 's3', 's4']) {
     await seedDoc('sheetBilling', k, sheetDoc());
     await seedDoc('completions', k, { status: 'complete', completedAt: cuts[k] });
   }
@@ -130,7 +158,7 @@ async function main() {
   assert(e3a && e3a.code === 'sheet-taken', 'owner: second lock on an overlapping sheet -> sheet-taken (got ' + (e3a && e3a.code) + ')');
   const e3b = await threw(InvoiceStore.lockAndCreate(draft(3801, ['s3'], { customerKey: 'cust_hl', customerName: 'Harbor Lane Pictures' }), BY));
   assert(e3b && e3b.code === 'number-used', 'owner: same number -> number-used (got ' + (e3b && e3b.code) + ')');
-  assert((await rawGet(ownerDb, 'invoices', 3801)).createdAt === inv1.createdAt, 'owner: refused re-lock left createdAt unchanged');
+  assert((await rawGet(ownerDb, 'invoices', 3801)).createdAt === inv1.createdAt, 'owner: refused locks wrote nothing (createdAt of 3801 unchanged; the real createdAt proof is step 6)');
 
   // ── 4. owner: markImported, cancel refused, raw total edit denied ──
   const imp = await threw(InvoiceStore.markImported(3801, BY));
@@ -142,7 +170,7 @@ async function main() {
   assert((await rawGet(ownerDb, 'jobBilling', 'proj_a')).laborLines[0].status === 'billed' && (await rawGet(ownerDb, 'customerBilling', 'cust_nl')).openInvoice === null, 'owner: markImported -> labor line billed, customer.openInvoice cleared');
   const canc = await threw(InvoiceStore.cancel(3801, BY));
   assert(canc && canc.code === 'state', 'owner: cancel of an imported invoice refused (state)');
-  assert(await denied(ownerDb.collection('invoices').doc('3801').update({ total: 5 })), 'owner: raw update of an imported invoice total DENIED by rules');
+  await deniedByRules(ownerDb.collection('invoices').doc('3801').update({ total: 5 }), 'owner: raw update of an imported invoice total DENIED by rules');
 
   // ── 5. owner: addPo ──
   const po = await threw(InvoiceStore.addPo(3801, 'PO-77', BY));
@@ -165,9 +193,10 @@ async function main() {
 
   // ── 7. Collin: denied everywhere ──
   useDb(collinDb);
-  assert(await denied(OwnerStore.mutateSheetBilling('s3', cur => ({ ...cur, cutDateOverride: '2026-10-01' }), 'collin')), 'Collin: OwnerStore.mutateSheetBilling DENIED');
-  assert(await denied(InvoiceStore.lockAndCreate(draft(3900, ['s1']), 'collin')), 'Collin: InvoiceStore.lockAndCreate DENIED');
-  assert(await denied(collinDb.collection('invoices').doc('3801').get()), 'Collin: raw get of invoices/ DENIED');
+  await deniedByRules(OwnerStore.mutateSheetBilling('s3', cur => ({ ...cur, cutDateOverride: '2026-10-01' }), 'collin'), 'Collin: OwnerStore.mutateSheetBilling DENIED by rules (permission-denied)');
+  // fresh number 3900 and s4 (still unbilled, never locked above): only the rules can refuse this lock
+  await deniedByRules(InvoiceStore.lockAndCreate(draft(3900, ['s4']), 'collin'), 'Collin: InvoiceStore.lockAndCreate DENIED by rules (permission-denied)');
+  await deniedByRules(collinDb.collection('invoices').doc('3801').get(), 'Collin: raw get of invoices/ DENIED by rules (permission-denied)');
 
   console.log(process.exitCode ? 'SUITE: FAIL' : 'SUITE: PASS');
   process.exit(process.exitCode || 0);
