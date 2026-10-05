@@ -5,8 +5,8 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const BD = require('../js/billing-done.js');
 
-const sheetsInv = (o = {}) => ({ number: 3612, customerName: 'Acme Vans', total: 1865, sheetKeys: Array.from({ length: 14 }, (_, i) => 'k' + i), laborLineRefs: [], logWritten: true, ...o });
-const laborInv = (n, o = {}) => ({ number: 3612, customerName: 'Acme Vans', total: 120, sheetKeys: [], laborLineRefs: Array.from({ length: n }, (_, i) => ({ jobKey: 'j', lineId: 'l' + i })), ...o });
+const sheetsInv = (o = {}) => ({ number: 3612, customerName: 'Ridgeway Vans', total: 1865, sheetKeys: Array.from({ length: 14 }, (_, i) => 'k' + i), laborLineRefs: [], logWritten: true, ...o });
+const laborInv = (n, o = {}) => ({ number: 3612, customerName: 'Ridgeway Vans', total: 120, sheetKeys: [], laborLineRefs: Array.from({ length: n }, (_, i) => ({ jobKey: 'j', lineId: 'l' + i })), ...o });
 
 test('headline: sheets, singular sheet, labor-only lines', () => {
   assert.equal(BD.headline(sheetsInv()), '14 sheets billed on invoice #3612');
@@ -29,7 +29,7 @@ test('wontShowLine and PO line wording', () => {
 
 test('recentRow: plain imported invoice', () => {
   const r = BD.recentRow(sheetsInv({ importedAt: new Date(2026, 9, 5, 12).getTime(), poNumber: 'PO-1' }), n => '$' + n);
-  assert.deepEqual(r, { number: 3612, customer: 'Acme Vans', imported: 'Oct 5', total: '$1865', po: 'PO-1', logFailed: false, logNote: '', laborOnly: false });
+  assert.deepEqual(r, { number: 3612, customer: 'Ridgeway Vans', imported: 'Oct 5', total: '$1865', po: 'PO-1', logFailed: false, logNote: '', laborOnly: false });
 });
 
 test('recentRow: failed log shows the reason; missing fields do not throw', () => {
