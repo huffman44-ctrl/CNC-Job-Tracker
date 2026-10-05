@@ -262,3 +262,66 @@ test('integration: draft locks against the same world; a changed completedAt is 
   const bad = docs(); bad.completions.fk_NL_Arch_1.completedAt = iso(2026, 10, 2);
   assert.throws(() => InvoiceStore._plan.lock(bad, { draft, by: 'x@example.com', now: 1 }), e => e.code === 'changed');
 });
+
+/* ---- fix round 1 ---- */
+test('draft fingerprint is the priced snapshot: a completion changed after build -> changed', () => {
+  const { w, draft } = draftFor({ proj_NL_Arch: { sheets: true } });
+  w.comps.fk_NL_Arch_1.completedAt = iso(2026, 10, 2);   // live world moves on after the screen was drawn
+  const docs = {
+    invoice: null, customer: { name: NL, billedOutsideApp: false, openInvoice: null },
+    sheetBilling: Object.fromEntries(draft.sheetKeys.map(k => [k, w.input.sheetBillingOf(k)])),
+    completions: Object.fromEntries(draft.sheetKeys.map(k => [k, w.input.completionOf(k)])),
+    jobBilling: { proj_NL_Arch: w.input.jobBillingOf('proj_NL_Arch') },
+  };
+  assert.equal(draft.fingerprint.sheets.fk_NL_Arch_1.completedAt, T);
+  assert.throws(() => InvoiceStore._plan.lock(docs, { draft, by: 'x@example.com', now: 1 }), e => e.code === 'changed');
+  // job-level change after build is caught too
+  const { w: w2, draft: d2 } = draftFor({ proj_NL_Arch: { sheets: true } });
+  w2.jobDocs.proj_NL_Arch.turnaround = 'rush24';
+  const docs2 = { invoice: null, customer: { openInvoice: null }, sheetBilling: {}, completions: {}, jobBilling: { proj_NL_Arch: w2.jobDocs.proj_NL_Arch } };
+  assert.throws(() => InvoiceStore._plan.lock(docs2, { draft: d2, by: 'x', now: 1 }), e => e.code === 'changed');
+});
+
+test('unknown sheet status is locked, never eligible', () => {
+  const w = world({ jobs: { NL_A: { customer: NL, ready: true } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T, status: 'weird' }, { job: 'NL_A', n: 2, sec: 600, cut: T }] });
+  const c = cust(w.model, NL);
+  assert.deepEqual(c.rows[0].sheetKeys, ['fk_NL_A_2']); assert.equal(c.lockedSheets.length, 1);
+});
+
+test('priceListName comes from the caller accessor', () => {
+  const w = world({ jobs: { NL_A: { customer: NL, ready: true } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const c = cust(BillingModel.build({ ...w.input, priceListNameOf: () => 'Studio' }), NL);
+  assert.equal(c.priceListName, 'Studio');
+});
+
+test('laborAmount: labor alone, per-job minimum applied (two 0.5 h design lines bill 1 h)', () => {
+  const w = world({ jobs: { NL_A: { customer: NL, ready: true, labor: [line('a', 'design', 0.5), line('b', 'design', 0.5)] } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.equal(BillingModel.laborAmount(r, ctx), 150);
+  assert.ok(BillingModel.rowAmount(r, ctx) > 150);
+});
+
+test('before-billing-start sheets are prior-billed so a later repeat is a repeat (never listed)', () => {
+  const w = world({ billingStart: '2026-10-02', jobs: { NL_A: { customer: NL, ready: true } },
+    sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: iso(2026, 10, 1) }, { job: 'NL_A', n: 2, sec: 600, cut: iso(2026, 10, 2) }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.deepEqual(r.sheetKeys, ['fk_NL_A_2']);
+  assert.equal(r.priorBilled.length, 1);
+  const priced = BillingModel.rowPricing(r, ctx).priced;
+  assert.equal(priced.perSheet.fk_NL_A_2.repeatOf, 1);
+});
+
+test('defaultThroughDate refuses a bad weekEndingDay', () => {
+  assert.throws(() => BillingModel.defaultThroughDate('2026-10-05', 7));
+  assert.throws(() => BillingModel.defaultThroughDate('2026-10-05', '6'));
+  assert.throws(() => BillingModel.defaultThroughDate('2026-10-05', 1.5));
+});
+
+test('rowDetail counts only the row own sheets and job labor', () => {
+  const w = world({ jobs: { NL_A: { customer: NL, ready: true } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const r = cust(w.model, NL).rows[0];
+  const priced = BillingModel.rowPricing(r, ctx).priced;
+  priced.perSheet.other = { weekendPremium: 9 }; priced.labor = [{ jobKey: 'proj_other', typeName: 'Design', billedHours: 2 }];
+  const d = BillingModel.rowDetail(r, priced);
+  assert.ok(!/weekend|design/.test(d), d);
+});

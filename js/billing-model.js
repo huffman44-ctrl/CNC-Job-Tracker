@@ -33,7 +33,8 @@ const BillingModel = (() => {
   function defaultThroughDate(todayYmd, weekEndingDay) {
     const d = parseYmd(todayYmd);
     if (!d) throw new Error('defaultThroughDate: bad date ' + todayYmd);
-    const back = (d.getDay() - Number(weekEndingDay) + 7) % 7;
+    if (!Number.isInteger(weekEndingDay) || weekEndingDay < 0 || weekEndingDay > 6) throw new Error('defaultThroughDate: weekEndingDay must be a whole number 0-6');
+    const back = (d.getDay() - weekEndingDay + 7) % 7;
     return fmtYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back));
   }
 
@@ -76,17 +77,19 @@ const BillingModel = (() => {
         const sb = sheetBillingOf(fk) || null;
         const status = (sb && sb.status) || 'unbilled';
         const cutDate = P.effectiveCutDate(completionOf(fk) || null, sb);
+        const known = ['unbilled', 'in-progress', 'billed', 'external'];
         const toolpathCount = Array.isArray(s.toolpaths) ? s.toolpaths.length : 0;
         const sheetInput = {
           fileKey: fk, jobKey: jk, order: i + 1, sheetLabel: s.sheetTitle || s.fileName || '',
           totalTimeSec: P.parseTimeSec(s.totalTime), toolpathCount, hasVbit: P.sheetHasVbit(s), cutDate,
         };
-        const entry = { fileKey: fk, jobKey: jk, sheetLabel: sheetInput.sheetLabel, cutDate, invoiceNumber: sb && sb.invoiceNumber != null ? sb.invoiceNumber : null, sheetInput };
+        const comp = completionOf(fk) || null;
+        const entry = { captured: { sheet: s, completion: comp ? { ...comp } : null, cutDateOverride: nz(sb && sb.cutDateOverride) }, fileKey: fk, jobKey: jk, sheetLabel: sheetInput.sheetLabel, cutDate, invoiceNumber: sb && sb.invoiceNumber != null ? sb.invoiceNumber : null, sheetInput };
         if (status === 'external') buckets.external.push(entry);
         else if (status === 'billed') buckets.billed.push({ ...entry, prior: { jobKey: jk, signature: P.signatureOf(sheetInput), order: i + 1 } });
-        else if (status === 'in-progress') buckets.locked.push(entry);
+        else if (status === 'in-progress' || !known.includes(status)) buckets.locked.push(entry);   // an unknown status is never billable
         else if (!cutDate) buckets.uncut.push(entry);
-        else if (billingStart && cutDate < billingStart) buckets.beforeStart.push(entry);
+        else if (billingStart && cutDate < billingStart) buckets.beforeStart.push({ ...entry, prior: { jobKey: jk, signature: P.signatureOf(sheetInput), order: i + 1 } });   // billed the old way: never listed, still counts for repeats
         else if (throughDate && cutDate > throughDate) buckets.later.push(entry);
         else buckets.eligible.push(entry);
       });
@@ -113,7 +116,7 @@ const BillingModel = (() => {
       const cb = customerBillingOf(ck) || null;
       let cs = customers.get(ck);
       if (!cs) {
-        cs = { customerKey: ck, customerName: custName || (cb && cb.name) || '', priceListName: (cb && cb.priceList) || 'standard', busyInvoice: null,
+        cs = { customerKey: ck, customerName: custName || (cb && cb.name) || '', priceListName: (input.priceListNameOf && input.priceListNameOf(ck)) || (cb && cb.priceList) || 'standard', busyInvoice: null,
           rows: [], lockedSheets: [], uncutSheets: [], laterSheets: [], laterFirstDate: null, summary: '', _cb: cb };
         customers.set(ck, cs);
       }
@@ -146,7 +149,12 @@ const BillingModel = (() => {
         sheetKeys: buckets.eligible.map(e => e.fileKey), laborLineIds: lines.map(l => l.id),
         uncutCount: buckets.uncut.length, laterCount: buckets.later.length, lockedCount: buckets.locked.length,
         zeroTimeCount: sheetInputs.filter(s => !(s.totalTimeSec > 0)).length,
-        sheetInputs, priorBilled: buckets.billed.map(e => e.prior),
+        sheetInputs, priorBilled: [...buckets.billed, ...buckets.beforeStart].map(e => e.prior),
+        captured: {
+          sheets: Object.fromEntries(buckets.eligible.map(e => [e.fileKey, e.captured])),
+          job: { turnaround: nz(jb.turnaround), materialKind: nz(jb.material.kind), materialId: nz(jb.material.materialId), pricePerSheet: nz(jb.material.pricePerSheet),
+            readyForBilling: ready, labor: Object.fromEntries(lines.map(l => [l.id, { typeId: nz(l.typeId), hours: nz(l.hours) }])) },
+        },
         jobInput: { jobName: g.jobName, turnaround: jb.turnaround, material: jb.material, includeLabor: laborLines.length > 0, laborLines },
         amount: null, error: null,
       };
@@ -182,6 +190,14 @@ const BillingModel = (() => {
     } catch (e) {
       return { priced: null, amount: null, error: e.message || String(e) };
     }
+  }
+  // Prices the row's labor alone (no sheets): the per-job subtotal of a sheetless pricing is labor only.
+  function laborAmount(row, ctx) {
+    if (!row.laborLineIds.length) return 0;
+    try {
+      const priced = P.priceInvoice({ priceList: ctx.priceList, laborTypes: ctx.laborTypes, jobs: { [row.jobKey]: { ...row.jobInput, includeLabor: true } }, sheets: [], priorBilled: [] });
+      return priced.perJob[row.jobKey].subtotal;
+    } catch (e) { return null; }
   }
   const rowAmount = (row, ctx) => rowPricing(row, ctx).amount;
 
@@ -243,13 +259,13 @@ const BillingModel = (() => {
     const ta = row.jobInput.turnaround;
     if (n && ta && ta !== 'standard') parts.push(P.TURNAROUND_LABEL[ta] || ta);
     if (priced && n) {
-      const wk = Object.values(priced.perSheet || {}).filter(s => s.weekendPremium > 0).length;
+      const wk = row.sheetKeys.filter(k => ((priced.perSheet || {})[k] || {}).weekendPremium > 0).length;
       if (wk) parts.push(`${plural(wk, 'weekend sheet', 'weekend sheets')}`);
     }
     if (n) parts.push(`${P.formatDuration(row.sheetInputs.reduce((a, s) => a + s.totalTimeSec, 0))} Aspire time`);
-    if (priced && priced.labor && priced.labor.length) {
+    if (priced && (priced.labor || []).some(l => l.jobKey === row.jobKey)) {
       const byType = {};
-      priced.labor.forEach(l => { byType[l.typeName] = (byType[l.typeName] || 0) + l.billedHours; });
+      priced.labor.filter(l => l.jobKey === row.jobKey).forEach(l => { byType[l.typeName] = (byType[l.typeName] || 0) + l.billedHours; });
       Object.keys(byType).forEach(name => { const h = P.round2(byType[name]); parts.push(`${h} ${name.toLowerCase()} ${h === 1 ? 'hr' : 'hrs'}`); });
     }
     if (n) { const m = row.jobInput.material || {}; parts.push(m.kind === 'ours' ? (m.name || 'our material') : 'customer supplied'); }
@@ -263,35 +279,32 @@ const BillingModel = (() => {
   // same accessors, so what is locked is exactly what was priced.
   function buildDraft(a) {
     const { customer, priced, settings } = a;
-    const jobOfSheet = {};
-    customer.rows.forEach(r => r.sheetKeys.forEach(k => { jobOfSheet[k] = r.jobKey; }));
+    // Everything below comes from the values captured by build() — the same ones that were priced —
+    // never from a fresh read, so a change since the screen was drawn still trips planLock's fingerprint.
+    const capSheet = {}, rowOfSheet = {}, rowOfJob = {};
+    customer.rows.forEach(r => { rowOfJob[r.jobKey] = r; r.sheetKeys.forEach(k => { capSheet[k] = r.captured.sheets[k]; rowOfSheet[k] = r; }); });
     const sheetKeys = Object.keys(priced.perSheet);
     const laborLineRefs = (priced.labor || []).map(l => ({ jobKey: l.jobKey, lineId: l.lineId }));
     const perSheet = {}, fpSheets = {};
     sheetKeys.forEach(k => {
-      const comp = a.completionOf(k) || null;
-      const sb = a.sheetBillingOf(k) || null;
+      const cap = capSheet[k];
+      const comp = cap.completion;
       const ps = priced.perSheet[k];
       perSheet[k] = {
-        jobKey: jobOfSheet[k] || null, cutAt: nz(comp && comp.completedAt), cutDate: P.effectiveCutDate(comp, sb), operator: (comp && comp.operator) || '',
+        jobKey: rowOfSheet[k].jobKey, cutAt: nz(comp && comp.completedAt), cutDate: P.effectiveCutDate(comp, { cutDateOverride: cap.cutDateOverride }), operator: (comp && comp.operator) || '',
         priced: { handling: ps.handling, timeCharge: ps.timeCharge, weekendPremium: ps.weekendPremium, repeatOf: ps.repeatOf,
           hourlyRate: nz(settings && settings.priceList && settings.priceList.hourlyRate), priceList: customer.priceListName },
-        row: L.build(a.sheetsByKey[k], comp, customer.customerName),
+        row: L.build(cap.sheet, comp, customer.customerName),
       };
-      fpSheets[k] = { completedAt: nz(comp && comp.completedAt), cutDateOverride: nz(sb && sb.cutDateOverride) };
+      fpSheets[k] = { completedAt: nz(comp && comp.completedAt), cutDateOverride: cap.cutDateOverride };
     });
     const jobKeys = [...new Set([...sheetKeys.map(k => perSheet[k].jobKey), ...laborLineRefs.map(r => r.jobKey)].filter(Boolean))];
     const fpJobs = {};
     jobKeys.forEach(jk => {
-      const jb = a.jobBillingOf(jk) || {};
-      const m = jb.material || {};
+      const c = rowOfJob[jk].captured.job;
       const labor = {};
-      laborLineRefs.filter(r => r.jobKey === jk).forEach(r => {
-        const line = (jb.laborLines || []).find(l => l.id === r.lineId) || {};
-        labor[r.lineId] = { typeId: nz(line.typeId), hours: nz(line.hours) };
-      });
-      fpJobs[jk] = { turnaround: nz(jb.turnaround), materialKind: nz(m.kind), materialId: nz(m.materialId), pricePerSheet: nz(m.pricePerSheet),
-        readyForBilling: !!jb.readyForBilling, labor };
+      laborLineRefs.filter(r => r.jobKey === jk).forEach(r => { labor[r.lineId] = { ...c.labor[r.lineId] }; });
+      fpJobs[jk] = { turnaround: c.turnaround, materialKind: c.materialKind, materialId: c.materialId, pricePerSheet: c.pricePerSheet, readyForBilling: c.readyForBilling, labor };
     });
     return {
       number: a.number, customerKey: customer.customerKey, customerName: customer.customerName, throughDate: a.throughDate || null,
@@ -301,7 +314,7 @@ const BillingModel = (() => {
     };
   }
 
-  return { defaultThroughDate, build, pricingInput, rowPricing, rowAmount, summaryText, rowDetail, buildDraft };
+  return { defaultThroughDate, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, buildDraft };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;
