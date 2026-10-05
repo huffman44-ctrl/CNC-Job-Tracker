@@ -83,12 +83,27 @@ function makeDb() {
     return q;
   }
 
+  // All-or-nothing: reject the whole commit BEFORE applying anything if an update targets a doc
+  // that will not exist at that point (accounting for earlier sets/deletes in the same commit).
+  function preflight(ws) {
+    const exists = {};
+    ws.forEach(w => {
+      const k = w.col + '/' + w.id;
+      const cur = k in exists ? exists[k] : !!entry(w.col, w.id);
+      if (w.op === 'update' && !cur) throw err('not-found', `No document to update: ${k}`);
+      exists[k] = w.op !== 'delete';
+    });
+  }
+
   async function runTransaction(fn) {
     for (let attempt = 1; attempt <= 5; attempt++) {
       const reads = new Map();   // 'col/id' -> version seen
       const writes = [];         // { op, col, id, doc, opts }
       const tx = {
-        async get(ref) { reads.set(ref.path, version(ref._col, ref.id)); return snapOf(ref._col, ref.id); },
+        async get(ref) {
+          if (writes.length) throw err('failed-precondition', 'Firestore transactions require all reads to be executed before all writes');
+          reads.set(ref.path, version(ref._col, ref.id)); return snapOf(ref._col, ref.id);
+        },
         set(ref, d, opts) { writes.push({ op: 'set', col: ref._col, id: ref.id, doc: copy(d), opts }); return tx; },
         update(ref, p) { writes.push({ op: 'update', col: ref._col, id: ref.id, doc: copy(p) }); return tx; },
         delete(ref) { writes.push({ op: 'delete', col: ref._col, id: ref.id }); return tx; },
@@ -98,6 +113,7 @@ function makeDb() {
       const stale = [...reads].some(([path, v]) => { const [c, i] = [path.slice(0, path.indexOf('/')), path.slice(path.indexOf('/') + 1)]; return version(c, i) !== v; });
       if (stale) continue;
       writes.forEach(w => checkWrite(w.col, w.id));
+      preflight(writes);
       const touched = new Set();
       writes.forEach(w => {
         if (w.op === 'set') applySet(w.col, w.id, w.doc, w.opts);
@@ -119,6 +135,7 @@ function makeDb() {
       delete(ref) { ops.push(['delete', ref]); return b; },
       async commit() {
         ops.forEach(([, ref]) => checkWrite(ref._col, ref.id));
+        preflight(ops.map(([op, ref]) => ({ op, col: ref._col, id: ref.id })));
         const touched = new Set();
         ops.forEach(([op, ref, d, o]) => {
           if (op === 'set') applySet(ref._col, ref.id, d, o); else if (op === 'update') applyUpdate(ref._col, ref.id, d); else remove(ref._col, ref.id);

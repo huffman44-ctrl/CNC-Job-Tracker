@@ -184,7 +184,8 @@ const OwnerStore = (() => {
   async function setCutDateOverride(fileKey, ymd, refs, by) {
     if (ymd != null && ymd !== '' && !isRealYmd(ymd)) throw refusal('That is not a real date (use YYYY-MM-DD).');
     return mutateSheetBilling(fileKey, cur => {
-      if (cur.status === 'in-progress' || cur.status === 'billed') {
+      const st = cur.status || 'unbilled';
+      if (st === 'in-progress' || st === 'billed') {
         throw refusal('This sheet is already priced on an invoice — its cut date is locked.');
       }
       return withRefs({ ...cur, cutDateOverride: ymd || null }, refs);
@@ -195,11 +196,12 @@ const OwnerStore = (() => {
   // marked; only an external one can be put back.
   function setNoCharge(fileKey, on, refs, by) {
     return mutateSheetBilling(fileKey, cur => {
+      const st = cur.status || 'unbilled';   // a stored doc with no status is unbilled
       if (on) {
-        if (cur.status !== 'unbilled') throw refusal('Only an unbilled sheet can be marked no charge (this one is ' + cur.status + ').');
+        if (st !== 'unbilled') throw refusal('Only an unbilled sheet can be marked no charge (this one is ' + st + ').');
         return withRefs({ ...cur, status: 'external' }, refs);
       }
-      if (cur.status !== 'external') throw refusal('This sheet is not marked no charge.');
+      if (st !== 'external') throw refusal('This sheet is not marked no charge.');
       return withRefs({ ...cur, status: 'unbilled' }, refs);
     }, by);
   }
@@ -276,7 +278,11 @@ const OwnerStore = (() => {
   function priceListFor(customerKey) {
     const p = pricing();
     const cb = getCustomerBilling(customerKey);
-    return (p.lists && p.lists[(cb && cb.priceList) || p.defaultList]) || null;
+    const list = p.lists && p.lists[(cb && cb.priceList) || p.defaultList];
+    const num = v => typeof v === 'number' && Number.isFinite(v);
+    const ok = list && ['handlingFirst', 'handlingRepeat', 'hourlyRate', 'weekendRate', 'cutMinimum', 'roundTo'].every(k => num(list[k]))
+      && list.rush && ['standard', 'rush48', 'rush24'].every(k => num(list.rush[k]));
+    return ok ? list : null;   // a partial list is "not set up", never priced from a guess
   }
 
   function _resetForTests() {

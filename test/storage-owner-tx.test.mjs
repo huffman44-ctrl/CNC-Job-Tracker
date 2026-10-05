@@ -29,11 +29,14 @@ test('fake: persistent contention aborts after 5 attempts', async () => {
   const db = makeDb();
   db._seed('c', 'a', { n: 0 });
   const ref = db.collection('c').doc('a');
+  let attempts = 0;
   await assert.rejects(() => db.runTransaction(async tx => {
+    attempts++;
     await tx.get(ref);
     await ref.set({ n: Math.random() });   // always changes the doc we read
     tx.set(ref, { n: 1 });
   }), e => e.code === 'aborted');
+  assert.equal(attempts, 5);
 });
 
 test('fake: failWrites makes set reject with permission-denied; transactions work across collections', async () => {
@@ -59,6 +62,32 @@ test('fake: where/orderBy/limit, onSnapshot fires on write', async () => {
   db.collection('c').onSnapshot(() => fires++);
   await db.collection('c').doc('q').set({ f: false });
   assert.equal(fires, 2);
+});
+
+test('fake: a failed commit writes NOTHING (tx and batch) — update on a missing doc', async () => {
+  const db = makeDb();
+  await assert.rejects(() => db.runTransaction(async tx => {
+    tx.set(db.collection('a').doc('1'), { v: 1 });
+    tx.update(db.collection('a').doc('missing'), { v: 2 });
+  }), e => e.code === 'not-found');
+  assert.equal(dataOf(db, 'a', '1'), undefined);
+  const b = db.batch();
+  b.set(db.collection('a').doc('1'), { v: 1 });
+  b.update(db.collection('a').doc('missing'), { v: 2 });
+  await assert.rejects(() => b.commit(), e => e.code === 'not-found');
+  assert.equal(dataOf(db, 'a', '1'), undefined);
+  // an update after a set of the same doc in one commit is fine
+  await db.runTransaction(async tx => { tx.set(db.collection('a').doc('2'), { v: 1 }); tx.update(db.collection('a').doc('2'), { w: 2 }); });
+  assert.deepEqual(dataOf(db, 'a', '2'), { v: 1, w: 2 });
+});
+
+test('fake: tx.get after a write in the same attempt is rejected (as real Firestore does)', async () => {
+  const db = makeDb();
+  await assert.rejects(() => db.runTransaction(async tx => {
+    tx.set(db.collection('a').doc('1'), { v: 1 });
+    await tx.get(db.collection('a').doc('1'));
+  }), e => e.code === 'failed-precondition');
+  assert.equal(dataOf(db, 'a', '1'), undefined);
 });
 
 /* ── OwnerStore transactional writers ── */
@@ -214,4 +243,29 @@ test('no-db mutate applies to the cache and emits', async () => {
   let n = 0; OwnerStore.onChange(() => n++);
   const d = await OwnerStore.mutateSheetBilling('f1', cur => ({ ...cur, poNumber: 'PO1' }), 'a');
   assert.equal(d.poNumber, 'PO1'); assert.equal(d.status, 'unbilled'); assert.equal(n, 1);
+});
+
+test('a stored sheet doc with no status field counts as unbilled', async () => {
+  const db = fresh(makeDb());
+  db._seed('sheetBilling', 'n1', { cutDateOverride: null });
+  assert.equal((await OwnerStore.setNoCharge('n1', true, {}, 'a')).status, 'external');
+  db._seed('sheetBilling', 'n2', { poNumber: 'x' });
+  assert.equal((await OwnerStore.setCutDateOverride('n2', '2026-10-02', {}, 'a')).cutDateOverride, '2026-10-02');
+  db._seed('sheetBilling', 'n3', { poNumber: 'x' });
+  await assert.rejects(() => OwnerStore.setNoCharge('n3', false, {}, 'a'), /not marked no charge/);
+});
+
+test('priceListFor returns null for a partial or non-numeric list', async () => {
+  const db = fresh(makeDb());
+  await OwnerStore.loadAll();
+  assert.ok(OwnerStore.priceListFor('c'));
+  const full = JSON.parse(JSON.stringify(OwnerStore.SEEDS.pricing.lists.standard));
+  await OwnerStore.setSetting('pricing', { lists: { standard: { hourlyRate: 140 } } }, 'a');
+  assert.equal(OwnerStore.priceListFor('c'), null);
+  await OwnerStore.setSetting('pricing', { lists: { standard: { ...full, rush: { standard: 0, rush48: 0.5 } } } }, 'a');
+  assert.equal(OwnerStore.priceListFor('c'), null, 'missing rush24');
+  await OwnerStore.setSetting('pricing', { lists: { standard: { ...full, cutMinimum: '150' } } }, 'a');
+  assert.equal(OwnerStore.priceListFor('c'), null, 'non-numeric');
+  await OwnerStore.setSetting('pricing', { lists: { standard: full } }, 'a');
+  assert.deepEqual(OwnerStore.priceListFor('c'), full);
 });
