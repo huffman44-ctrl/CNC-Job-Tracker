@@ -235,7 +235,7 @@ const InvoiceStore = (() => {
   const cache = {};                 // number(string) -> invoice doc
   const listeners = [];
   const unsubs = [];
-  const loadedFlags = { one: false, recent: false, prog: false };   // all three must be true
+  const loadedFlags = { one: false, recent: false, prog: false };   // `one` is informational; loaded() uses recent && prog
   const nowMs = () => Date.now();
   const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)));
 

@@ -188,7 +188,7 @@ const BillingScreen = (() => {
         <div class="billing-reminder-actions">
           <button type="button" class="btn btn-primary btn-sm" data-act="imported" data-number="${esc(inv.number)}"${dis}>Imported OK</button>
           <button type="button" class="btn btn-outline btn-sm" data-act="cancel" data-number="${esc(inv.number)}"${dis}>Cancel ${esc(inv.number)}</button>
-          <button type="button" class="btn btn-outline btn-sm" data-act="download" data-number="${esc(inv.number)}">Download again</button>
+          <button type="button" class="btn btn-outline btn-sm" data-act="download" data-number="${esc(inv.number)}"${dis}>Download again</button>
         </div>
       </div>`;
     }).join('');
@@ -314,7 +314,7 @@ const BillingScreen = (() => {
     busy = true; render();
     try {
       await InvoiceStore.cancel(number, opts.currentEmail());
-      setStatus(`Invoice ${number} cancelled. Its sheets are ready to bill again.`);
+      setStatus(`Invoice ${number} cancelled — its sheets are ready to bill again.`);
     } catch (e) {
       setStatus(`Couldn't cancel invoice ${number} — ${(e && e.message) || e}`, true);
     }
@@ -332,7 +332,13 @@ const BillingScreen = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 100);
   }
 
-  return { init, show, render, fmtMoney };
+  // An active job that left the board (exported) must stay billable: reload the finished list.
+  function boardChanged() {
+    if (!els || els.screen.hidden) return;
+    if (loadState === 'ok') loadFinished(); else render();
+  }
+
+  return { init, show, render, fmtMoney, boardChanged };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingScreen;

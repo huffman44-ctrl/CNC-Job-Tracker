@@ -2584,6 +2584,7 @@ async function loadDataAndShowApp() {
   Storage.onSheetsChange(newSheets => {
     sheets = newSheets;
     if (!projectsScreen.hidden) renderProjects();
+    BillingScreen.boardChanged();   // owners' Billing: reload the finished list if a job just left the board
     if (!contentScreen.hidden) {
       const remaining = currentProject
         ? visibleSheets().filter(s => projectKey(s) === currentProject)
@@ -2600,6 +2601,7 @@ async function loadDataAndShowApp() {
   });
 
   Storage.onCompletionChange(() => {
+    BillingScreen.render();   // no-op unless Billing is open
     if (!projectsScreen.hidden) renderProjects();
     if (!contentScreen.hidden)  renderAllSheets();
   });

@@ -244,16 +244,28 @@ test('an in-progress invoice another owner imported leaves inProgress()', async 
   assert.equal(InvoiceStore.inProgress().length, 0);
 });
 
-test('loaded() recovers from a failed one-time startup read (live listeners decide)', async () => {
+test('loaded() recovers from a failed startup read; a cache-only listener snapshot is not loaded', async () => {
   const db = setup();
   const realCollection = db.collection.bind(db);
+  let startupHit = 0, fromCache = true;
+  const wrapSnap = q => { const real = q.onSnapshot.bind(q); q.onSnapshot = (cb, err) => real(snap => cb({ ...snap, metadata: { fromCache } }), err); return q; };
   db.collection = name => {
     const col = realCollection(name);
     if (name !== 'invoices') return col;
-    const realOrder = col.orderBy.bind(col);
-    col.orderBy = (f, d) => { const q = realOrder(f, d); q.get = async () => { throw new Error('startup read failed'); }; return q; };
+    const realOrder = col.orderBy.bind(col), realWhere = col.where.bind(col);
+    col.orderBy = (f, d) => {
+      const q = realOrder(f, d), realLimit = q.limit.bind(q);
+      q.limit = n => { const l = realLimit(n); l.get = async () => { startupHit++; throw new Error('startup read failed'); }; return wrapSnap(l); };
+      return q;
+    };
+    col.where = (f, o, v) => wrapSnap(realWhere(f, o, v));
     return col;
   };
   await InvoiceStore.loadAll();
-  assert.equal(InvoiceStore.loaded(), true);
+  assert.equal(startupHit, 1, 'the startup read really failed');
+  assert.equal(InvoiceStore.loaded(), false, 'cache-only snapshots are not loaded');
+  fromCache = false;
+  await InvoiceStore.loadAll();
+  assert.equal(startupHit, 2);
+  assert.equal(InvoiceStore.loaded(), true, 'server snapshots from both listeners = loaded despite the failed startup read');
 });
