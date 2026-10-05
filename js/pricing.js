@@ -239,10 +239,12 @@ const Pricing = (() => {
       const amount = round2(l.base + l.rush);
       lines.push({ type: 'labor', amount, rate: amount, quantity: 1, serviceDate: '', jobKeys: [l.jobKey], facts: { ...l } });
     });
-    // Reconcile: per-line cents rounding must not drift from the total; the difference goes on the cut line, else the last labor line.
+    // Reconcile: per-line cents rounding must not drift from the total; the difference goes on the cut line, else the largest labor line.
     const diff = round2(result.total - lines.reduce((a, l) => a + l.amount, 0));
     if (diff !== 0) {
-      const target = cutIdx >= 0 ? lines[cutIdx] : lines[lines.length - 1];
+      // No cut line: the LARGEST labor line (first on ties) absorbs it, so no line can go negative.
+      let target = cutIdx >= 0 ? lines[cutIdx] : lines[0];
+      if (cutIdx < 0) lines.forEach(l => { if (l.amount > target.amount) target = l; });
       target.amount = round2(target.amount + diff);
       target.rate = target.amount;
     }
@@ -260,7 +262,7 @@ const Pricing = (() => {
     const firsts = sheets.filter(s => result.perSheet[s.fileKey].repeatOf === null);
     const repeats = sheets.filter(s => result.perSheet[s.fileKey].repeatOf !== null);
     if (firsts.length) out.push({ label: `Handling ${firsts.length} × ${money(pl.handlingFirst)}`, amount: firsts.length * pl.handlingFirst });
-    if (repeats.length) out.push({ label: `Handling ${repeats.length} repeats × ${money(pl.handlingRepeat)}`.replace(/ 1 repeats/, ' 1 repeat'), amount: repeats.length * pl.handlingRepeat });
+    if (repeats.length) out.push({ label: `Handling ${plural(repeats.length, 'repeat', 'repeats')} × ${money(pl.handlingRepeat)}`, amount: repeats.length * pl.handlingRepeat });
     if (sheets.length) {
       const sec = sheets.reduce((a, s) => a + (Number(s.totalTimeSec) || 0), 0);
       out.push({ label: `Cutting ${formatDuration(sec)} × ${money(pl.hourlyRate)}/hr`, amount: sheets.reduce((a, s) => a + result.perSheet[s.fileKey].timeCharge, 0) });

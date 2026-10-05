@@ -121,3 +121,10 @@ test('invariants on every example: Σ lines = total; total − material is a mul
     assert.equal(r._ctx, undefined, 'internal context is not returned');
   }
 });
+
+test('labor-only with a tiny last entry: difference lands on the largest line, no negative line', () => {
+  const r = price({ jobs: { T: job('T', { includeLabor: true, laborLines: [
+    { id: 'a', typeId: 'design', hours: 1.005, note: '' }, { id: 'b', typeId: 'design', hours: 0.005, note: '' }] }) }, sheets: [] });
+  assert.ok(r.lines.every(l => l.amount >= 0), JSON.stringify(r.lines.map(l => l.amount)));
+  assert.equal(sumCents(r.lines), cents(r.total));
+});
