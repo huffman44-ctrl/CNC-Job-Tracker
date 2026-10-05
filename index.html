@@ -295,9 +295,22 @@
         <div class="settings-save-row"><button type="button" class="btn btn-primary btn-sm" id="settings-invoicing-save">Save</button><span id="settings-invoicing-saved" class="settings-card-hint"></span></div>
       </section>
 
+      <section class="settings-card" id="settings-materials-card">
+        <h2 class="settings-card-title">Materials</h2>
+        <p class="settings-card-hint">Material is charged at cost per sheet, after rounding, and never counts toward the cut minimum. Tick Taxable for a material that is sold with sales tax.</p>
+        <table class="settings-table" id="settings-materials-table">
+          <thead><tr><th>Name</th><th>Thickness (in)</th><th>Price per sheet ($)</th><th>Taxable</th><th></th></tr></thead>
+          <tbody id="settings-materials-body"></tbody>
+        </table>
+        <div class="settings-save-row">
+          <button type="button" class="btn btn-outline btn-sm" id="settings-materials-add">Add material</button>
+          <button type="button" class="btn btn-primary btn-sm" id="settings-materials-save">Save</button><span id="settings-materials-saved" class="settings-card-hint"></span>
+        </div>
+      </section>
+
       <section class="settings-card">
         <h2 class="settings-card-title">Customers (billing)</h2>
-        <p class="settings-card-hint">From Manage Customers. <strong>Billed outside this app</strong> keeps a customer's sheets out of Billing (VanLab until its own build; Golden Boys' in-house work). Sheets are still recorded, finished and logged.</p>
+        <p class="settings-card-hint">From Manage Customers. <strong>Billed outside this app</strong> keeps a customer's sheets out of Billing (VanLab until its own build; Golden Boys' in-house work). Sheets are still recorded, finished and logged. <strong>Price list</strong> is the one used to price that customer's jobs. <strong>Remembered material</strong> is what the job form pre-picks for that thickness; the x forgets it.</p>
         <div id="settings-customers-list" class="settings-list"></div>
       </section>
 

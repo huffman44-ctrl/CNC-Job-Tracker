@@ -2593,6 +2593,7 @@ async function loadDataAndShowApp() {
     // Manage Customers screen can be left open on one device while another
     // device adds/renames/removes a customer, so it does need one.
     if (!customersScreen.hidden) renderCustomersList();
+    if (!settingsScreen.hidden) SettingsScreen.render();
   });
 
   Storage.onPrintQueueChange(() => {

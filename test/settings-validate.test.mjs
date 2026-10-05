@@ -86,3 +86,36 @@ test('invoicing: billing start must be a real date or blank; day 0-6; due list',
   assert.equal(V.validateInvoicing(inv({ defaultDue: 'net45' })).ok, false);
   assert.equal(V.validateInvoicing(inv({ defaultDue: 'net30' })).doc.defaultDue, 'net30');
 });
+
+/* ── Non-finite numbers ── */
+test('numbers: a huge digit string (Infinity) is rejected', () => {
+  const huge = '9'.repeat(400);
+  assert.equal(V.validatePrices(priceForm({ hourlyRate: huge })).ok, false);
+  assert.equal(V.validateMaterials([{ name: 'Birch', thicknessIn: '0.75', pricePerSheet: huge, taxable: false }]).ok, false);
+});
+
+/* ── Materials ── */
+const mat = (o = {}) => ({ id: 'mat_abc123', name: '3/4 in Baltic birch', thicknessIn: '0.75', pricePerSheet: '95', taxable: false, ...o });
+test('materials: valid rows keep the id, coerce numbers, store taxable as a real boolean', () => {
+  const r = V.validateMaterials([mat(), mat({ id: '', name: 'MDF', thicknessIn: 0.5, pricePerSheet: '0', taxable: 'on' })], []);
+  assert.equal(r.ok, true);
+  assert.equal(r.items[0].id, 'mat_abc123');
+  assert.equal(r.items[0].thicknessIn, 0.75);
+  assert.equal(r.items[0].pricePerSheet, 95);
+  assert.strictEqual(r.items[0].taxable, false);
+  assert.strictEqual(r.items[1].taxable, true);
+  assert.match(r.items[1].id, /^mat_[a-z0-9]{6}$/);
+});
+test('materials: name required, thickness > 0, price >= 0, ids never reused', () => {
+  assert.equal(V.validateMaterials([mat({ name: '  ' })]).ok, false);
+  assert.equal(V.validateMaterials([mat({ thicknessIn: '0' })]).ok, false);
+  assert.equal(V.validateMaterials([mat({ thicknessIn: 'x' })]).ok, false);
+  assert.equal(V.validateMaterials([mat({ pricePerSheet: '-1' })]).ok, false);
+  assert.equal(V.validateMaterials([mat({ pricePerSheet: '' })]).ok, false);
+  const id = V.newMaterialId(['mat_aaaaaa']);
+  assert.match(id, /^mat_[a-z0-9]{6}$/);
+  assert.notEqual(id, 'mat_aaaaaa');
+});
+test('materials: an empty list is valid', () => {
+  assert.deepEqual(V.validateMaterials([]).items, []);
+});

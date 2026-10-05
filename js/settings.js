@@ -1,7 +1,8 @@
 /**
  * js/settings.js — the Settings screen (spec §7.7). Cards: Screens on/off, Customers
- * (billing), Prices, Labor types, QuickBooks, Invoicing (Phase 2 — the pure validate*
- * functions below, exported for node --test) and Maintenance; Materials is Task 13.
+ * (billing: price list + remembered material defaults), Prices, Labor types, Materials,
+ * QuickBooks, Invoicing (Phase 2 — the pure validate* functions below, exported for
+ * node --test) and Maintenance.
  * Owners only: reached through a header button that exists
  * only when Features.on('settings'). app.js owns navigation; this file owns the cards.
  * Uses app.js's global escHtml / formatDT (resolved at call time, after app.js loads).
@@ -14,7 +15,8 @@ const SettingsValidate = (() => {
     if (typeof v === 'number') return Number.isFinite(v) ? v : null;
     const t = String(v == null ? '' : v).trim();
     if (t === '' || !/^[+-]?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
-    return Number(t);
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
   }
   const pctToFraction = p => Math.round(p * 100) / 10000;       // 50 → 0.5
   const fractionToPct = f => Math.round(f * 10000) / 100;       // 0.5 → 50
@@ -78,6 +80,33 @@ const SettingsValidate = (() => {
     return { ok: true, types };
   }
 
+  // Ids are never reused: avoid every id already in `taken` (saved ids, plus any removed this session).
+  function newMaterialId(taken) {
+    const used = new Set(taken || []);
+    for (;;) {
+      const id = `mat_${Math.random().toString(36).slice(2, 8).padEnd(6, '0')}`;
+      if (!used.has(id)) return id;
+    }
+  }
+
+  function validateMaterials(rows, takenIds) {
+    const items = [];
+    const taken = new Set(takenIds || []);
+    for (const r of rows || []) if (r.id) taken.add(r.id);
+    for (const r of rows || []) {
+      const name = String(r.name || '').trim();
+      if (!name) return fail('Every material needs a name.');
+      const thicknessIn = num(r.thicknessIn);
+      if (thicknessIn === null || thicknessIn <= 0) return fail(`${name}: the thickness must be a number more than 0.`);
+      const pricePerSheet = num(r.pricePerSheet);
+      if (pricePerSheet === null || pricePerSheet < 0) return fail(`${name}: the price per sheet must be a number, 0 or more.`);
+      let id = r.id;
+      if (!id) { id = newMaterialId(taken); taken.add(id); }
+      items.push({ id, name, thicknessIn, pricePerSheet, taxable: !!r.taxable });
+    }
+    return { ok: true, items };
+  }
+
   function validateQbItems(form) {
     const f = form || {};
     const cnc = String(f.cnc || '').trim(), materials = String(f.materials || '').trim();
@@ -108,7 +137,7 @@ const SettingsValidate = (() => {
     return { ok: true, doc: { seedNumber: Number(seedText), weekEndingDay: Number(dayText), defaultDue: f.defaultDue, billingStartDate: bs || null } };
   }
 
-  return { validatePrices, validateLaborTypes, validateQbItems, validateInvoicing, newLaborTypeId, pctToFraction, fractionToPct };
+  return { validatePrices, validateLaborTypes, validateMaterials, newMaterialId, validateQbItems, validateInvoicing, newLaborTypeId, pctToFraction, fractionToPct };
 })();
 
 const SettingsScreen = (() => {
@@ -131,6 +160,7 @@ const SettingsScreen = (() => {
     els.addEmail.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addOwnerColumn(); } });
     els.grid.addEventListener('change', onSwitchChange);
     els.customers.addEventListener('change', onCustomerChange);
+    els.customers.addEventListener('click', onCustomerClick);
     els.migBtn.addEventListener('click', runMigration);
     initPhase2Cards();
   }
@@ -145,6 +175,7 @@ const SettingsScreen = (() => {
     opts.hideOthers();
     els.screen.hidden = false;
     setStatus('');
+    resetDrafts();   // unsaved edits don't survive leaving and coming back
     render();
   }
 
@@ -202,41 +233,83 @@ const SettingsScreen = (() => {
     render();
   }
 
-  /* ── Customers (billing) ── */
+  /* ── Customers (billing): outside-app flag, price list, remembered material per thickness ── */
   function renderCustomers() {
     const customers = Storage.getCustomers();
     if (!customers.length) { els.customers.innerHTML = '<p class="settings-card-hint">No customers yet — add them in Manage Customers.</p>'; return; }
+    const ok = OwnerStore.loaded('customerBilling');
+    const lists = Object.keys(OwnerStore.pricing().lists || {});
     els.customers.innerHTML = customers.map(c => {
       const cb = OwnerStore.getCustomerBilling(c.key);
       const outside = !!(cb && cb.billedOutsideApp);
-      return `<div class="settings-row"><span>${escHtml(c.name)}</span>
-        <label><input type="checkbox" data-customer="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${outside ? 'checked' : ''}> Billed outside this app</label></div>`;
+      const cur = (cb && cb.priceList) || 'standard';
+      const names = lists.includes(cur) ? lists : [...lists, cur];
+      const defaults = (cb && cb.defaultMaterialByThickness) || {};
+      const chips = Object.keys(defaults).sort((x, y) => Number(x) - Number(y)).map(t => {
+        const d = defaults[t] || {};
+        const what = d.kind === 'ours' ? (d.name || 'our material') : 'customer supplied';
+        return `<span class="settings-chip">${escHtml(t)} in → ${escHtml(what)}<button type="button" data-forget="${escHtml(t)}" data-customer="${escHtml(c.key)}" data-name="${escHtml(c.name)}" aria-label="Forget ${escHtml(t)} in default for ${escHtml(c.name)}" ${ok ? '' : 'disabled'}>×</button></span>`;
+      }).join('');
+      return `<div class="settings-customer"><div class="settings-customer-top"><span>${escHtml(c.name)}</span>
+        <label><input type="checkbox" data-customer="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${outside ? 'checked' : ''} ${ok ? '' : 'disabled'}> Billed outside this app</label>
+        <label>Price list <select class="form-input" data-pricelist="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${ok ? '' : 'disabled'}>${names.map(n => `<option value="${escHtml(n)}" ${n === cur ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}</select></label></div>
+        <div class="settings-chips">Remembered material: ${chips || 'none yet'}</div></div>`;
     }).join('');
   }
 
   async function onCustomerChange(e) {
     const box = e.target.closest('input[data-customer]');
-    if (!box) return;
+    const sel = e.target.closest('select[data-pricelist]');
+    if (!box && !sel) return;
     try {
-      await OwnerStore.setCustomerBilling(box.dataset.customer, { name: box.dataset.name, billedOutsideApp: box.checked }, opts.currentEmail());
-      setStatus(`${box.dataset.name}: ${box.checked ? 'billed outside this app' : 'billed here'}.`);
+      if (box) {
+        await OwnerStore.mutateCustomerBilling(box.dataset.customer, cur => ({ ...cur, name: box.dataset.name, billedOutsideApp: box.checked }), opts.currentEmail());
+        setStatus(`${box.dataset.name}: ${box.checked ? 'billed outside this app' : 'billed here'}.`);
+      } else {
+        await OwnerStore.mutateCustomerBilling(sel.dataset.pricelist, cur => ({ ...cur, name: sel.dataset.name, priceList: sel.value }), opts.currentEmail());
+        setStatus(`${sel.dataset.name}: price list ${sel.value}.`);
+      }
     } catch (err) {
       setStatus(`Couldn't save — ${err.message}`, true);
       render();
     }
   }
 
+  async function onCustomerClick(e) {
+    const b = e.target.closest('button[data-forget]');
+    if (!b || b.disabled) return;
+    const t = b.dataset.forget;
+    try {
+      // The key is removed from the server copy inside the transaction, so a default added elsewhere meanwhile survives.
+      await OwnerStore.mutateCustomerBilling(b.dataset.customer, cur => {
+        const d = { ...(cur.defaultMaterialByThickness || {}) };
+        delete d[t];
+        return { ...cur, defaultMaterialByThickness: d };
+      }, opts.currentEmail());
+      setStatus(`${b.dataset.name}: forgot the ${t} in material.`);
+    } catch (err) {
+      setStatus(`Couldn't save — ${err.message}`, true);
+    }
+    render();
+  }
+
   /* ── Phase 2 cards: Prices, Labor types, QuickBooks, Invoicing (spec §7.7, §15.8) ── */
   const VAL = SettingsValidate;
-  const dirty = { prices: false, labor: false, qb: false, invoicing: false };   // a card being edited is never redrawn from the store
+  const dirty = { prices: false, labor: false, materials: false, qb: false, invoicing: false };   // a card being edited is never redrawn from the store
   let laborDraft = null;   // working copy of the labor type rows while that card is edited
+  let matDraft = null;     // same for the materials rows
+  const matRemoved = new Set();   // material ids deleted this session — never handed out again
+  function resetDrafts() {
+    for (const k of Object.keys(dirty)) dirty[k] = false;
+    laborDraft = null; matDraft = null;
+  }
   const val = id => byId(id).value;
   const setVal = (id, v) => { byId(id).value = v; };
 
   function initPhase2Cards() {
     for (const c of Object.keys(dirty)) {
       const card = byId(`settings-${c}-card`);
-      const mark = () => { dirty[c] = true; if (c === 'labor') syncLaborDraft(); };
+      const mark = () => { dirty[c] = true; if (c === 'labor') syncLaborDraft(); if (c === 'materials') syncMatDraft(); };
       card.addEventListener('input', mark);
       card.addEventListener('change', mark);
     }
@@ -247,6 +320,12 @@ const SettingsScreen = (() => {
     byId('settings-labor-body').addEventListener('click', e => {
       const b = e.target.closest('button[data-lt-remove]');
       if (b) removeLaborRow(Number(b.dataset.ltRemove));
+    });
+    byId('settings-materials-add').addEventListener('click', addMatRow);
+    byId('settings-materials-save').addEventListener('click', saveMaterials);
+    byId('settings-materials-body').addEventListener('click', e => {
+      const b = e.target.closest('button[data-mat-remove]');
+      if (b) removeMatRow(Number(b.dataset.matRemove));
     });
     byId('settings-qb-save').addEventListener('click', saveQb);
     byId('settings-invoicing-save').addEventListener('click', saveInvoicing);
@@ -261,7 +340,9 @@ const SettingsScreen = (() => {
 
   function renderPhase2Cards() {
     const canSave = OwnerStore.loaded('settings');
-    for (const id of ['prices', 'labor', 'qb', 'invoicing']) byId(`settings-${id}-save`).disabled = !canSave;
+    const laborOk = canSave && OwnerStore.loaded('jobBilling');   // the in-use check reads jobBilling
+    for (const id of ['prices', 'materials', 'qb', 'invoicing']) byId(`settings-${id}-save`).disabled = !canSave;
+    byId('settings-labor-save').disabled = !laborOk;
     byId('settings-labor-restore').disabled = !canSave;
     if (!dirty.prices) {
       const std = (OwnerStore.pricing().lists || {}).standard || {};
@@ -277,6 +358,9 @@ const SettingsScreen = (() => {
     if (!dirty.labor) laborDraft = OwnerStore.laborTypes().map(t => ({ id: t.id, name: t.name, rate: t.rate, minHours: t.minHours, qbItem: t.qbItem }));
     if (!dirty.labor || !byId('settings-labor-body').children.length) renderLaborRows();
     byId('settings-labor-saved').textContent = savedCaption('laborTypes');
+    if (!dirty.materials) matDraft = OwnerStore.materials().map(m => ({ id: m.id, name: m.name, thicknessIn: m.thicknessIn, pricePerSheet: m.pricePerSheet, taxable: !!m.taxable }));
+    if (!dirty.materials || !byId('settings-materials-body').children.length) renderMatRows();
+    byId('settings-materials-saved').textContent = savedCaption('materials');
     if (!dirty.qb) {
       const q = OwnerStore.qbItems();
       setVal('settings-qb-cnc', q.cnc || ''); setVal('settings-qb-materials', q.materials || '');
@@ -339,7 +423,7 @@ const SettingsScreen = (() => {
       <td><input class="form-input" data-f="rate" inputmode="decimal" value="${escHtml(r.rate)}" aria-label="Rate per hour"></td>
       <td><input class="form-input" data-f="minHours" inputmode="decimal" value="${escHtml(r.minHours)}" aria-label="Minimum hours per job"></td>
       <td><input class="form-input" data-f="qbItem" value="${escHtml(r.qbItem)}" aria-label="QuickBooks item"></td>
-      <td><button type="button" class="btn btn-outline btn-sm" data-lt-remove="${i}">Remove</button></td></tr>`).join('');
+      <td><button type="button" class="btn btn-outline btn-sm" data-lt-remove="${i}" ${OwnerStore.loaded('jobBilling') ? '' : 'disabled'}>Remove</button></td></tr>`).join('');
     byId('settings-labor-restore').hidden = visible.length > 0;
     byId('settings-labor-table').hidden = visible.length === 0;
   }
@@ -364,6 +448,7 @@ const SettingsScreen = (() => {
   }
 
   function removeLaborRow(i) {
+    if (!OwnerStore.loaded('jobBilling')) { setStatus("Job data hasn't loaded yet, so a labor type can't be removed safely. Try again in a moment.", true); return; }
     syncLaborDraft();
     const r = laborDraft[i];
     if (!r) return;
@@ -376,6 +461,7 @@ const SettingsScreen = (() => {
   }
 
   function saveLabor() {
+    if (!OwnerStore.loaded('jobBilling')) { setStatus("Couldn't save — job data hasn't loaded yet.", true); return; }
     syncLaborDraft();
     saveCard('labor', 'laborTypes', () => {
       const r = VAL.validateLaborTypes(laborDraft, laborTypesInUse());
@@ -385,6 +471,59 @@ const SettingsScreen = (() => {
 
   function restoreLabor() {
     saveCard('labor', 'laborTypes', () => ({ ok: true, data: { types: JSON.parse(JSON.stringify(OwnerStore.SEEDS.laborTypes.types)) } }), 'Design and CAM restored.');
+  }
+
+  /* materials */
+  function syncMatDraft() {
+    if (!matDraft) return;
+    byId('settings-materials-body').querySelectorAll('tr[data-mat-idx]').forEach(tr => {
+      const r = matDraft[Number(tr.dataset.matIdx)];
+      if (!r) return;
+      r.name = tr.querySelector('[data-f="name"]').value; r.thicknessIn = tr.querySelector('[data-f="thicknessIn"]').value;
+      r.pricePerSheet = tr.querySelector('[data-f="pricePerSheet"]').value; r.taxable = tr.querySelector('[data-f="taxable"]').checked;
+    });
+  }
+
+  function renderMatRows() {
+    byId('settings-materials-body').innerHTML = (matDraft || []).map((r, i) => `<tr data-mat-idx="${i}">
+      <td><input class="form-input" data-f="name" value="${escHtml(r.name)}" aria-label="Name"></td>
+      <td><input class="form-input" data-f="thicknessIn" inputmode="decimal" value="${escHtml(r.thicknessIn)}" aria-label="Thickness in inches"></td>
+      <td><input class="form-input" data-f="pricePerSheet" inputmode="decimal" value="${escHtml(r.pricePerSheet)}" aria-label="Price per sheet"></td>
+      <td><input type="checkbox" data-f="taxable" ${r.taxable ? 'checked' : ''} aria-label="Taxable"></td>
+      <td><button type="button" class="btn btn-outline btn-sm" data-mat-remove="${i}">Remove</button></td></tr>`).join('');
+    byId('settings-materials-table').hidden = !(matDraft || []).length;
+  }
+
+  function addMatRow() {
+    syncMatDraft(); dirty.materials = true;
+    matDraft = matDraft || [];
+    matDraft.push({ id: null, name: '', thicknessIn: '', pricePerSheet: '', taxable: false });
+    renderMatRows();
+  }
+
+  // Removing a material never touches jobs that already chose it — their jobBilling.material is a snapshot.
+  function removeMatRow(i) {
+    syncMatDraft();
+    const r = matDraft[i];
+    if (!r) return;
+    if (r.id) matRemoved.add(r.id);
+    matDraft.splice(i, 1);
+    dirty.materials = true;
+    renderMatRows();
+  }
+
+  function usedMaterialIds() {
+    const ids = new Set(matRemoved);
+    for (const jb of OwnerStore.allJobBilling()) if (jb.material && jb.material.materialId) ids.add(jb.material.materialId);
+    return ids;
+  }
+
+  function saveMaterials() {
+    syncMatDraft();
+    saveCard('materials', 'materials', () => {
+      const r = VAL.validateMaterials(matDraft, usedMaterialIds());
+      return r.ok ? { ok: true, data: { items: r.items } } : r;
+    }, 'Materials saved.');
   }
 
   /* QuickBooks + Invoicing */
