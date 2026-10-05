@@ -246,6 +246,55 @@
         <p class="settings-card-hint">The column appears for this session; it is remembered once any switch is ticked for it. The account itself is created in the Firebase console and added to the Firestore rules by hand.</p>
       </section>
 
+      <section class="settings-card" id="settings-prices-card">
+        <h2 class="settings-card-title">Prices</h2>
+        <p class="settings-card-hint">The standard price list. Percentages are typed as whole numbers (50 means 50%).</p>
+        <div class="settings-form-row"><label for="settings-price-handlingFirst">First-sheet handling ($)</label><input id="settings-price-handlingFirst" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-handlingRepeat">Repeat handling ($)</label><input id="settings-price-handlingRepeat" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-hourlyRate">Hourly rate ($/hr of Aspire time)</label><input id="settings-price-hourlyRate" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-rush48Pct">48-hour rush (%)</label><input id="settings-price-rush48Pct" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-rush24Pct">24-hour rush (%)</label><input id="settings-price-rush24Pct" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-weekendPct">Weekend (%)</label><input id="settings-price-weekendPct" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-cutMinimum">Cut minimum ($)</label><input id="settings-price-cutMinimum" class="form-input" inputmode="decimal"></div>
+        <div class="settings-form-row"><label for="settings-price-roundTo">Round to ($)</label><input id="settings-price-roundTo" class="form-input" inputmode="decimal"></div>
+        <div class="settings-save-row"><button type="button" class="btn btn-primary btn-sm" id="settings-prices-save">Save</button><span id="settings-prices-saved" class="settings-card-hint"></span></div>
+      </section>
+
+      <section class="settings-card" id="settings-labor-card">
+        <h2 class="settings-card-title">Labor types</h2>
+        <p class="settings-card-hint">Hourly work added to a job (Design, CAM…). A type used on a job that isn't billed yet can't be removed.</p>
+        <table class="settings-table" id="settings-labor-table">
+          <thead><tr><th>Name</th><th>Rate ($/hr)</th><th>Minimum hours (per job)</th><th>QuickBooks item (exact name)</th><th></th></tr></thead>
+          <tbody id="settings-labor-body"></tbody>
+        </table>
+        <div class="settings-save-row">
+          <button type="button" class="btn btn-outline btn-sm" id="settings-labor-add">Add type</button>
+          <button type="button" class="btn btn-outline btn-sm" id="settings-labor-restore" hidden>Restore Design and CAM</button>
+          <button type="button" class="btn btn-primary btn-sm" id="settings-labor-save">Save</button><span id="settings-labor-saved" class="settings-card-hint"></span>
+        </div>
+      </section>
+
+      <section class="settings-card" id="settings-qb-card">
+        <h2 class="settings-card-title">QuickBooks</h2>
+        <p class="settings-card-hint">Must match the Product/Service name in QuickBooks exactly — the import fails on a typo.</p>
+        <div class="settings-form-row"><label for="settings-qb-cnc">Item for CNC work</label><input id="settings-qb-cnc" class="form-input" autocomplete="off"></div>
+        <div class="settings-form-row"><label for="settings-qb-materials">Item for materials</label><input id="settings-qb-materials" class="form-input" autocomplete="off"></div>
+        <div class="settings-form-row"><label for="settings-qb-taxableCnc">Taxable for CNC work</label><select id="settings-qb-taxableCnc" class="form-input"><option value="N">N</option><option value="Y">Y</option></select></div>
+        <div class="settings-form-row"><label for="settings-qb-taxableLabor">Taxable for labor</label><select id="settings-qb-taxableLabor" class="form-input"><option value="N">N</option><option value="Y">Y</option></select></div>
+        <div class="settings-save-row"><button type="button" class="btn btn-primary btn-sm" id="settings-qb-save">Save</button><span id="settings-qb-saved" class="settings-card-hint"></span></div>
+      </section>
+
+      <section class="settings-card" id="settings-invoicing-card">
+        <h2 class="settings-card-title">Invoicing</h2>
+        <div class="settings-form-row"><label for="settings-inv-seedNumber">Last QuickBooks invoice number</label><input id="settings-inv-seedNumber" class="form-input" inputmode="numeric"></div>
+        <p class="settings-card-hint">The next suggestion is this + 1, unless a higher number was already used here.</p>
+        <div class="settings-form-row"><label for="settings-inv-weekEndingDay">Week ends on</label><select id="settings-inv-weekEndingDay" class="form-input"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></div>
+        <div class="settings-form-row"><label for="settings-inv-defaultDue">Default due date</label><select id="settings-inv-defaultDue" class="form-input"><option value="receipt">Due upon receipt</option><option value="net15">Net 15</option><option value="net30">Net 30</option></select></div>
+        <div class="settings-form-row"><label for="settings-inv-billingStartDate">Billing starts on</label><input id="settings-inv-billingStartDate" class="form-input" type="date"></div>
+        <p class="settings-card-hint">Sheets cut before this date and design hours entered before it never show in Billing. Set it to the day after the last week billed the old way.</p>
+        <div class="settings-save-row"><button type="button" class="btn btn-primary btn-sm" id="settings-invoicing-save">Save</button><span id="settings-invoicing-saved" class="settings-card-hint"></span></div>
+      </section>
+
       <section class="settings-card">
         <h2 class="settings-card-title">Customers (billing)</h2>
         <p class="settings-card-hint">From Manage Customers. <strong>Billed outside this app</strong> keeps a customer's sheets out of Billing (VanLab until its own build; Golden Boys' in-house work). Sheets are still recorded, finished and logged.</p>
@@ -264,7 +313,6 @@
         </div>
       </section>
 
-      <p class="settings-card-hint">Prices, labor types, QuickBooks items, materials and the invoice seed arrive with Phase 2.</p>
     </main>
   </div>
 

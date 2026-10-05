@@ -120,6 +120,8 @@ const OwnerStore = (() => {
 
   /* ── jobBilling/{jobKey} (spec §5.4) ── */
   function getJobBilling(jobKey) { return caches.jobBilling[jobKey] || null; }
+  // Read-only list of every cached jobBilling doc (Settings › Labor types asks which types are in use).
+  function allJobBilling() { return Object.values(caches.jobBilling); }
 
   function newJobBilling(jobName) {
     return {
@@ -295,7 +297,7 @@ const OwnerStore = (() => {
   // Several cache-only writes, ONE emit: [{ name, id, doc }]. Same no-db/after-commit use as _putLocal.
   function _putLocalMany(items) { items.forEach(i => { caches[i.name][i.id] = i.doc; }); emit(); }
 
-  return { SEEDS, init, loadAll, onChange, getJobBilling, newJobBilling, mutateJobBilling, setJobBilling, hasJobDetails, newLaborLine,
+  return { SEEDS, init, loadAll, onChange, getJobBilling, allJobBilling, newJobBilling, mutateJobBilling, setJobBilling, hasJobDetails, newLaborLine,
     getSheetBilling, mutateSheetBilling, setCutDateOverride, setNoCharge, getCustomerBilling, mutateCustomerBilling, setCustomerBilling, rememberMaterialDefault,
     getSetting, setSetting, ensureSeeded, laborTypes, materials, pricing, qbItems, invoicing, priceListFor, loaded,
     _resetForTests, _seedForTests, _putLocal, _putLocalMany };
