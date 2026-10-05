@@ -31,6 +31,25 @@ const JobDetails = (() => {
     return x && y ? `${x[1]}×${y[1]}` : '';
   }
 
+  // The transaction body for the form's Save (runs on the SERVER copy; pure). It owns only the
+  // form's fields — laborLines, readyForBilling and noDesignTime stay exactly as the server has
+  // them, so an edit can never wipe hours. A customer change is refused once any labor line is
+  // on an invoice (Decision 6; the form also checks the job's sheets before saving).
+  function applyDetails(cur, form) {
+    const lines = Array.isArray(cur.laborLines) ? cur.laborLines : [];
+    if (cur.customerKey && cur.customerKey !== form.customerKey && lines.some(l => (l.status || 'unbilled') !== 'unbilled')) {
+      throw Object.assign(new Error(`${cur.jobName || form.jobName} already has billed work for ${cur.customerName}; its customer can't change.`), { ownerRefusal: true });
+    }
+    return { ...cur, jobName: form.jobName || cur.jobName || '', customerKey: form.customerKey, customerName: form.customerName, material: form.material, turnaround: form.turnaround, thicknessIn: form.thicknessIn };
+  }
+
+  // "48-hour rush (+50%)" from the price list; with no list loaded, the plain words (never NaN).
+  const RUSH_WORDS = { rush48: '48-hour rush', rush24: '24-hour rush' };
+  function rushLabel(key, list) {
+    const v = list && list.rush ? list.rush[key] : null;
+    return typeof v === 'number' && Number.isFinite(v) ? `${RUSH_WORDS[key]} (+${Math.round(v * 100)}%)` : RUSH_WORDS[key];
+  }
+
   let els = null;
   let hooks = { noteKey: null, customerKey: null, currentEmail: () => '', onCancelJob: async () => {}, fillCustomerSelect: null };
   let ctx = null;   // { mode:'new'|'edit', jobName, jobKey, jobSheets, thicknessIn, resolve }
@@ -43,6 +62,7 @@ const JobDetails = (() => {
       sheets: byId('job-details-sheets'), summary: byId('job-details-summary'),
       customer: byId('job-details-customer'), otherGroup: byId('job-details-customer-other-group'), other: byId('job-details-customer-other'),
       oursRadio: byId('job-details-material-ours'), material: byId('job-details-material'), materialHint: byId('job-details-material-hint'),
+      rush48: byId('job-details-rush48-text'), rush24: byId('job-details-rush24-text'),
       error: byId('job-details-error'), cancel: byId('job-details-cancel'), confirm: byId('job-details-confirm'),
     };
     els.customer.addEventListener('change', () => { els.otherGroup.hidden = els.customer.value !== '__other__'; applyMaterialDefault(); });
@@ -83,7 +103,11 @@ const JobDetails = (() => {
       els.material.innerHTML = materials.map(m => `<option value="${escHtml(m.id)}">${escHtml(m.name)} — $${Number(m.pricePerSheet || 0).toFixed(2)} / sheet</option>`).join('');
       els.oursRadio.disabled = materials.length === 0;
       els.material.disabled = materials.length === 0;
-      els.materialHint.textContent = materials.length ? '' : 'No materials set up yet — Settings › Materials arrives with Phase 2.';
+      els.materialHint.textContent = materials.length ? '' : 'No materials yet — add them in Settings › Materials.';
+      const pr = OwnerStore.pricing();
+      const rushList = (pr.lists && (pr.lists[pr.defaultList] || pr.lists.standard)) || null;
+      if (els.rush48) els.rush48.textContent = rushLabel('rush48', rushList);
+      if (els.rush24) els.rush24.textContent = rushLabel('rush24', rushList);
 
       const mat = existing ? existing.material : null;
       setRadio('jd-material', mat && mat.kind === 'ours' && materials.length ? 'ours' : 'customer');
@@ -129,22 +153,38 @@ const JobDetails = (() => {
       customerName = match.name; customerKey = match.key;
     }
     const kind = radio('jd-material');
-    let material = { kind: 'customer', materialId: null, name: '', pricePerSheet: 0 };
+    let material = { kind: 'customer', materialId: null, name: '', pricePerSheet: 0, taxable: false };
     if (kind === 'ours') {
       const m = OwnerStore.materials().find(x => x.id === els.material.value);
       if (!m) { showError('Pick one of our materials, or choose Customer supplied.'); return; }
-      material = { kind: 'ours', materialId: m.id, name: m.name, pricePerSheet: Number(m.pricePerSheet || 0) };   // price snapshot at selection
+      material = { kind: 'ours', materialId: m.id, name: m.name, pricePerSheet: Number(m.pricePerSheet || 0), taxable: !!m.taxable };   // price + taxable snapshot at selection
     }
     const turnaround = radio('jd-turnaround') || 'standard';
     const by = hooks.currentEmail();
+    const form = { jobName: ctx.jobName, customerKey, customerName, material, turnaround, thicknessIn: ctx.thicknessIn };
+
+    // Customer-change guard (Decision 6). The transaction re-checks the labor lines on the server.
+    const existing = OwnerStore.getJobBilling(ctx.jobKey);
+    if (OwnerStore.hasJobDetails(ctx.jobKey) && existing.customerKey !== customerKey) {
+      const old = existing.customerName;
+      const billed = ctx.jobSheets.some(s => { const sb = OwnerStore.getSheetBilling(s.fileKey); return sb && (sb.status === 'in-progress' || sb.status === 'billed'); });
+      if (billed) { showError(`${ctx.jobName} already has billed work for ${old}; its customer can't change.`); return; }
+      try { applyDetails(existing, form); } catch (err) { showError(err.message); return; }
+      const finished = ctx.jobSheets.length > 0 && ctx.jobSheets.every(s => s.finished === true);
+      if (finished && ctx.warnedFor !== customerKey) {
+        ctx.warnedFor = customerKey;
+        showError(`The Master Job Log rows for this job stay on the ${old} tab — move them by hand. Click Save again to change the customer anyway.`);
+        return;
+      }
+    }
     els.confirm.disabled = true;
     try {
       if (!Storage.getCustomers().some(c => c.key === customerKey)) await Storage.addCustomer(customerKey, customerName);
       await Storage.setProjectCustomer(ctx.jobKey, customerName);
       await Storage.upsertJob(ctx.jobKey, ctx.jobName, by);
-      await OwnerStore.setJobBilling(ctx.jobKey, { jobName: ctx.jobName, customerKey, customerName, material, turnaround, thicknessIn: ctx.thicknessIn }, by);
+      await OwnerStore.mutateJobBilling(ctx.jobKey, cur => applyDetails(cur, form), by);
       // The details are saved; a failed remembered-default must not strand the form.
-      try { await OwnerStore.rememberMaterialDefault(customerKey, customerName, ctx.thicknessIn, material); }
+      try { await OwnerStore.rememberMaterialDefault(customerKey, customerName, ctx.thicknessIn, material, by); }
       catch (err) { console.warn('rememberMaterialDefault failed:', err); }
       close(true);
     } catch (err) {
@@ -174,7 +214,7 @@ const JobDetails = (() => {
 
   function openEdit(jobName, jobSheets) { return open('edit', jobName, jobSheets); }
 
-  return { thicknessFromMaterialInfo, sheetSizeLabel, init, promptForNewJobs, openEdit };
+  return { applyDetails, rushLabel, thicknessFromMaterialInfo, sheetSizeLabel, init, promptForNewJobs, openEdit };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = JobDetails;

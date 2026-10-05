@@ -200,7 +200,7 @@ async function main() {
   assert(/Bridge wall panels/.test(await page.textContent('#owner-panel')), 'panel: labor line added');
   assert(await page.$eval('#owner-panel [data-action="done"]', b => !b.disabled), 'panel: Done enabled after a labor line');
   const typeOptions = await page.$$eval('#owner-panel [data-line-type] option', os => os.map(o => o.textContent));
-  assert(typeOptions.some(t => /Design — \$150\/hr \(min 1 h\)/.test(t)) && typeOptions.some(t => /CAM — \$85\/hr \(min 0.5 h\)/.test(t)), 'panel: labor types come from the seeded settings doc');
+  assert(typeOptions.some(t => /Design — \$150\/hr \(min 1 h per job\)/.test(t)) && typeOptions.some(t => /CAM — \$85\/hr \(min 0.5 h per job\)/.test(t)), 'panel: labor types come from the seeded settings doc');
   // Half-typed input survives a shop-floor completion change (owner panel redraw), focus included.
   await page.fill('#owner-panel [data-line-hours]', '2.25');
   await page.fill('#owner-panel [data-line-note]', 'Half typed note');
