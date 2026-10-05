@@ -193,3 +193,14 @@ test('refuses to price silently', () => {
   assert.throws(() => price({ jobs: { L: job('L', { includeLabor: true, laborLines: [{ id: 'l', typeId: 'gone', hours: 1 }] }) }, sheets: [] }), /labor type/);
   assert.throws(() => price({ jobs: {}, sheets: [] }), /Nothing to bill/);
 });
+
+test('refuses bad labor types, hours, material price and sheet time', () => {
+  const lab = (extra, types = LABOR) => Pricing.priceInvoice({ priceList: STANDARD, laborTypes: types, priorBilled: [], jobs: { L: job('L', { includeLabor: true, laborLines: [{ id: 'l', typeId: 'design', hours: 1, note: '', ...extra }] }) }, sheets: [] });
+  assert.throws(() => lab({}, [{ id: 'design', name: 'Design', minHours: 1 }]), /no rate/);
+  assert.throws(() => lab({}, [{ id: 'design', name: 'Design', rate: 150, minHours: -1 }]), /no minimum hours/);
+  assert.throws(() => lab({}, [{ id: 'design', name: 'Design', rate: 150 }]), /no minimum hours/);
+  [0, -1, NaN, '', undefined].forEach(h => assert.throws(() => lab({ hours: h }), /no hours/));
+  assert.throws(() => price({ jobs: { D: job('D', { material: { kind: 'ours', pricePerSheet: undefined } }) }, sheets: [sheet('D', 1, 60, '2026-10-01')] }), /has no price/);
+  [undefined, NaN, '600', -5].forEach(v => assert.throws(() => price({ jobs: { S: job('S') }, sheets: [sheet('S', 1, v, '2026-10-01')] }), /Aspire time/));
+  assert.equal(price({ jobs: { S: job('S') }, sheets: [sheet('S', 1, 0, '2026-10-01')] }).perJob.S.firsts, 1);
+});

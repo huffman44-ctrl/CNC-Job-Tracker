@@ -1,8 +1,9 @@
 /**
  * js/pricing.js — the ONE place that knows what makes two sheets "the same design", how an
  * Aspire time is read, and what a sheet's cut date is. Phase 1 (2026-10-04 spec §8.1, §12.1)
- * ships only these helpers; Phase 2 adds priceInvoice() here and NOTHING ELSE in the app does
- * price math. Pure: no DOM, no Firestore, no Date.now() — callers pass dates.
+ * shipped these helpers.
+ * Phase 2: priceInvoice() — the ONLY place money is computed. Nothing else in the app does price math.
+ * Pure: no DOM, no Firestore, no Date.now() — callers pass dates.
  * Browser global `Pricing`; module.exports for node --test.
  */
 const Pricing = (() => {
@@ -109,6 +110,7 @@ const Pricing = (() => {
 
     sheets.forEach(s => {
       if (!jobs[s.jobKey]) throw new Error(`Sheet ${s.fileKey} has no job ${s.jobKey}`);
+      if (!(typeof s.totalTimeSec === "number" && isFinite(s.totalTimeSec) && s.totalTimeSec >= 0)) throw new Error(`Sheet ${s.fileKey} has no valid Aspire time`);
       if (!s.cutDate) throw new Error(`Sheet ${s.fileKey} is not cut — it cannot be on an invoice`);
     });
 
@@ -157,7 +159,13 @@ const Pricing = (() => {
       let laborBase = 0, laborRush = 0;
       if (job.includeLabor) {
         const lines = job.laborLines || [];
-        lines.forEach(l => { if (!types[l.typeId]) throw new Error(`Unknown labor type "${l.typeId}" on ${job.jobName}`); });
+        lines.forEach(l => {
+          const t = types[l.typeId];
+          if (!t) throw new Error(`Unknown labor type "${l.typeId}" on ${job.jobName}`);
+          if (!(typeof t.rate === "number" && isFinite(t.rate))) throw new Error(`Labor type "${t.id}" has no rate`);
+          if (!(typeof t.minHours === "number" && isFinite(t.minHours) && t.minHours >= 0)) throw new Error(`Labor type "${t.id}" has no minimum hours`);
+          if (!(typeof l.hours === "number" && isFinite(l.hours) && l.hours > 0)) throw new Error(`A ${t.name || t.id} line on ${job.jobName} has no hours`);
+        });
         // Minimums per job, per type (Decision 7): sum each type's hours on this job, apply minHours
         // once, and put any shortfall on the LAST line of that type (one line per entry stays).
         const sumByType = {}, lastByType = {};
@@ -175,6 +183,7 @@ const Pricing = (() => {
         });
       }
       const m = job.material || {};
+      if (m.kind === "ours" && !(typeof m.pricePerSheet === "number" && isFinite(m.pricePerSheet) && m.pricePerSheet >= 0)) throw new Error(`Material on ${job.jobName} has no price`);
       const material = m.kind === 'ours' ? (Number(m.pricePerSheet) || 0) * js.length : 0;
       const rush = cutBase * rp;
       perJob[jk] = { cutBase, weekend, rush, laborBase, laborRush, material, subtotal: cutBase + weekend + rush + laborBase + laborRush + material,
