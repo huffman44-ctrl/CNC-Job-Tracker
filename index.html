@@ -251,8 +251,54 @@
     </main>
   </div>
 
-  <!-- INVOICE SCREEN skeleton (filled by js/invoice-screen.js, Task 15) -->
-  <div id="invoice-screen" hidden></div>
+  <!-- ══════════════════════════════════
+       INVOICE SCREEN (owners only — js/invoice-screen.js): check the number, lock-then-download, Imported OK / Cancel
+  ══════════════════════════════════ -->
+  <div id="invoice-screen" hidden>
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn btn-ghost btn-sm" id="invoice-back-btn">← Billing</button>
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span class="header-file-title">Invoice</span>
+          <span class="header-job-name" id="invoice-header-sub"></span>
+        </div>
+      </div>
+    </header>
+    <main class="content-main">
+      <p id="invoice-status" class="vanlab-status" hidden></p>
+      <div class="invoice-grid">
+        <section class="settings-card invoice-left">
+          <h2 class="settings-card-title">What the customer is paying for</h2>
+          <div id="invoice-left"></div>
+        </section>
+        <div class="invoice-steps">
+          <section class="settings-card invoice-step" id="invoice-step1">
+            <h2 class="settings-card-title"><span class="invoice-step-n">1</span> Check the invoice number</h2>
+            <label class="invoice-label" for="invoice-number">Invoice number</label>
+            <input type="text" inputmode="numeric" autocomplete="off" id="invoice-number" class="form-input invoice-number-input">
+            <p id="invoice-number-caption" class="settings-card-hint"></p>
+            <p id="invoice-number-check" class="invoice-check" aria-live="polite"></p>
+            <label class="invoice-label" for="invoice-po">PO # <span class="invoice-optional">(optional — from the customer, add later)</span></label>
+            <input type="text" autocomplete="off" id="invoice-po" class="form-input">
+            <div class="invoice-label">Invoice date</div>
+            <div id="invoice-date" class="invoice-date"></div>
+            <div class="invoice-label">Due date</div>
+            <div class="invoice-due-picks" id="invoice-due-picks">
+              <button type="button" class="btn btn-outline btn-sm" data-term="receipt">Due upon receipt</button>
+              <button type="button" class="btn btn-outline btn-sm" data-term="net15">Net 15</button>
+              <button type="button" class="btn btn-outline btn-sm" data-term="net30">Net 30</button>
+              <input type="date" id="invoice-due-date" class="form-input invoice-due-input" aria-label="Due date">
+            </div>
+            <p id="invoice-due-msg" class="invoice-reason"></p>
+          </section>
+          <section class="settings-card invoice-step" id="invoice-step2"></section>
+          <section class="settings-card invoice-step" id="invoice-step3"></section>
+        </div>
+      </div>
+    </main>
+  </div>
 
   <!-- BILLING DONE SCREEN skeleton (filled by js/billing-done.js, Task 16) -->
   <div id="billing-done-screen" hidden></div>
@@ -682,6 +728,7 @@
   <script src="js/billing-model.js?v=1"></script>
   <script src="js/invoice-store.js?v=1"></script>
   <script src="js/billing.js?v=1"></script>
+  <script src="js/invoice-screen.js?v=1"></script>
   <script src="js/markup.js?v=4"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/vendor/pdf-lib.min.js?v=1"></script>

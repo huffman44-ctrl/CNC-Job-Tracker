@@ -1964,3 +1964,28 @@ body {
 .billing-row-error { font-size: 0.82rem; color: var(--red); font-weight: 600; }
 .billing-row.is-off .billing-row-main, .billing-row.is-off .billing-row-amt { opacity: 0.55; }
 .billing-row--waiting .billing-row-state, .billing-row--partly .billing-row-state { color: var(--gold); }
+
+/* ── Invoice screen (js/invoice-screen.js) ── */
+.invoice-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr); gap: 16px; align-items: start; }
+@media (max-width: 800px) { .invoice-grid { grid-template-columns: minmax(0, 1fr); } }
+.invoice-grid > *, .invoice-steps { min-width: 0; }
+.invoice-row span:first-child, .invoice-preview-line span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.invoice-sub { margin: 0 0 8px; }
+.invoice-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--gray-200); font-size: 0.9rem; }
+.invoice-row--total { font-weight: 800; font-size: 1.05rem; border-top: 2px solid var(--gray-300); }
+.invoice-amt { font-weight: 700; white-space: nowrap; }
+.invoice-step-n { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: 6px; border-radius: 50%; background: var(--orange); color: var(--text-inverse); font-size: 0.8rem; }
+.invoice-label { font-size: 0.8rem; font-weight: 700; margin: 10px 0 4px; color: var(--gray-700); }
+.invoice-optional { font-weight: 400; color: var(--gray-500); }
+.invoice-number-input { max-width: 160px; font-weight: 800; }
+.invoice-date { font-size: 0.9rem; font-weight: 600; }
+.invoice-check { min-height: 1.2em; margin: 4px 0 0; font-size: 0.85rem; font-weight: 600; }
+.invoice-check--error { color: var(--red); }
+.invoice-check--note, .invoice-check--info { color: var(--gray-500); }
+.invoice-due-picks { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.invoice-due-picks .btn.is-active { background: var(--ink); color: var(--text-inverse); border-color: var(--ink); }
+.invoice-due-input { width: auto; }
+.invoice-reason { font-size: 0.82rem; color: var(--red); font-weight: 600; margin: 6px 0 0; }
+.invoice-preview { margin: 4px 0 12px; }
+.invoice-preview-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--gray-200); font-size: 0.85rem; }
+.invoice-step3-actions { display: flex; flex-wrap: wrap; gap: 8px; }

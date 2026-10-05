@@ -95,7 +95,8 @@ const BillingScreen = (() => {
     render();
   }
 
-  function show() {
+  // `o.status` (optional): a line to show on arrival, e.g. after the Invoice screen cancels an invoice.
+  function show(o) {
     opts.hideOthers();
     els.screen.hidden = false;
     selection = {};
@@ -104,11 +105,15 @@ const BillingScreen = (() => {
     try { through = BillingModel.defaultThroughDate(localYmd(new Date()), inv.weekEndingDay); }
     catch (e) { through = null; setStatus(`Week-ending day in Settings › Invoicing isn't valid (${e.message}); showing everything to date.`, true); }
     els.date.value = through || '';
+    if (o && o.status) setStatus(o.status);
     loadFinished();
   }
 
   /* ── The model ── */
-  function model() {
+  // `throughDate` (optional) overrides the screen's own date: the Invoice screen rebuilds the model
+  // for the date it was opened with, from the very same inputs this screen uses.
+  function model(throughDate) {
+    const through_ = throughDate === undefined ? through : throughDate;
     const inv = OwnerStore.invoicing();
     const active = opts.activeSheets() || [];
     const sheets = active.concat(finished || []);
@@ -120,7 +125,7 @@ const BillingScreen = (() => {
       customerBillingOf: k => OwnerStore.getCustomerBilling(k),
       projectCustomerOf: jk => Storage.getProjectCustomer(jk),
       customerKeyOf: opts.customerKey, noteKey: opts.noteKey, compare: opts.compareSheets,
-      laborTypes: OwnerStore.laborTypes(), throughDate: through, billingStart: inv.billingStartDate || null,
+      laborTypes: OwnerStore.laborTypes(), throughDate: through_, billingStart: inv.billingStartDate || null,
       inProgressInvoices: InvoiceStore.inProgress(),
       priceListFor: ck => OwnerStore.priceListFor(ck),
       priceListNameOf: ck => { const cb = OwnerStore.getCustomerBilling(ck); return (cb && cb.priceList) || OwnerStore.pricing().defaultList; },
@@ -338,7 +343,7 @@ const BillingScreen = (() => {
     if (loadState === 'ok') loadFinished(); else render();
   }
 
-  return { init, show, render, fmtMoney, boardChanged };
+  return { init, show, render, fmtMoney, boardChanged, buildModel: model };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingScreen;
