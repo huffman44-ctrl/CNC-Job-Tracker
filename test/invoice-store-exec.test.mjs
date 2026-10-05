@@ -243,3 +243,17 @@ test('an in-progress invoice another owner imported leaves inProgress()', async 
   await new Promise(r => setTimeout(r, 5));
   assert.equal(InvoiceStore.inProgress().length, 0);
 });
+
+test('loaded() recovers from a failed one-time startup read (live listeners decide)', async () => {
+  const db = setup();
+  const realCollection = db.collection.bind(db);
+  db.collection = name => {
+    const col = realCollection(name);
+    if (name !== 'invoices') return col;
+    const realOrder = col.orderBy.bind(col);
+    col.orderBy = (f, d) => { const q = realOrder(f, d); q.get = async () => { throw new Error('startup read failed'); }; return q; };
+    return col;
+  };
+  await InvoiceStore.loadAll();
+  assert.equal(InvoiceStore.loaded(), true);
+});

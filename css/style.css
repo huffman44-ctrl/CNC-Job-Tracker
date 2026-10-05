@@ -1939,3 +1939,28 @@ body {
 #content-screen.content-screen--finished .nav-row-delete,
 #content-screen.content-screen--finished .detail-delete-btn { display: none; }
 @media (max-width: 480px) { .owner-panel { margin: 0 12px 10px; padding: 10px; } .jc-table th:nth-child(3), .jc-table td:nth-child(3) { display: none; } }
+
+/* ── Billing screen (owners): reminders, needs lists, through-date box, customer cards ── */
+.billing-note { font-size: 0.9rem; color: var(--gray-500); margin: 8px 0; }
+.billing-note--error { color: var(--red); font-weight: 600; }
+.billing-h { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gray-500); margin: 6px 0; }
+.billing-reminder { background: var(--gold-light); border: 1px solid var(--gold); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.billing-reminder-text { font-size: 0.9rem; font-weight: 600; color: var(--gray-800); flex: 1 1 320px; }
+.billing-reminder-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.billing-needs { margin-bottom: 14px; }
+.billing-need { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; border: 1.5px solid var(--red); background: var(--red-light); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 8px; font-size: 0.9rem; }
+.billing-through-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.billing-through-row .form-input { width: auto; }
+.billing-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.billing-card-summary { margin: 0; }
+.billing-card--empty { border-style: dashed; background: transparent; box-shadow: none; }
+.billing-card-note { font-size: 0.85rem; font-weight: 600; color: var(--gold); max-width: 360px; }
+.billing-card-action { display: flex; align-items: center; }
+.billing-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 0; border-top: 1px solid var(--gray-200); }
+.billing-row-main { flex: 1 1 260px; min-width: 0; }
+.billing-row-state { font-size: 0.8rem; color: var(--gray-500); margin-left: 6px; }
+.billing-row-detail { font-size: 0.8rem; color: var(--gray-500); margin-top: 2px; }
+.billing-row-amt { font-weight: 800; min-width: 70px; text-align: right; }
+.billing-row-error { font-size: 0.82rem; color: var(--red); font-weight: 600; }
+.billing-row.is-off .billing-row-main, .billing-row.is-off .billing-row-amt { opacity: 0.55; }
+.billing-row--waiting .billing-row-state, .billing-row--partly .billing-row-state { color: var(--gold); }

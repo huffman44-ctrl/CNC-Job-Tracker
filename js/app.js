@@ -339,7 +339,7 @@ async function cancelDroppedJob(jobName, fileKeys) {
 // An empty board sends Collin to Upload as always; owners with the job card or Settings on go to
 // the Projects screen so Settings / "Show finished jobs" / Put back stay reachable (the Upload
 // screen has no way to either).
-function ownerHomeOnEmpty() { return Features.on('jobCard') || Features.on('settings'); }
+function ownerHomeOnEmpty() { return Features.on('jobCard') || Features.on('settings') || Features.on('billing'); }
 function showBoardOrUpload() {
   if (sheets.length || ownerHomeOnEmpty()) showProjectsScreen(); else goToUpload();
 }
@@ -366,6 +366,10 @@ function hideSaveBanner()    { saveBannerEl.hidden = true; }
 /* ══════════════════════════════════════════
    Screen Navigation
 ══════════════════════════════════════════ */
+// Billing, the invoice screen and the done screen (owners only; each lives in its own file).
+function billingScreens() {
+  return ['billing-screen', 'invoice-screen', 'billing-done-screen'].map(id => document.getElementById(id)).filter(Boolean);
+}
 function hideAllScreens() {
   uploadScreen.hidden        = true;
   contentScreen.hidden       = true;
@@ -373,6 +377,7 @@ function hideAllScreens() {
   customersScreen.hidden     = true;
   settingsScreen.hidden      = true;
   projectsScreen.hidden      = true;
+  billingScreens().forEach(el => { el.hidden = true; });
 }
 
 // The finished view never survives a trip back to the Projects screen (P6): whatever sent us
@@ -400,6 +405,7 @@ function showLoginScreen() {
   ticketHistoryScreen.hidden = true;
   customersScreen.hidden     = true;
   settingsScreen.hidden      = true;
+  billingScreens().forEach(el => { el.hidden = true; });
   authBar.hidden              = true;
   loginError.hidden           = true;
   loginForm.reset();
@@ -2473,6 +2479,8 @@ function currentUserEmail() {
 function applyFeatureNav() {
   document.getElementById('settings-btn').hidden = !Features.on('settings');
   if (!Features.on('settings') && !settingsScreen.hidden) showProjectsScreen();
+  document.getElementById('billing-btn').hidden = !Features.on('billing');
+  if (!Features.on('billing') && billingScreens().some(el => !el.hidden)) showProjectsScreen();
   document.getElementById('projects-show-finished-wrap').hidden = !Features.on('jobCard');
   if (!Features.on('jobCard')) { const op = document.getElementById('owner-panel'); op.hidden = true; op.innerHTML = ''; }
   if (!Features.on('jobCard') && (showFinished || viewingFinished)) {
@@ -2488,6 +2496,22 @@ function rerenderCurrent() {
   if (!projectsScreen.hidden) renderProjects();
   if (!contentScreen.hidden)  showContentScreen();
   if (!settingsScreen.hidden) SettingsScreen.render();
+  const vis = id => { const el = document.getElementById(id); return !!el && !el.hidden; };
+  if (vis('billing-screen')) BillingScreen.render();
+  if (typeof InvoiceScreen !== 'undefined' && vis('invoice-screen')) InvoiceScreen.render();
+  if (typeof BillingDone !== 'undefined' && vis('billing-done-screen')) BillingDone.render();
+}
+
+// Billing opens a job on the same job card Collin uses: the active board when the job is on it,
+// otherwise the owner's finished view (list handed over by Billing). Back still returns to Projects.
+function openJobFromBilling(jobName, finishedList) {
+  if (sheets.some(s => (s.jobName || s.fileName) === jobName)) {
+    currentProject = jobName; viewingFinished = false;
+  } else {
+    finishedSheets = finishedList || []; viewingFinished = true; currentProject = jobName;
+  }
+  hideAllScreens();
+  showContentScreen();
 }
 
 SettingsScreen.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen, currentEmail: currentUserEmail });
@@ -2502,6 +2526,13 @@ JobCard.init({
   },
 });
 JobCard.setSheetsProvider(() => getDisplaySheets());
+BillingScreen.init({
+  hideOthers: hideAllScreens, onBack: showProjectsScreen, activeSheets: () => sheets,
+  loadFinishedSheets: () => Storage.loadFinishedSheets({ strict: true }),
+  noteKey, customerKey, compareSheets, openJob: openJobFromBilling, currentEmail: currentUserEmail,
+  openInvoice: d => { if (typeof InvoiceScreen !== 'undefined') InvoiceScreen.show(d); },
+});
+document.getElementById('billing-btn').addEventListener('click', () => BillingScreen.show());
 document.getElementById('projects-show-finished').addEventListener('change', async e => {
   showFinished = e.target.checked;
   if (showFinished) finishedSheets = await Storage.loadFinishedSheets();
@@ -2617,6 +2648,9 @@ async function loadOwnerStateThen(db, email) {
       OwnerStore.init(db);
       await OwnerStore.loadAll();
       OwnerStore.onChange(rerenderCurrent);
+      InvoiceStore.init(db, { getIdToken: () => Auth.getIdToken(), upsertLogRows: Endpoint.upsertLogRows, hasDatabase });
+      await InvoiceStore.loadAll();
+      InvoiceStore.onChange(rerenderCurrent);
     }
     applyFeatureNav();
   } catch (err) {

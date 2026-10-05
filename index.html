@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=24">
+  <link rel="stylesheet" href="css/style.css?v=25">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -91,6 +91,7 @@
         <button class="btn btn-ghost btn-sm" id="print-queue-btn">To Print</button>
         <button class="btn btn-ghost btn-sm" id="ticket-history-btn">Ticket History</button>
         <button class="btn btn-ghost btn-sm" id="manage-customers-btn">Manage Customers</button>
+        <button class="btn btn-ghost btn-sm" id="billing-btn" hidden>Billing</button>
         <button class="btn btn-ghost btn-sm" id="settings-btn" hidden>Settings</button>
         <button class="btn btn-ghost btn-sm" id="upload-new-btn">+ Upload Job</button>
       </div>
@@ -216,6 +217,45 @@
       <div id="customers-list" class="ticket-history-list"></div>
     </main>
   </div>
+
+  <!-- ══════════════════════════════════
+       BILLING SCREEN (owners only — Collin's account cannot read invoices/, sheetBilling/, jobBilling/)
+  ══════════════════════════════════ -->
+  <div id="billing-screen" hidden>
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn btn-ghost btn-sm" id="billing-back-btn">← Projects</button>
+        <span class="header-logo-badge">CNC</span>
+        <div class="header-divider"></div>
+        <div class="header-titles">
+          <span class="header-file-title">Billing</span>
+          <span class="header-job-name">Owners only</span>
+        </div>
+      </div>
+    </header>
+    <main class="content-main">
+      <p id="billing-status" class="vanlab-status" hidden></p>
+      <div id="billing-reminders"></div>
+      <div id="billing-needs"></div>
+      <section class="settings-card billing-through">
+        <label class="settings-card-title" for="billing-through-date">Bill work cut through</label>
+        <div class="billing-through-row">
+          <input type="date" id="billing-through-date" class="form-input">
+          <button type="button" class="btn btn-outline btn-sm" id="billing-everything-btn">Everything to date</button>
+          <button type="button" class="btn btn-outline btn-sm" id="billing-refresh-btn">Refresh</button>
+        </div>
+        <p id="billing-through-caption" class="settings-card-hint"></p>
+      </section>
+      <div id="billing-customers"></div>
+      <div id="billing-recent"></div>
+    </main>
+  </div>
+
+  <!-- INVOICE SCREEN skeleton (filled by js/invoice-screen.js, Task 15) -->
+  <div id="invoice-screen" hidden></div>
+
+  <!-- BILLING DONE SCREEN skeleton (filled by js/billing-done.js, Task 16) -->
+  <div id="billing-done-screen" hidden></div>
 
   <!-- ══════════════════════════════════
        SETTINGS SCREEN (owners only — Collin's account cannot read settings/*)
@@ -629,18 +669,19 @@
   <script src="js/endpoint.js?v=5"></script>
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
-  <script src="js/storage.js?v=16"></script>
-  <script src="js/storage-owner.js?v=1"></script>
+  <script src="js/storage.js?v=17"></script>
+  <script src="js/storage-owner.js?v=2"></script>
   <script src="js/features.js?v=1"></script>
-  <script src="js/settings.js?v=1"></script>
-  <script src="js/job-details.js?v=1"></script>
-  <script src="js/job-card.js?v=1"></script>
+  <script src="js/settings.js?v=2"></script>
+  <script src="js/job-details.js?v=2"></script>
+  <script src="js/job-card.js?v=2"></script>
   <script src="js/parser.js?v=7"></script>
-  <script src="js/pricing.js?v=1"></script>
-  <script src="js/log-rows.js?v=1"></script>
+  <script src="js/pricing.js?v=2"></script>
+  <script src="js/log-rows.js?v=2"></script>
   <script src="js/invoice-lines.js?v=1"></script>
   <script src="js/billing-model.js?v=1"></script>
   <script src="js/invoice-store.js?v=1"></script>
+  <script src="js/billing.js?v=1"></script>
   <script src="js/markup.js?v=4"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/vendor/pdf-lib.min.js?v=1"></script>
@@ -656,6 +697,6 @@
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=35"></script>
+  <script src="js/app.js?v=36"></script>
 </body>
 </html>

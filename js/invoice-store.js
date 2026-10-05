@@ -242,7 +242,8 @@ const InvoiceStore = (() => {
   function init(firestore, d) { db = firestore || null; deps = d || {}; }
   function onChange(cb) { listeners.push(cb); }
   function emit() { listeners.forEach(cb => { try { cb(); } catch (e) { console.warn('InvoiceStore listener threw:', e); } }); }
-  const loaded = () => !db || (loadedFlags.one && loadedFlags.recent && loadedFlags.prog);
+  // Live listeners only: the one-time startup read may fail or come from cache and never recovers.
+  const loaded = () => !db || (loadedFlags.recent && loadedFlags.prog);
   const putCache = doc => { cache[String(doc.number)] = clone(doc); };
   const hasDatabase = () => (deps.hasDatabase ? !!deps.hasDatabase() : !!db);
 

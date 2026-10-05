@@ -407,13 +407,15 @@ const Storage = (() => {
   }
 
   // Owners' "Show finished jobs" view (one-shot, not a listener — finished jobs are history).
-  async function loadFinishedSheets() {
+  // opts.strict: rethrow a failed read instead of returning [] (Billing must say "couldn't load").
+  async function loadFinishedSheets(opts) {
     if (!db) return [];
     try {
       const snap = await db.collection('sheets').where('finished', '==', true).get();
       return snap.docs.map(doc => doc.data()).sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
     } catch (e) {
       console.warn('Firestore loadFinishedSheets failed:', e);
+      if (opts && opts.strict) throw e;
       return [];
     }
   }

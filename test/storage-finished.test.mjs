@@ -123,3 +123,13 @@ test('upsertJobForUpload: creates once with createdAt/createdBy kept, and always
   assert.equal(db.docs['jobs/proj_new'].finished, false);
   assert.equal(db.docs['jobs/proj_new'].createdBy, 'travis@example.com');
 });
+
+test('loadFinishedSheets: strict rethrows a failed read; default still resolves []', async () => {
+  const failing = { collection: () => ({ where: () => ({ get: async () => { throw new Error('permission-denied'); } }) }) };
+  Storage.init(failing);
+  const warn = console.warn; console.warn = () => {};
+  try {
+    assert.deepEqual(await Storage.loadFinishedSheets(), []);
+    await assert.rejects(Storage.loadFinishedSheets({ strict: true }), /permission-denied/);
+  } finally { console.warn = warn; Storage.init(null); }
+});
