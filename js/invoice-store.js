@@ -227,7 +227,203 @@ const InvoiceStore = (() => {
     return invoice.sheetKeys.map(k => L.withBilling(invoice.perSheet[k].row, { invoiceNumber: invoice.number, poNumber: invoice.poNumber, billed: 'Y' }));
   }
 
-  return { _plan: { lock: planLock, import: planImport, cancel: planCancel, addPo: planAddPo }, logRowsFor };
+  /* ══ Executors (Task 9): Firestore transactions around the planners above ══ */
+  const OS = () => (typeof OwnerStore !== 'undefined' ? OwnerStore : require('./storage-owner.js'));
+  const OFFLINE_REASON = "Master Job Log connection isn't set up on this computer";
+  let db = null;
+  let deps = {};
+  const cache = {};                 // number(string) -> invoice doc
+  const listeners = [];
+  const unsubs = [];
+  let loadedFlag = false;
+  const nowMs = () => Date.now();
+  const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)));
+
+  function init(firestore, d) { db = firestore || null; deps = d || {}; }
+  function onChange(cb) { listeners.push(cb); }
+  function emit() { listeners.forEach(cb => { try { cb(); } catch (e) { console.warn('InvoiceStore listener threw:', e); } }); }
+  const loaded = () => !db || loadedFlag;
+  const putCache = doc => { cache[String(doc.number)] = clone(doc); };
+  const hasDatabase = () => (deps.hasDatabase ? !!deps.hasDatabase() : !!db);
+
+  function absorb(snap) {
+    snap.forEach(d => { const v = d.data(); if (v && v.number != null) putCache(v); });
+    emit();
+  }
+
+  async function loadAll() {
+    if (!db) { loadedFlag = true; return true; }
+    unsubs.splice(0).forEach(u => { try { u(); } catch (e) { /* ignore */ } });
+    let ok = false;
+    try {
+      const snap = await db.collection('invoices').orderBy('number', 'desc').limit(40).get();
+      absorb(snap);
+      ok = !(snap.metadata && snap.metadata.fromCache);
+    } catch (e) { console.warn('InvoiceStore load failed:', e); }
+    loadedFlag = ok;
+    const onErr = e => console.warn('InvoiceStore listener error:', e);
+    const onSnap = snap => { loadedFlag = !(snap.metadata && snap.metadata.fromCache); absorb(snap); };
+    unsubs.push(db.collection('invoices').orderBy('number', 'desc').limit(40).onSnapshot(onSnap, onErr));
+    unsubs.push(db.collection('invoices').where('status', '==', 'in-progress').onSnapshot(onSnap, onErr));
+    emit();
+    return ok;
+  }
+
+  const all = () => Object.values(cache);
+  const get = number => cache[String(number)] || null;
+  const inProgress = () => all().filter(i => i.status === 'in-progress').sort((a, b) => a.number - b.number);
+  const recentImported = (n = 20) => all().filter(i => i.status === 'imported').sort((a, b) => b.number - a.number).slice(0, n);
+
+  function suggestNumber() {
+    const top = all().reduce((m, i) => Math.max(m, Number(i.number) || 0), 0);
+    return Math.max(top, Number(OS().invoicing().seedNumber) || 0) + 1;
+  }
+
+  async function checkNumber(n) {
+    const s = String(n == null ? '' : n).trim();
+    if (!/^[1-9]\d*$/.test(s)) return { state: 'invalid' };
+    let inv;
+    if (db) { const snap = await db.collection('invoices').doc(s).get(); inv = snap.exists ? snap.data() : null; }
+    else inv = get(s);
+    if (!inv) return { state: 'free' };
+    return inv.status === 'cancelled' ? { state: 'cancelled', invoice: inv } : { state: 'used', invoice: inv };
+  }
+
+  // A reader over either a transaction (db) or the local caches (no db): read(col, id) -> doc | null.
+  function readerFor(tx) {
+    if (tx) return async (col, id) => { const s = await tx.get(db.collection(col).doc(String(id))); return s.exists ? s.data() : null; };
+    const completion = deps.getCompletion || (k => (typeof Storage !== 'undefined' ? Storage.get(k) : null));
+    return async (col, id) => {
+      id = String(id);
+      if (col === 'invoices') return clone(get(id));
+      if (col === 'sheetBilling') return clone(OS().getSheetBilling(id));
+      if (col === 'jobBilling') return clone(OS().getJobBilling(id));
+      if (col === 'customerBilling') return clone(OS().getCustomerBilling(id));
+      if (col === 'completions') return clone(completion(id)) || null;
+      return null;
+    };
+  }
+  async function mapRead(read, col, ids) {
+    const out = {};
+    for (const id of ids) out[id] = await read(col, id);
+    return out;
+  }
+  function jobKeysOf(inv, fpJobs) {
+    const s = new Set(Object.keys(fpJobs || {}));
+    for (const r of inv.laborLineRefs || []) s.add(r.jobKey);
+    for (const k of inv.sheetKeys || []) { const jk = ((inv.perSheet || {})[k] || {}).jobKey; if (jk) s.add(jk); }
+    return [...s];
+  }
+
+  // Each gather reads everything its planner needs (all reads before any write).
+  async function gatherLock(read, { draft }) {
+    return {
+      invoice: await read('invoices', Number(draft.number)),
+      customer: await read('customerBilling', draft.customerKey),
+      sheetBilling: await mapRead(read, 'sheetBilling', draft.sheetKeys || []),
+      completions: await mapRead(read, 'completions', draft.sheetKeys || []),
+      jobBilling: await mapRead(read, 'jobBilling', jobKeysOf(draft, (draft.fingerprint || {}).jobs)),
+    };
+  }
+  async function gatherStored(read, { number }) {
+    const invoice = await read('invoices', Number(number));
+    if (!invoice) return { invoice: null };
+    return {
+      invoice,
+      customer: await read('customerBilling', invoice.customerKey),
+      sheetBilling: await mapRead(read, 'sheetBilling', invoice.sheetKeys || []),
+      jobBilling: await mapRead(read, 'jobBilling', jobKeysOf(invoice)),
+    };
+  }
+
+  function afterCommit(plan) {
+    for (const wr of plan.writes) {
+      if (wr.col === 'invoices') putCache(wr.doc);
+      else OS()._putLocal(wr.col, wr.id, clone(wr.doc));   // immediate screen update
+    }
+    emit();
+  }
+
+  async function execute(gatherFn, planner, args) {
+    if (db) {
+      let plan;
+      await db.runTransaction(async tx => {
+        const docs = await gatherFn(readerFor(tx), args);
+        plan = planner(docs, { ...args, now: nowMs() });
+        plan.writes.forEach(wr => tx.set(db.collection(wr.col).doc(wr.id), wr.doc));
+      });
+      afterCommit(plan);
+      return plan.invoice;
+    }
+    const docs = await gatherFn(readerFor(null), args);
+    const plan = planner(docs, { ...args, now: nowMs() });
+    afterCommit(plan);
+    return plan.invoice;
+  }
+
+  const lockAndCreate = (draft, by) => execute(gatherLock, planLock, { draft, by });
+  const cancel = (number, by) => execute(gatherStored, planCancel, { number, by });
+
+  async function markImported(number, by) {
+    const inv = await execute(gatherStored, planImport, { number, by });
+    return writeBack(inv.number, by);
+  }
+  async function addPo(number, po, by) {
+    const inv = await execute(gatherStored, planAddPo, { number, po, by });
+    return writeBack(inv.number, by);
+  }
+
+  // Master Job Log write-back. Never changes money state: the invoice stays imported either way.
+  // Only logWritten/logError/logWrittenAt/updatedAt/updatedBy change (rules hasOnly).
+  async function writeBack(number, by) {
+    number = Number(number);
+    let cur;
+    if (db) { const s = await db.collection('invoices').doc(String(number)).get(); cur = s.exists ? s.data() : null; }
+    else cur = get(number);
+    if (!cur) throw refuse('state', `Invoice ${number} was not found.`);
+    if (cur.status !== 'imported') throw refuse('state', `Invoice ${number} is ${cur.status}, not imported.`);
+    let patch;
+    if (!(cur.sheetKeys || []).length) patch = { logWritten: true, logError: null, logWrittenAt: nowMs() };
+    else {
+      try {
+        const token = await deps.getIdToken();
+        const res = await deps.upsertLogRows(logRowsFor(cur), token);
+        if (res && res.ok !== false && (!res.offline || !hasDatabase())) patch = { logWritten: true, logError: null, logWrittenAt: nowMs() };
+        else if (res && res.offline) patch = { logWritten: false, logError: OFFLINE_REASON };
+        else patch = { logWritten: false, logError: String((res && (res.error || res.message)) || 'The Master Job Log did not accept the rows') };
+      } catch (e) {
+        patch = { logWritten: false, logError: String((e && e.message) || e || 'Master Job Log update failed') };
+      }
+    }
+    const apply = base => ({ ...base, ...patch, updatedAt: nowMs(), updatedBy: by });
+    if (db) {
+      let next;
+      await db.runTransaction(async tx => {
+        const ref = db.collection('invoices').doc(String(number));
+        const s = await tx.get(ref);
+        const base = s.exists ? s.data() : null;
+        if (!base || base.status !== 'imported') throw refuse('state', `Invoice ${number} is no longer imported.`);
+        next = apply(base);
+        tx.set(ref, next);
+      });
+      putCache(next); emit();
+      return next;
+    }
+    const next = apply(cur);
+    putCache(next); emit();
+    return next;
+  }
+
+  function _resetForTests() {
+    Object.keys(cache).forEach(k => delete cache[k]);
+    listeners.length = 0; unsubs.splice(0).forEach(u => u()); db = null; deps = {}; loadedFlag = false;
+  }
+
+  return {
+    _plan: { lock: planLock, import: planImport, cancel: planCancel, addPo: planAddPo }, logRowsFor,
+    init, loadAll, onChange, loaded, get, inProgress, recentImported, suggestNumber, checkNumber,
+    lockAndCreate, markImported, cancel, addPo, writeBack, _resetForTests,
+  };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = InvoiceStore;
