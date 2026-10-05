@@ -270,3 +270,69 @@ test('logRowsFor: K = number, N = Y, L only with a PO, F = the lock-time cut', (
   assert.equal(withPo[0].po, 'PO-5');
   assert.ok(!('invoice' in inv.perSheet.s1.row), 'stored lock-time row is not mutated');
 });
+
+/* ── fix round 1 ── */
+test('import: a labor line not in-progress on this invoice (or a missing job doc) throws state', () => {
+  const st = lockedState();
+  const line0 = st.jobBilling.proj_a.laborLines[0];
+  const withLines = laborLines => ({ ...st, jobBilling: { proj_a: { ...st.jobBilling.proj_a, laborLines } } });
+  const bad = {
+    unbilled: withLines([{ ...line0, status: 'unbilled', invoiceNumber: null }]),
+    missing: withLines([]),
+    other: withLines([{ ...line0, invoiceNumber: 3700 }]),
+    noJob: { ...st, jobBilling: { proj_a: null } },
+  };
+  for (const [name, docs] of Object.entries(bad)) assert.equal(thrown(() => P.import(docs, IMPORT_ARGS)).code, 'state', name);
+});
+
+test('lock: sheet-taken wording when no invoice number is known', () => {
+  const e = thrown(() => lock(lockDocs({ sheetBilling: { s1: sheetDoc({ status: 'external' }), s2: sheetDoc({ status: 'external' }) } })));
+  assert.equal(e.message, '2 of these sheets were just marked No charge or put on another invoice.');
+});
+
+test('lock: a job used by a sheet but absent from the fingerprint fails as changed', () => {
+  const d = draft(); d.fingerprint.jobs = {}; d.laborLineRefs = [];
+  assert.equal(thrown(() => lock(lockDocs(), d)).code, 'changed');
+});
+
+test('lock: malformed drafts are bad-draft', () => {
+  for (const n of [0, -3, 3598.5, 'abc', undefined]) assert.equal(thrown(() => lock(lockDocs(), draft({ number: n }))).code, 'bad-draft', String(n));
+  const d1 = draft(); delete d1.perSheet.s2;
+  assert.equal(thrown(() => lock(lockDocs(), d1)).code, 'bad-draft');
+  const d2 = draft(); delete d2.perSheet.s1.row;
+  assert.equal(thrown(() => lock(lockDocs(), d2)).code, 'bad-draft');
+});
+
+test('lock: more than 500 planned writes is too-big even under 400 sheets', () => {
+  const keys = Array.from({ length: 399 }, (_, i) => 's' + i);   // one job + one labor line per sheet: 1 + 399 + 399 + 1 writes
+  const d = draft({ sheetKeys: keys, laborLineRefs: keys.map((k, i) => ({ jobKey: 'j' + i, lineId: 'll_1' })) });
+  d.perSheet = {}; d.fingerprint = { sheets: {}, jobs: {} };
+  const docs = lockDocs({ sheetBilling: {}, completions: {}, jobBilling: {} });
+  keys.forEach((k, i) => {
+    d.perSheet[k] = { jobKey: 'j' + i, cutAt: cut1, priced: priced(1), row: rowFor(k, cut1) };
+    d.fingerprint.sheets[k] = { completedAt: cut1, cutDateOverride: null };
+    d.fingerprint.jobs['j' + i] = { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, readyForBilling: true, labor: { ll_1: { typeId: 'design', hours: 2 } } };
+    docs.completions[k] = { completedAt: cut1 };
+    docs.jobBilling['j' + i] = jobDoc();
+  });
+  assert.equal(thrown(() => lock(docs, d)).code, 'too-big');
+});
+
+function noUndefined(v, path) {
+  assert.notEqual(v, undefined, 'undefined at ' + path);
+  if (Array.isArray(v)) v.forEach((x, i) => noUndefined(x, path + '[' + i + ']'));
+  else if (v && typeof v === 'object') for (const k of Object.keys(v)) noUndefined(v[k], path + '.' + k);
+}
+test('no planner ever emits undefined at any depth', () => {
+  const d = draft(); delete d.poNumber; d.dueDate = undefined;
+  const prev = { number: 3598, status: 'cancelled', createdAt: 1, createdBy: 'x' };   // history entry fields missing
+  const locked = lock(lockDocs(), d);
+  const plans = [lock(lockDocs({ invoice: prev }), d), locked];
+  const st = { invoice: locked.invoice, customer: customerDoc({ openInvoice: 3598 }), sheetBilling: {}, jobBilling: {} };
+  for (const x of locked.writes) { if (x.col === 'sheetBilling') st.sheetBilling[x.id] = x.doc; if (x.col === 'jobBilling') st.jobBilling[x.id] = x.doc; }
+  const imp = P.import(st, IMPORT_ARGS);
+  plans.push(imp, P.cancel(st, { number: 3598, by: BY, now: NOW }));
+  const billed = { invoice: imp.invoice, sheetBilling: Object.fromEntries(imp.writes.filter(x => x.col === 'sheetBilling').map(x => [x.id, x.doc])) };
+  plans.push(P.addPo(billed, { number: 3598, po: 'PO-1', by: BY, now: NOW }));
+  plans.forEach((p, i) => { p.writes.forEach(x => noUndefined(x.doc, i + ':' + x.col + '/' + x.id)); noUndefined(p.invoice, i + ':invoice'); });
+});

@@ -22,7 +22,14 @@ const InvoiceStore = (() => {
   const sheetDefault = () => ({ status: 'unbilled', invoiceNumber: null, poNumber: null, billedAt: null, cutAtBilled: null, priced: null, cutDateOverride: null, jobKey: null, customerKey: null });
   const customerDefault = () => ({ name: '', billedOutsideApp: false, priceList: 'standard', defaultMaterialByThickness: {}, notes: '', openInvoice: null });
 
-  const w = (col, id, doc) => ({ col, id: String(id), doc });
+  // Firestore set() rejects undefined anywhere in a doc: turn any undefined into null (deep).
+  const clean = v => {
+    if (v === undefined) return null;
+    if (Array.isArray(v)) return v.map(clean);
+    if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = clean(v[k]); return o; }
+    return v;
+  };
+  const w = (col, id, doc) => ({ col, id: String(id), doc: clean(doc) });
   const stamp = (doc, by, now) => ({ ...doc, updatedAt: now, updatedBy: by });
 
   function dateText(inv) {
@@ -44,6 +51,13 @@ const InvoiceStore = (() => {
   /* ── lock ── */
   function planLock(docs, { draft, by, now }) {
     const number = Number(draft.number);
+    if (!Number.isInteger(number) || number <= 0) throw refuse('bad-draft', 'The invoice number is not a whole number above zero.');
+    if ((draft.sheetKeys || []).length > MAX_SHEETS) {
+      throw refuse('too-big', `That is ${draft.sheetKeys.length} sheets — an invoice holds at most ${MAX_SHEETS}. Bill fewer jobs at a time.`);
+    }
+    for (const k of draft.sheetKeys || []) {
+      if (!(draft.perSheet || {})[k] || !draft.perSheet[k].row) throw refuse('bad-draft', 'The invoice draft is missing the lock-time row for sheet ' + k + '.');
+    }
     const prev = docs.invoice || null;
     if (prev && prev.status !== 'cancelled') {
       throw refuse('number-used', `${number} is already on ${prev.customerName || 'another customer'} (${dateText(prev)}). Use another number.`);
@@ -59,8 +73,8 @@ const InvoiceStore = (() => {
     const taken = draft.sheetKeys.filter(k => status((docs.sheetBilling || {})[k]) !== 'unbilled');
     if (taken.length) {
       const num = (docs.sheetBilling[taken[0]] || {}).invoiceNumber;
-      throw refuse('sheet-taken', (taken.length === 1 ? '1 of these sheets was' : `${taken.length} of these sheets were`)
-        + ' just put on invoice ' + (num != null ? num : 'another invoice') + '.');
+      const many = taken.length === 1 ? '1 of these sheets was' : `${taken.length} of these sheets were`;
+      throw refuse('sheet-taken', num != null ? `${many} just put on invoice ${num}.` : `${many} just marked No charge or put on another invoice.`);
     }
     const changed = () => refuse('changed', 'Something changed since this screen was drawn — check the total and click again.');
     const fp = draft.fingerprint || { sheets: {}, jobs: {} };
@@ -73,7 +87,7 @@ const InvoiceStore = (() => {
     }
     const refsByJob = {};
     for (const r of draft.laborLineRefs || []) (refsByJob[r.jobKey] = refsByJob[r.jobKey] || []).push(r.lineId);
-    const jobKeys = new Set([...Object.keys(fp.jobs || {}), ...Object.keys(refsByJob)]);
+    const jobKeys = new Set([...Object.keys(fp.jobs || {}), ...Object.keys(refsByJob), ...draft.sheetKeys.map(k => draft.perSheet[k].jobKey).filter(Boolean)]);
     for (const jk of jobKeys) {
       const jf = (fp.jobs || {})[jk] || {};
       const jd = (docs.jobBilling || {})[jk];
@@ -98,7 +112,7 @@ const InvoiceStore = (() => {
       downloadedAt: now, downloadedBy: by,
       importedAt: null, importedBy: null, cancelledAt: null, cancelledBy: null, poAddedAt: null, poAddedBy: null,
       logWritten: false, logError: null, logWrittenAt: null,
-      history: prev ? [...(prev.history || []), { status: prev.status, customerName: prev.customerName, total: prev.total, sheetKeys: prev.sheetKeys, cancelledAt: prev.cancelledAt, cancelledBy: prev.cancelledBy }] : [],
+      history: prev ? [...(prev.history || []), { status: nz(prev.status), customerName: nz(prev.customerName), total: nz(prev.total), sheetKeys: nz(prev.sheetKeys), cancelledAt: nz(prev.cancelledAt), cancelledBy: nz(prev.cancelledBy) }] : [],
       updatedAt: now, updatedBy: by,
     };
     const writes = [w('invoices', number, invoice)];
@@ -113,7 +127,8 @@ const InvoiceStore = (() => {
       if (next) writes.push(w('jobBilling', jk, stamp(next, by, now)));
     }
     writes.push(w('customerBilling', draft.customerKey, stamp({ ...(customer || customerDefault()), openInvoice: number }, by, now)));
-    return { writes, invoice };
+    if (writes.length > 500) throw refuse('too-big', `That invoice needs ${writes.length} writes — the limit is 500. Bill fewer jobs at a time.`);
+    return { writes, invoice: writes[0].doc };
   }
 
   /* ── shared pieces of import / cancel ── */
@@ -153,6 +168,13 @@ const InvoiceStore = (() => {
         throw refuse('state', `A sheet on invoice ${number} is no longer in progress on it — refresh and check.`);
       }
     }
+    for (const r of inv.laborLineRefs || []) {
+      const jd = (docs.jobBilling || {})[r.jobKey];
+      const line = jd && (jd.laborLines || []).find(l => l.id === r.lineId);
+      if (!onThis(line, number, 'in-progress')) {
+        throw refuse('state', `A labor line on invoice ${number} is no longer in progress on it — refresh and check.`);
+      }
+    }
     const next = { ...inv, status: 'imported', importedAt: now, importedBy: by, updatedAt: now, updatedBy: by };
     const writes = [w('invoices', number, next)];
     for (const k of inv.sheetKeys) {
@@ -161,7 +183,7 @@ const InvoiceStore = (() => {
     }
     lineWrites(docs, inv, number, by, now, l => ({ ...l, status: 'billed', billedAt: now }), writes);
     customerClosed(docs, number, by, now, writes);
-    return { writes, invoice: next };
+    return { writes, invoice: writes[0].doc };
   }
 
   /* ── Cancel ── */
@@ -178,7 +200,7 @@ const InvoiceStore = (() => {
     }
     lineWrites(docs, inv, number, by, now, l => ({ ...l, status: 'unbilled', invoiceNumber: null }), writes);
     customerClosed(docs, number, by, now, writes);
-    return { writes, invoice: next };
+    return { writes, invoice: writes[0].doc };
   }
 
   /* ── Add PO (imported invoices only) ── */
@@ -196,7 +218,7 @@ const InvoiceStore = (() => {
       const cur = (docs.sheetBilling || {})[k];
       if (onThis(cur, number, 'billed')) writes.push(w('sheetBilling', k, stamp({ ...cur, poNumber }, by, now)));
     }
-    return { writes, invoice: next };
+    return { writes, invoice: writes[0].doc };
   }
 
   // The Master Job Log rows for an invoice: the lock-time row of each sheet (so column F is the
