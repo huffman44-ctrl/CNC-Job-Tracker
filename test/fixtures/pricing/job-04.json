@@ -1,0 +1,120 @@
+{
+  "fixture": "job-04",
+  "jobName": "RV_Fixture_04",
+  "customer": "Ridgeway Vans",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 2406,
+      "toolpathCount": 5,
+      "hasVbit": true,
+      "cutDate": "2026-07-28"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 2675,
+      "toolpathCount": 8,
+      "hasVbit": true,
+      "cutDate": "2026-07-28"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 2128,
+      "toolpathCount": 6,
+      "hasVbit": true,
+      "cutDate": "2026-07-28"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 1818,
+      "toolpathCount": 7,
+      "hasVbit": true,
+      "cutDate": "2026-07-28"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 1588,
+      "toolpathCount": 4,
+      "hasVbit": true,
+      "cutDate": "2026-07-29"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 1656,
+      "toolpathCount": 7,
+      "hasVbit": true,
+      "cutDate": "2026-07-29"
+    },
+    {
+      "order": 7,
+      "sheetLabel": "Sheet 7",
+      "totalTimeSec": 1908,
+      "toolpathCount": 6,
+      "hasVbit": true,
+      "cutDate": "2026-07-29"
+    },
+    {
+      "order": 8,
+      "sheetLabel": "Sheet 8",
+      "totalTimeSec": 2228,
+      "toolpathCount": 3,
+      "hasVbit": true,
+      "cutDate": "2026-07-28"
+    },
+    {
+      "order": 9,
+      "sheetLabel": "Sheet 9",
+      "totalTimeSec": 1411,
+      "toolpathCount": 4,
+      "hasVbit": true,
+      "cutDate": "2026-07-29"
+    },
+    {
+      "order": 10,
+      "sheetLabel": "Sheet 10",
+      "totalTimeSec": 1344,
+      "toolpathCount": 4,
+      "hasVbit": true,
+      "cutDate": "2026-07-29"
+    },
+    {
+      "order": 11,
+      "sheetLabel": "Sheet 11",
+      "totalTimeSec": 741,
+      "toolpathCount": 3,
+      "hasVbit": true,
+      "cutDate": "2026-08-03"
+    },
+    {
+      "order": 12,
+      "sheetLabel": "Sheet 12",
+      "totalTimeSec": 766,
+      "toolpathCount": 3,
+      "hasVbit": true,
+      "cutDate": "2026-08-03"
+    },
+    {
+      "order": 13,
+      "sheetLabel": "Sheet 13",
+      "totalTimeSec": 541,
+      "toolpathCount": 3,
+      "hasVbit": true,
+      "cutDate": "2026-08-03"
+    },
+    {
+      "order": 14,
+      "sheetLabel": "Sheet 14",
+      "totalTimeSec": 656,
+      "toolpathCount": 3,
+      "hasVbit": true,
+      "cutDate": "2026-08-03"
+    }
+  ]
+}

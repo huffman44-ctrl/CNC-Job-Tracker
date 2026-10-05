@@ -1,0 +1,16 @@
+{
+  "fixture": "job-28",
+  "jobName": "NL_Fixture_28",
+  "customer": "Northlight Studios",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 2043,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-08-05"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "fixture": "job-13",
+  "jobName": "NL_Fixture_13",
+  "customer": "Northlight Studios",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 2134,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-08"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 2134,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-08"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 2134,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-08"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 4052,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-08"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 4052,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-08"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 4052,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-08"
+    }
+  ]
+}

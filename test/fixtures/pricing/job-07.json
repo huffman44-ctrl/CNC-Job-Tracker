@@ -1,0 +1,72 @@
+{
+  "fixture": "job-07",
+  "jobName": "CL_Fixture_07",
+  "customer": "Copperline Stage",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 5238,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-13"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-13"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-13"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-13"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-13"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-14"
+    },
+    {
+      "order": 7,
+      "sheetLabel": "Sheet 7",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-14"
+    },
+    {
+      "order": 8,
+      "sheetLabel": "Sheet 8",
+      "totalTimeSec": 3797,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-08-13"
+    }
+  ]
+}

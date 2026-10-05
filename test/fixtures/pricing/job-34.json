@@ -1,0 +1,72 @@
+{
+  "fixture": "job-34",
+  "jobName": "LG_Fixture_34",
+  "customer": null,
+  "legacy8Column": true,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 538,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 544,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 565,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 631,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 476,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 569,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 7,
+      "sheetLabel": "Sheet 7",
+      "totalTimeSec": 611,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 8,
+      "sheetLabel": "Sheet 8",
+      "totalTimeSec": 866,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    }
+  ]
+}

@@ -1,0 +1,200 @@
+{
+  "fixture": "job-33",
+  "jobName": "LG_Fixture_33",
+  "customer": null,
+  "legacy8Column": true,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 552,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 552,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 528,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 528,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 552,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 552,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 7,
+      "sheetLabel": "Sheet 7",
+      "totalTimeSec": 526,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 8,
+      "sheetLabel": "Sheet 8",
+      "totalTimeSec": 526,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 9,
+      "sheetLabel": "Sheet 9",
+      "totalTimeSec": 632,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 10,
+      "sheetLabel": "Sheet 10",
+      "totalTimeSec": 631,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 11,
+      "sheetLabel": "Sheet 11",
+      "totalTimeSec": 631,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 12,
+      "sheetLabel": "Sheet 12",
+      "totalTimeSec": 632,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 13,
+      "sheetLabel": "Sheet 13",
+      "totalTimeSec": 697,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 14,
+      "sheetLabel": "Sheet 14",
+      "totalTimeSec": 695,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 15,
+      "sheetLabel": "Sheet 15",
+      "totalTimeSec": 698,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 16,
+      "sheetLabel": "Sheet 16",
+      "totalTimeSec": 693,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 17,
+      "sheetLabel": "Sheet 17",
+      "totalTimeSec": 695,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 18,
+      "sheetLabel": "Sheet 18",
+      "totalTimeSec": 697,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 19,
+      "sheetLabel": "Sheet 19",
+      "totalTimeSec": 694,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 20,
+      "sheetLabel": "Sheet 20",
+      "totalTimeSec": 692,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 21,
+      "sheetLabel": "Sheet 21",
+      "totalTimeSec": 1125,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 22,
+      "sheetLabel": "Sheet 22",
+      "totalTimeSec": 1122,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 23,
+      "sheetLabel": "Sheet 23",
+      "totalTimeSec": 1123,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    },
+    {
+      "order": 24,
+      "sheetLabel": "Sheet 24",
+      "totalTimeSec": 124,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-26"
+    }
+  ]
+}

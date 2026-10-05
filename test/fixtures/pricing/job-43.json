@@ -1,0 +1,96 @@
+{
+  "fixture": "job-43",
+  "jobName": "NL_Fixture_43",
+  "customer": "Northlight Studios",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 335,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 352,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 352,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 335,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 262,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-12"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 242,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-12"
+    },
+    {
+      "order": 7,
+      "sheetLabel": "Sheet 7",
+      "totalTimeSec": 157,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-12"
+    },
+    {
+      "order": 8,
+      "sheetLabel": "Sheet 8",
+      "totalTimeSec": 798,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 9,
+      "sheetLabel": "Sheet 9",
+      "totalTimeSec": 753,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 10,
+      "sheetLabel": "Sheet 10",
+      "totalTimeSec": 798,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    },
+    {
+      "order": 11,
+      "sheetLabel": "Sheet 11",
+      "totalTimeSec": 547,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-08-11"
+    }
+  ]
+}

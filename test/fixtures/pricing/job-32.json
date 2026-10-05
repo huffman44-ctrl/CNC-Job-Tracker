@@ -1,0 +1,40 @@
+{
+  "fixture": "job-32",
+  "jobName": "LG_Fixture_32",
+  "customer": null,
+  "legacy8Column": true,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 532,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 360,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 581,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 680,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": "2026-07-25"
+    }
+  ]
+}

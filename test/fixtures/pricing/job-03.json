@@ -1,0 +1,16 @@
+{
+  "fixture": "job-03",
+  "jobName": "RV_Fixture_03",
+  "customer": "Ridgeway Vans",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 401,
+      "toolpathCount": 4,
+      "hasVbit": true,
+      "cutDate": "2026-08-13"
+    }
+  ]
+}

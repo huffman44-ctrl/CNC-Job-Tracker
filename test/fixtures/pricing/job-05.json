@@ -1,0 +1,16 @@
+{
+  "fixture": "job-05",
+  "jobName": "HL_Fixture_05",
+  "customer": "Harbor Lane Pictures",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 196,
+      "toolpathCount": 1,
+      "hasVbit": false,
+      "cutDate": null
+    }
+  ]
+}

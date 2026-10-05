@@ -1,0 +1,136 @@
+{
+  "fixture": "job-54",
+  "jobName": "NL_Fixture_54",
+  "customer": "Northlight Studios",
+  "legacy8Column": false,
+  "sheets": [
+    {
+      "order": 1,
+      "sheetLabel": "Sheet 1",
+      "totalTimeSec": 1662,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 2,
+      "sheetLabel": "Sheet 2",
+      "totalTimeSec": 676,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 3,
+      "sheetLabel": "Sheet 3",
+      "totalTimeSec": 776,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 4,
+      "sheetLabel": "Sheet 4",
+      "totalTimeSec": 770,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 5,
+      "sheetLabel": "Sheet 5",
+      "totalTimeSec": 845,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 6,
+      "sheetLabel": "Sheet 6",
+      "totalTimeSec": 865,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 7,
+      "sheetLabel": "Sheet 7",
+      "totalTimeSec": 858,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 8,
+      "sheetLabel": "Sheet 8",
+      "totalTimeSec": 1065,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 9,
+      "sheetLabel": "Sheet 9",
+      "totalTimeSec": 1189,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 10,
+      "sheetLabel": "Sheet 10",
+      "totalTimeSec": 1366,
+      "toolpathCount": 2,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 11,
+      "sheetLabel": "Sheet 11",
+      "totalTimeSec": 1576,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 12,
+      "sheetLabel": "Sheet 12",
+      "totalTimeSec": 2551,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 13,
+      "sheetLabel": "Sheet 13",
+      "totalTimeSec": 1931,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 14,
+      "sheetLabel": "Sheet 14",
+      "totalTimeSec": 1297,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 15,
+      "sheetLabel": "Sheet 15",
+      "totalTimeSec": 1707,
+      "toolpathCount": 4,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    },
+    {
+      "order": 16,
+      "sheetLabel": "Sheet 16",
+      "totalTimeSec": 657,
+      "toolpathCount": 3,
+      "hasVbit": false,
+      "cutDate": "2026-07-31"
+    }
+  ]
+}
