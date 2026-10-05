@@ -199,9 +199,95 @@ const Pricing = (() => {
     const minimumAdjustment = sheets.length ? Math.max(0, pl.cutMinimum - roundToStep(cutPortion, pl.roundTo)) : 0;
     const total = round2(rounded + minimumAdjustment + materialPortion);
 
-    return { total, cutPortion, laborPortion, materialPortion,
+    const result = { total, cutPortion, laborPortion, materialPortion,
       roundingAdjustment: rounded - (cutPortion + laborPortion), minimumAdjustment, minimumApplied: minimumAdjustment > 0,
       perJob, perSheet, labor, lines: [], breakdown: [], _ctx: { priceList: pl, jobs, sheets, jobKeys } };
+    result.lines = buildLines(result);
+    result.breakdown = buildBreakdown(result);
+    delete result._ctx;
+    return result;
+  }
+
+  // Lines in the estimator's order: one combined Materials line, the cut line, one line per labor entry.
+  // No descriptions / item names / Taxable here — InvoiceLines (Task 5) adds them.
+  function buildLines(result) {
+    const { jobs, sheets, jobKeys } = result._ctx;
+    const lines = [];
+    const ours = jobKeys.filter(jk => (jobs[jk].material || {}).kind === 'ours' && result.perJob[jk].sheetCount > 0);
+    if (ours.length) {
+      const names = [];
+      ours.forEach(jk => { const n = jobs[jk].material.name; if (!names.includes(n)) names.push(n); });
+      const tax = [...new Set(ours.map(jk => !!jobs[jk].material.taxable))];
+      const amount = round2(ours.reduce((a, jk) => a + result.perJob[jk].material, 0));
+      lines.push({ type: 'material', amount, rate: amount, quantity: 1, serviceDate: '', jobKeys: ours,
+        facts: { names, taxable: tax.length === 1 ? tax[0] : 'mixed', sheetCount: ours.reduce((a, jk) => a + result.perJob[jk].sheetCount, 0) } });
+    }
+    let cutIdx = -1;
+    if (sheets.length) {
+      const cutJobs = jobKeys.filter(jk => result.perJob[jk].sheetCount > 0);
+      const rush = cutJobs.filter(jk => (result._ctx.priceList.rush[jobs[jk].turnaround || 'standard'] || 0) > 0)
+        .map(jk => ({ jobName: jobs[jk].jobName, label: TURNAROUND_LABEL[jobs[jk].turnaround || 'standard'] }));
+      const amount = round2(result.cutPortion + result.minimumAdjustment);
+      cutIdx = lines.length;
+      lines.push({ type: 'cutSheets', amount, rate: amount, quantity: 1,
+        serviceDate: sheets.reduce((a, s) => (s.cutDate > a ? s.cutDate : a), ''), jobKeys: cutJobs,
+        facts: { sheetCount: sheets.length, perJob: cutJobs.map(jk => ({ jobName: jobs[jk].jobName, count: result.perJob[jk].sheetCount })), rush,
+          weekendSheets: sheets.filter(s => result.perSheet[s.fileKey].weekendPremium > 0).length,
+          weekendRate: result._ctx.priceList.weekendRate, minimumApplied: result.minimumApplied } });
+    }
+    result.labor.forEach(l => {
+      const amount = round2(l.base + l.rush);
+      lines.push({ type: 'labor', amount, rate: amount, quantity: 1, serviceDate: '', jobKeys: [l.jobKey], facts: { ...l } });
+    });
+    // Reconcile: per-line cents rounding must not drift from the total; the difference goes on the cut line, else the last labor line.
+    const diff = round2(result.total - lines.reduce((a, l) => a + l.amount, 0));
+    if (diff !== 0) {
+      const target = cutIdx >= 0 ? lines[cutIdx] : lines[lines.length - 1];
+      target.amount = round2(target.amount + diff);
+      target.rate = target.amount;
+    }
+    return lines;
+  }
+
+  const money = x => { const v = round2(x); return '$' + (Number.isInteger(v) ? String(v) : v.toFixed(2)); };
+  const hoursText = h => `${round2(h)} h`;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+  // Plain-words breakdown (spec 7.5 / Example C). Amounts stay unrounded numbers; the screen formats them.
+  function buildBreakdown(result) {
+    const { priceList: pl, jobs, sheets, jobKeys } = result._ctx;
+    const out = [];
+    const firsts = sheets.filter(s => result.perSheet[s.fileKey].repeatOf === null);
+    const repeats = sheets.filter(s => result.perSheet[s.fileKey].repeatOf !== null);
+    if (firsts.length) out.push({ label: `Handling ${firsts.length} × ${money(pl.handlingFirst)}`, amount: firsts.length * pl.handlingFirst });
+    if (repeats.length) out.push({ label: `Handling ${repeats.length} repeats × ${money(pl.handlingRepeat)}`.replace(/ 1 repeats/, ' 1 repeat'), amount: repeats.length * pl.handlingRepeat });
+    if (sheets.length) {
+      const sec = sheets.reduce((a, s) => a + (Number(s.totalTimeSec) || 0), 0);
+      out.push({ label: `Cutting ${formatDuration(sec)} × ${money(pl.hourlyRate)}/hr`, amount: sheets.reduce((a, s) => a + result.perSheet[s.fileKey].timeCharge, 0) });
+    }
+    const wk = sheets.filter(s => result.perSheet[s.fileKey].weekendPremium > 0);
+    if (wk.length) out.push({ label: `Weekend (+${Math.round(pl.weekendRate * 100)}%) on ${plural(wk.length, 'sheet', 'sheets')}`, amount: wk.reduce((a, s) => a + result.perSheet[s.fileKey].weekendPremium, 0) });
+    jobKeys.forEach(jk => {
+      if (!((pl.rush[jobs[jk].turnaround || 'standard'] || 0) > 0)) return;
+      const p = result.perJob[jk];
+      out.push({ label: `${TURNAROUND_LABEL[jobs[jk].turnaround]} on ${jobs[jk].jobName}`, amount: p.rush + p.laborRush });
+    });
+    result.labor.forEach(l => {
+      const bracket = l.topUpHours > 0 ? ` (includes ${l.minHours}-h minimum)` : '';
+      out.push({ label: `${l.typeName} ${hoursText(l.billedHours)}${bracket}${l.note ? ' — ' + l.note : ''}`, amount: l.base });
+    });
+    if (Math.abs(result.roundingAdjustment) > 1e-9) out.push({ label: `Rounded to the nearest ${money(pl.roundTo)}`, amount: result.roundingAdjustment });
+    if (result.minimumApplied) out.push({ label: `Cut minimum ${money(pl.cutMinimum)}`, amount: result.minimumAdjustment });
+    const ours = jobKeys.filter(jk => (jobs[jk].material || {}).kind === 'ours' && result.perJob[jk].sheetCount > 0);
+    if (ours.length) {
+      const names = [];
+      ours.forEach(jk => { const n = jobs[jk].material.name; if (!names.includes(n)) names.push(n); });
+      const count = ours.reduce((a, jk) => a + result.perJob[jk].sheetCount, 0);
+      out.push({ label: `Material — ${names.join(', ')}, ${plural(count, 'sheet', 'sheets')}`, amount: result.materialPortion });
+    } else if (sheets.length) {
+      out.push({ label: 'Material — customer supplied', amount: 0 });
+    }
+    return out;
   }
 
   return { signatureOf, round2, roundToStep, TURNAROUND_LABEL, priceInvoice, VBIT_KEYWORDS, sheetHasVbit, parseTimeSec, formatDuration, signature, repeatGroups, repeatCount, localDate, isWeekendDate, effectiveCutDate };
