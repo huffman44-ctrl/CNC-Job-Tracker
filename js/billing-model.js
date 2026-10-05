@@ -1,0 +1,307 @@
+/**
+ * js/billing-model.js — the PURE model behind the Billing screen (Phase 2, Task 11): which sheets and
+ * labor are billable now, the row states, the through-date and billing-start gates, the invoice
+ * draft and its fingerprint. No DOM, no Firestore, no clock (today is passed in), and NO money
+ * arithmetic — every dollar comes from Pricing.priceInvoice(). All data arrives through build()'s
+ * accessors. Local-date math only: YYYY-MM-DD is never parsed as UTC.
+ * Browser global `BillingModel`; module.exports for node --test.
+ */
+const BillingModel = (() => {
+  const P = typeof Pricing !== 'undefined' ? Pricing : require('./pricing.js');
+  const L = typeof LogRows !== 'undefined' ? LogRows : require('./log-rows.js');
+
+  const nz = v => (v === undefined ? null : v);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function parseYmd(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || '');
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  }
+  function fmtYmd(d) {
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  const monthDay = ymd => { const d = parseYmd(ymd); return d ? `${MONTHS[d.getMonth()]} ${d.getDate()}` : ''; };
+  function rangeText(dates) {
+    const s = dates.filter(Boolean).sort();
+    if (!s.length) return '';
+    return s[0] === s[s.length - 1] ? monthDay(s[0]) : `${monthDay(s[0])} – ${monthDay(s[s.length - 1])}`;
+  }
+
+  // Most recent weekEndingDay (0 = Sun … 6 = Sat) on or before today.
+  function defaultThroughDate(todayYmd, weekEndingDay) {
+    const d = parseYmd(todayYmd);
+    if (!d) throw new Error('defaultThroughDate: bad date ' + todayYmd);
+    const back = (d.getDay() - Number(weekEndingDay) + 7) % 7;
+    return fmtYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back));
+  }
+
+  function build(input) {
+    const { completionOf, sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, noteKey, compare } = input;
+    const throughDate = input.throughDate || null;
+    const billingStart = input.billingStart || null;
+    const startMs = billingStart && parseYmd(billingStart) ? parseYmd(billingStart).getTime() : null;
+    const types = {};
+    (input.laborTypes || []).forEach(t => { types[t.id] = t; });
+    const invoices = input.inProgressInvoices || [];
+    const priceListFor = input.priceListFor || (() => null);
+
+    // Group by job, de-duplicated by fileKey, ordered by compare (order is over ALL the job's sheets).
+    const groups = new Map();
+    const seen = new Set();
+    (input.sheets || []).forEach(s => {
+      if (!s || seen.has(s.fileKey)) return;
+      seen.add(s.fileKey);
+      const name = s.jobName || s.fileName;
+      const jk = noteKey(name);
+      if (!groups.has(jk)) groups.set(jk, { jobKey: jk, jobName: name, sheets: [] });
+      groups.get(jk).sheets.push(s);
+    });
+
+    const customers = new Map();
+    const needsDetails = [];
+    const needsAttention = [];
+    const plCache = {};
+    const priceListOf = ck => (ck in plCache ? plCache[ck] : (plCache[ck] = priceListFor(ck) || null));
+    const outside = ck => !!(ck && (customerBillingOf(ck) || {}).billedOutsideApp);
+
+    groups.forEach(g => {
+      const jk = g.jobKey;
+      const jb = jobBillingOf(jk) || null;
+      g.sheets.sort(compare);
+      const buckets = { eligible: [], uncut: [], later: [], locked: [], billed: [], beforeStart: [], external: [] };
+      g.sheets.forEach((s, i) => {
+        const fk = s.fileKey;
+        const sb = sheetBillingOf(fk) || null;
+        const status = (sb && sb.status) || 'unbilled';
+        const cutDate = P.effectiveCutDate(completionOf(fk) || null, sb);
+        const toolpathCount = Array.isArray(s.toolpaths) ? s.toolpaths.length : 0;
+        const sheetInput = {
+          fileKey: fk, jobKey: jk, order: i + 1, sheetLabel: s.sheetTitle || s.fileName || '',
+          totalTimeSec: P.parseTimeSec(s.totalTime), toolpathCount, hasVbit: P.sheetHasVbit(s), cutDate,
+        };
+        const entry = { fileKey: fk, jobKey: jk, sheetLabel: sheetInput.sheetLabel, cutDate, invoiceNumber: sb && sb.invoiceNumber != null ? sb.invoiceNumber : null, sheetInput };
+        if (status === 'external') buckets.external.push(entry);
+        else if (status === 'billed') buckets.billed.push({ ...entry, prior: { jobKey: jk, signature: P.signatureOf(sheetInput), order: i + 1 } });
+        else if (status === 'in-progress') buckets.locked.push(entry);
+        else if (!cutDate) buckets.uncut.push(entry);
+        else if (billingStart && cutDate < billingStart) buckets.beforeStart.push(entry);
+        else if (throughDate && cutDate > throughDate) buckets.later.push(entry);
+        else buckets.eligible.push(entry);
+      });
+
+      // Job details.
+      const custName = (jb && jb.customerName) || null;
+      const ck = (jb && (jb.customerKey || (jb.customerName && customerKeyOf(jb.customerName)))) || null;
+      const missing = [];
+      if (!ck) missing.push('customer');
+      if (!(jb && jb.material && jb.material.kind)) missing.push('material');
+      if (!(jb && jb.turnaround)) missing.push('turnaround');
+      const billableLater = buckets.eligible.length + buckets.uncut.length + buckets.later.length;
+
+      if (missing.length) {
+        const pcName = custName || projectCustomerOf(jk) || null;
+        const outKey = ck || (pcName && customerKeyOf(pcName)) || null;
+        if (outside(outKey)) return;
+        if (!billableLater) return;
+        needsDetails.push({ jobKey: jk, jobName: g.jobName, customerName: pcName, missing, sheetCount: g.sheets.length });
+        return;
+      }
+      if (outside(ck)) return;
+
+      const cb = customerBillingOf(ck) || null;
+      let cs = customers.get(ck);
+      if (!cs) {
+        cs = { customerKey: ck, customerName: custName || (cb && cb.name) || '', priceListName: (cb && cb.priceList) || 'standard', busyInvoice: null,
+          rows: [], lockedSheets: [], uncutSheets: [], laterSheets: [], laterFirstDate: null, summary: '', _cb: cb };
+        customers.set(ck, cs);
+      }
+      const strip = e => ({ fileKey: e.fileKey, jobKey: e.jobKey, sheetLabel: e.sheetLabel, cutDate: e.cutDate, invoiceNumber: e.invoiceNumber });
+      buckets.locked.forEach(e => cs.lockedSheets.push(strip(e)));
+      buckets.uncut.forEach(e => cs.uncutSheets.push(strip(e)));
+      buckets.later.forEach(e => cs.laterSheets.push(strip(e)));
+
+      // Labor — only when the job is ready; never gated by the through date (§15.4).
+      const ready = !!jb.readyForBilling;
+      const lines = !ready ? [] : (jb.laborLines || []).filter(l =>
+        ((l && l.status) || 'unbilled') === 'unbilled' && (startMs === null || (Number(l.enteredAt) || 0) >= startMs));
+      const hasSheets = buckets.eligible.length > 0;
+      if (!hasSheets && !lines.length) return;
+
+      const priceList = priceListOf(ck);
+      if (!priceList) { needsAttention.push({ jobKey: jk, jobName: g.jobName, reason: 'Price list not set up' }); return; }
+      const gone = lines.filter(l => !types[l.typeId]);
+      if (gone.length) {
+        const names = [...new Set(gone.map(l => l.typeName || l.typeId))].join(', ');
+        needsAttention.push({ jobKey: jk, jobName: g.jobName, reason: `Labor type ${names} was removed from Settings — fix or delete those hours before billing.` });
+        return;
+      }
+
+      const state = !hasSheets ? 'labor-only' : (ready ? (buckets.uncut.length ? 'partly' : 'ready') : 'waiting');
+      const laborLines = lines.map(l => ({ id: l.id, typeId: l.typeId, typeName: l.typeName || (types[l.typeId] || {}).name || '', hours: l.hours, note: l.note || '' }));
+      const sheetInputs = buckets.eligible.map(e => e.sheetInput);
+      const row = {
+        jobKey: jk, jobName: g.jobName, state, defaultIncluded: state === 'ready' || state === 'labor-only',
+        sheetKeys: buckets.eligible.map(e => e.fileKey), laborLineIds: lines.map(l => l.id),
+        uncutCount: buckets.uncut.length, laterCount: buckets.later.length, lockedCount: buckets.locked.length,
+        zeroTimeCount: sheetInputs.filter(s => !(s.totalTimeSec > 0)).length,
+        sheetInputs, priorBilled: buckets.billed.map(e => e.prior),
+        jobInput: { jobName: g.jobName, turnaround: jb.turnaround, material: jb.material, includeLabor: laborLines.length > 0, laborLines },
+        amount: null, error: null,
+      };
+      const rp = rowPricing(row, { priceList, laborTypes: input.laborTypes || [] });
+      row.amount = rp.amount; row.error = rp.error;
+      cs.priceList = priceList;
+      cs.rows.push(row);
+    });
+
+    const out = [];
+    customers.forEach(cs => {
+      const inv = invoices.find(i => i && i.customerKey === cs.customerKey && (!i.status || i.status === 'in-progress'));
+      cs.busyInvoice = inv ? inv.number : (cs._cb && cs._cb.openInvoice != null ? cs._cb.openInvoice : null);
+      delete cs._cb;
+      const laterDates = cs.laterSheets.map(s => s.cutDate).filter(Boolean).sort();
+      cs.laterFirstDate = laterDates.length ? laterDates[0] : null;
+      if (!(cs.rows.length || cs.lockedSheets.length || cs.uncutSheets.length || cs.laterSheets.length || cs.busyInvoice != null)) return;
+      cs.summary = summaryText(cs);
+      out.push(cs);
+    });
+    out.sort((a, b) => a.customerName.localeCompare(b.customerName));
+    return { customers: out, needsDetails, needsAttention, throughDate, billingStart };
+  }
+
+  // Prices ONE row alone (its sheets and its labor). Never throws: a pricing refusal comes back as `error`.
+  function rowPricing(row, ctx) {
+    try {
+      const priced = P.priceInvoice({
+        priceList: ctx.priceList, laborTypes: ctx.laborTypes,
+        jobs: { [row.jobKey]: row.jobInput }, sheets: row.sheetInputs.map(s => ({ ...s })), priorBilled: row.priorBilled.map(p => ({ ...p })),
+      });
+      return { priced, amount: priced.perJob[row.jobKey].subtotal, error: null };
+    } catch (e) {
+      return { priced: null, amount: null, error: e.message || String(e) };
+    }
+  }
+  const rowAmount = (row, ctx) => rowPricing(row, ctx).amount;
+
+  // selection = { [jobKey]: { sheets: bool } }; absent -> row.defaultIncluded.
+  // ready / labor-only: the choice switches the whole row (sheets and labor). partly: the choice
+  // is the cut sheets only — a ready job's labor always rides (§15.4). waiting: sheets only, never labor.
+  function pricingInput(customer, selection, ctx) {
+    const jobs = {}, sheets = [], priorBilled = [];
+    customer.rows.forEach(r => {
+      const sel = selection && selection[r.jobKey];
+      const on = sel && typeof sel.sheets === 'boolean' ? sel.sheets : r.defaultIncluded;
+      const hasLabor = r.laborLineIds.length > 0;
+      const withSheets = r.sheetKeys.length > 0 && on;
+      const withLabor = r.state === 'waiting' ? false : (r.state === 'partly' ? hasLabor : (hasLabor && on));
+      if (!withSheets && !withLabor) return;
+      jobs[r.jobKey] = { ...r.jobInput, includeLabor: withLabor, laborLines: withLabor ? r.jobInput.laborLines.map(l => ({ ...l })) : [] };
+      if (withSheets) {
+        r.sheetInputs.forEach(s => sheets.push({ ...s }));
+        r.priorBilled.forEach(p => priorBilled.push({ ...p }));
+      }
+    });
+    return { priceList: ctx.priceList, laborTypes: ctx.laborTypes, jobs, sheets, priorBilled };
+  }
+
+  function summaryText(customer) {
+    const rows = customer.rows || [];
+    const later = customer.laterSheets || [];
+    const laterPart = later.length
+      ? `${plural(later.length, 'sheet', 'sheets')} cut ${rangeText(later.map(s => s.cutDate))} ${later.length === 1 ? 'waits' : 'wait'} for next week` : '';
+    if (rows.length) {
+      const dates = [];
+      let n = 0;
+      rows.forEach(r => r.sheetInputs.forEach(s => { n++; dates.push(s.cutDate); }));
+      const parts = [plural(rows.length, 'job', 'jobs'), n ? `${plural(n, 'sheet', 'sheets')} cut ${rangeText(dates)}` : 'labor only'];
+      if (laterPart) parts.push(laterPart);
+      return parts.join(' · ');
+    }
+    const locked = customer.lockedSheets || [];
+    const parts = [];
+    if (locked.length) {
+      const nums = [...new Set(locked.map(s => s.invoiceNumber).filter(v => v != null))];
+      const where = nums.length ? `invoice${nums.length > 1 ? 's' : ''} ${nums.join(' and ')}` : 'an invoice';
+      parts.push(`${locked.length} cut ${locked.length === 1 ? 'sheet is' : 'sheets are'} on ${where} (in progress)`);
+    }
+    const uncut = (customer.uncutSheets || []).length;
+    if (uncut) parts.push(`${uncut} still to cut`);
+    if (laterPart) parts.push(laterPart);
+    return parts.length ? `Nothing ready — ${parts.join(', ')}.` : 'Nothing ready.';
+  }
+
+  function rowDetail(row, priced) {
+    const parts = [];
+    const jp = priced && priced.perJob && priced.perJob[row.jobKey];
+    const n = row.sheetKeys.length;
+    if (n) {
+      parts.push(plural(n, 'sheet', 'sheets'));
+      if (jp && jp.repeats > 0) parts.push(`${plural(jp.firsts, 'design', 'designs')}, ${plural(jp.repeats, 'repeat', 'repeats')}`);
+    }
+    const ta = row.jobInput.turnaround;
+    if (n && ta && ta !== 'standard') parts.push(P.TURNAROUND_LABEL[ta] || ta);
+    if (priced && n) {
+      const wk = Object.values(priced.perSheet || {}).filter(s => s.weekendPremium > 0).length;
+      if (wk) parts.push(`${plural(wk, 'weekend sheet', 'weekend sheets')}`);
+    }
+    if (n) parts.push(`${P.formatDuration(row.sheetInputs.reduce((a, s) => a + s.totalTimeSec, 0))} Aspire time`);
+    if (priced && priced.labor && priced.labor.length) {
+      const byType = {};
+      priced.labor.forEach(l => { byType[l.typeName] = (byType[l.typeName] || 0) + l.billedHours; });
+      Object.keys(byType).forEach(name => { const h = P.round2(byType[name]); parts.push(`${h} ${name.toLowerCase()} ${h === 1 ? 'hr' : 'hrs'}`); });
+    }
+    if (n) { const m = row.jobInput.material || {}; parts.push(m.kind === 'ours' ? (m.name || 'our material') : 'customer supplied'); }
+    let s = parts.join(' · ');
+    if (row.zeroTimeCount) s += `${s ? ' · ' : ''}${row.zeroTimeCount === 1 ? '1 sheet has' : row.zeroTimeCount + ' sheets have'} no Aspire time`;
+    return s;
+  }
+
+  // The invoice draft (Task 8 shape). `priced` is the priceInvoice result for pricingInput(customer, selection):
+  // sheetKeys, laborLineRefs, per-sheet figures all come from IT, and the fingerprint is read from the
+  // same accessors, so what is locked is exactly what was priced.
+  function buildDraft(a) {
+    const { customer, priced, settings } = a;
+    const jobOfSheet = {};
+    customer.rows.forEach(r => r.sheetKeys.forEach(k => { jobOfSheet[k] = r.jobKey; }));
+    const sheetKeys = Object.keys(priced.perSheet);
+    const laborLineRefs = (priced.labor || []).map(l => ({ jobKey: l.jobKey, lineId: l.lineId }));
+    const perSheet = {}, fpSheets = {};
+    sheetKeys.forEach(k => {
+      const comp = a.completionOf(k) || null;
+      const sb = a.sheetBillingOf(k) || null;
+      const ps = priced.perSheet[k];
+      perSheet[k] = {
+        jobKey: jobOfSheet[k] || null, cutAt: nz(comp && comp.completedAt), cutDate: P.effectiveCutDate(comp, sb), operator: (comp && comp.operator) || '',
+        priced: { handling: ps.handling, timeCharge: ps.timeCharge, weekendPremium: ps.weekendPremium, repeatOf: ps.repeatOf,
+          hourlyRate: nz(settings && settings.priceList && settings.priceList.hourlyRate), priceList: customer.priceListName },
+        row: L.build(a.sheetsByKey[k], comp, customer.customerName),
+      };
+      fpSheets[k] = { completedAt: nz(comp && comp.completedAt), cutDateOverride: nz(sb && sb.cutDateOverride) };
+    });
+    const jobKeys = [...new Set([...sheetKeys.map(k => perSheet[k].jobKey), ...laborLineRefs.map(r => r.jobKey)].filter(Boolean))];
+    const fpJobs = {};
+    jobKeys.forEach(jk => {
+      const jb = a.jobBillingOf(jk) || {};
+      const m = jb.material || {};
+      const labor = {};
+      laborLineRefs.filter(r => r.jobKey === jk).forEach(r => {
+        const line = (jb.laborLines || []).find(l => l.id === r.lineId) || {};
+        labor[r.lineId] = { typeId: nz(line.typeId), hours: nz(line.hours) };
+      });
+      fpJobs[jk] = { turnaround: nz(jb.turnaround), materialKind: nz(m.kind), materialId: nz(m.materialId), pricePerSheet: nz(m.pricePerSheet),
+        readyForBilling: !!jb.readyForBilling, labor };
+    });
+    return {
+      number: a.number, customerKey: customer.customerKey, customerName: customer.customerName, throughDate: a.throughDate || null,
+      invoiceDate: a.invoiceDate, dueDate: a.dueDate, dueTerm: a.dueTerm, poNumber: a.poNumber || '',
+      sheetKeys, laborLineRefs, lines: a.lines, breakdown: priced.breakdown, total: priced.total, priceListName: customer.priceListName,
+      settingsSnapshot: settings, perSheet, fingerprint: { sheets: fpSheets, jobs: fpJobs }, csv: a.csv,
+    };
+  }
+
+  return { defaultThroughDate, build, pricingInput, rowPricing, rowAmount, summaryText, rowDetail, buildDraft };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;
