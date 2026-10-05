@@ -2532,6 +2532,7 @@ BillingScreen.init({
   noteKey, customerKey, compareSheets, openJob: openJobFromBilling, currentEmail: currentUserEmail,
   openInvoice: d => { if (typeof InvoiceScreen !== 'undefined') InvoiceScreen.show(d); },
 });
+if (typeof BillingDone !== 'undefined') BillingDone.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen });
 document.getElementById('billing-btn').addEventListener('click', () => BillingScreen.show());
 document.getElementById('projects-show-finished').addEventListener('change', async e => {
   showFinished = e.target.checked;

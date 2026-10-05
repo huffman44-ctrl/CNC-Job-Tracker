@@ -26,6 +26,8 @@ const BillingScreen = (() => {
   let statusText = '';
   let statusIsError = false;
   let busy = false;             // an Imported OK / Cancel is running
+  let poEdit = null;            // { number, text } while a Recent-invoices PO box is open
+  const recentBusy = new Set(); // invoice numbers with an Add PO / Retry in flight
 
   const byId = id => document.getElementById(id);
   const esc = s => escHtml(s == null ? '' : s);
@@ -63,6 +65,12 @@ const BillingScreen = (() => {
     els.everything.addEventListener('click', () => { through = null; els.date.value = ''; render(); });
     els.refresh.addEventListener('click', () => loadFinished());
     els.screen.addEventListener('click', onClick);
+    els.recent.addEventListener('input', e => { if (poEdit && e.target.matches('input[data-po]')) poEdit.text = e.target.value; });
+    els.recent.addEventListener('keydown', e => {
+      if (!poEdit || !e.target.matches('input[data-po]')) return;
+      if (e.key === 'Enter') { e.preventDefault(); savePo(poEdit.number); }
+      else if (e.key === 'Escape') { poEdit = null; render(); }
+    });
   }
 
   function ownerDataOk() {
@@ -153,6 +161,7 @@ const BillingScreen = (() => {
     }
     const dataOk = ownerDataOk();
     els.reminders.innerHTML = remindersHtml(dataOk);
+    renderRecent(dataOk);
     if (loadState === 'error') {
       els.needs.innerHTML = '';
       els.customers.innerHTML = `<p class="billing-note billing-note--error">${esc(`Couldn't load finished jobs — ${loadError}. Nothing is billable until this loads.`)}</p>`;
@@ -197,6 +206,68 @@ const BillingScreen = (() => {
         </div>
       </div>`;
     }).join('');
+  }
+
+  /* ── Recent invoices (imported): Add PO + Retry log update ── */
+  function renderRecent(dataOk) {
+    const a = document.activeElement;
+    const keep = !!(poEdit && a && els.recent.contains(a) && a.matches('input[data-po]'));
+    const list = InvoiceStore.recentImported(20);
+    els.recent.innerHTML = list.length ? recentHtml(list, dataOk) : '';
+    if (keep) {
+      const i = els.recent.querySelector('input[data-po]');
+      if (i) { i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (e) { /* ignore */ } }
+    }
+  }
+
+  function recentHtml(list, dataOk) {
+    const rows = list.map(inv => {
+      const r = BillingDone.recentRow(inv, fmtMoney);
+      const n = esc(r.number);
+      const dis = (!dataOk || recentBusy.has(Number(r.number))) ? ' disabled' : '';
+      let po;
+      if (poEdit && Number(poEdit.number) === Number(r.number)) {
+        po = `<span class="billing-recent-po"><input type="text" class="form-input billing-recent-po-input" data-po="${n}" value="${esc(poEdit.text)}" placeholder="PO number" aria-label="PO number for invoice ${n}" autocomplete="off">
+          <button type="button" class="btn btn-primary btn-sm" data-act="save-po" data-number="${n}"${dis}>Save</button>
+          <button type="button" class="btn btn-outline btn-sm" data-act="cancel-po" data-number="${n}">Cancel</button></span>`;
+      } else {
+        po = `<span class="billing-recent-po">${r.po ? `<span class="billing-recent-po-text">PO ${esc(r.po)}</span>` : '<span class="billing-recent-none">no PO</span>'}
+          <button type="button" class="btn btn-outline btn-sm" data-act="add-po" data-number="${n}" data-po="${esc(r.po)}"${dis}>${r.po ? 'Change PO' : 'Add PO'}</button></span>`;
+      }
+      const note = r.logFailed
+        ? `<div class="billing-recent-note"><span>${esc(r.logNote)}</span> <button type="button" class="btn btn-outline btn-sm" data-act="retry-log" data-number="${n}"${dis}>Retry log update</button></div>` : '';
+      return `<div class="billing-recent-row" data-number="${n}">
+        <span class="billing-recent-num">#${n}</span><span class="billing-recent-cust">${esc(r.customer)}</span>
+        <span class="billing-recent-date">${esc(r.imported)}</span><span class="billing-recent-total">${esc(r.total)}</span>${po}${note}
+      </div>`;
+    }).join('');
+    return `<section class="settings-card billing-recent-card"><h2 class="settings-card-title">Recent invoices</h2>${rows}</section>`;
+  }
+
+  async function savePo(number) {
+    if (!poEdit || recentBusy.has(number) || !ownerDataOk()) return;
+    const text = poEdit.text;
+    recentBusy.add(number); render();
+    try {
+      await InvoiceStore.addPo(number, text, opts.currentEmail());
+      poEdit = null; setStatus('');
+    } catch (e) {
+      setStatus(e && e.code === 'po-empty' ? e.message : `Couldn't save the PO on invoice ${number} — ${(e && e.message) || e}`, true);
+    }
+    recentBusy.delete(number); render();
+  }
+
+  async function retryLog(number) {
+    if (recentBusy.has(number) || !ownerDataOk()) return;
+    recentBusy.add(number); render();
+    try {
+      const r = await InvoiceStore.writeBack(number, opts.currentEmail());
+      const failed = !!(r && r.logWritten === false);
+      setStatus(failed ? `The log still could not be updated: ${r.logError || 'unknown reason'}` : `The Master Job Log is updated for invoice ${number}.`, failed);
+    } catch (e) {
+      setStatus(`Couldn't retry the log update for invoice ${number} — ${(e && e.message) || e}`, true);
+    }
+    recentBusy.delete(number); render();
   }
 
   function needsHtml(m) {
@@ -277,6 +348,10 @@ const BillingScreen = (() => {
     if (act === 'imported') return imported(Number(b.dataset.number));
     if (act === 'cancel') return cancelInvoice(Number(b.dataset.number));
     if (act === 'download') return downloadAgain(Number(b.dataset.number));
+    if (act === 'add-po') { poEdit = { number: Number(b.dataset.number), text: b.dataset.po || '' }; render(); const i = els.recent.querySelector('input[data-po]'); if (i) i.focus(); return; }
+    if (act === 'cancel-po') { poEdit = null; render(); return; }
+    if (act === 'save-po') return savePo(Number(b.dataset.number));
+    if (act === 'retry-log') return retryLog(Number(b.dataset.number));
   }
 
   function toggle(ck, jk) {

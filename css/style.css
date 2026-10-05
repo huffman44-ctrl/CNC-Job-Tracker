@@ -1989,3 +1989,23 @@ body {
 .invoice-preview { margin: 4px 0 12px; }
 .invoice-preview-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--gray-200); font-size: 0.85rem; }
 .invoice-step3-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ── Done screen + Recent invoices (js/billing-done.js, js/billing.js) ── */
+.done-card { max-width: 560px; margin: 24px auto; }
+.done-headline { font-size: 1.3rem; font-weight: 800; margin: 0 0 4px; }
+.done-customer { font-size: 1rem; font-weight: 600; margin: 0 0 12px; color: var(--gray-700); }
+.done-line { font-size: 0.92rem; margin: 6px 0; }
+.done-line--warn { color: var(--red); font-weight: 600; }
+.done-line--hint { color: var(--gray-500); }
+.done-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.billing-recent-card { margin-top: 16px; }
+.billing-recent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 0; border-top: 1px solid var(--gray-200); font-size: 0.9rem; }
+.billing-recent-num { font-weight: 800; min-width: 56px; }
+.billing-recent-cust { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.billing-recent-date { color: var(--gray-500); min-width: 52px; }
+.billing-recent-total { font-weight: 700; min-width: 70px; text-align: right; }
+.billing-recent-po { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.billing-recent-po-text { font-weight: 600; }
+.billing-recent-none { color: var(--gray-500); }
+.billing-recent-po-input { width: 160px; }
+.billing-recent-note { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--gray-500); }
