@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const OwnerStore = require('../js/storage-owner.js');   // no init() => cache-only
+const { makeDb } = require('./helpers/fake-firestore.cjs');
 
 // Minimal fake Firestore: opts.getFails / opts.setFails; records writes.
 function fakeDb(opts = {}) {
@@ -61,7 +62,7 @@ test('P17: seeds are written when the load succeeded and the docs are confirmed 
   const db = fakeDb();
   OwnerStore.init(db);
   await OwnerStore.loadAll();
-  assert.deepEqual(db.writes.map(w => w.id).sort(), ['laborTypes', 'materials']);
+  assert.deepEqual(db.writes.map(w => w.id).sort(), ['invoicing', 'laborTypes', 'materials', 'pricing', 'qbItems']);
   assert.equal(OwnerStore.laborTypes().length, 2);
 });
 
@@ -81,33 +82,34 @@ test('P17: existing settings are not overwritten by the seed', async () => {
   const db = fakeDb({ docs: { settings: { laborTypes: { types: [{ id: 'design', name: 'Design', rate: 175, minHours: 1, qbItem: 'X' }] }, materials: { items: [] } } } });
   OwnerStore.init(db);
   await OwnerStore.loadAll();
-  assert.equal(db.writes.length, 0);
+  assert.deepEqual(db.writes.map(w => w.id).sort(), ["invoicing", "pricing", "qbItems"], "only the missing Phase 2 seeds are written; laborTypes and materials are left alone");
   assert.equal(OwnerStore.laborTypes()[0].rate, 175);
 });
 
 test('P18: writers return the write promise and reject (with a console.warn) on a failed write', async () => {
   OwnerStore._resetForTests();
-  const db = fakeDb({ setFails: true });
+  const db = makeDb();
+  db._hooks.failWrites = () => true;
   OwnerStore.init(db);
   const warns = [];
   const w = console.warn; console.warn = (...a) => warns.push(a);
   try {
-    await assert.rejects(() => OwnerStore.setJobBilling('p1', { jobName: 'x' }, 'a'), /write-denied/);
-    await assert.rejects(() => OwnerStore.setCustomerBilling('c1', { name: 'x' }, 'a'), /write-denied/);
-    await assert.rejects(() => OwnerStore.setSetting('invoicing', { a: 1 }, 'a'), /write-denied/);
-    await assert.rejects(() => OwnerStore.setCutDateOverride('f1', '2026-10-02', {}, 'a'), /write-denied/);
+    await assert.rejects(() => OwnerStore.setJobBilling('p1', { jobName: 'x' }, 'a'), /permission-denied/);
+    await assert.rejects(() => OwnerStore.setCustomerBilling('c1', { name: 'x' }, 'a'), /permission-denied/);
+    await assert.rejects(() => OwnerStore.setSetting('invoicing', { a: 1 }, 'a'), /permission-denied/);
+    await assert.rejects(() => OwnerStore.setCutDateOverride('f1', '2026-10-02', {}, 'a'), /permission-denied/);
   } finally { console.warn = w; }
   assert.equal(warns.length, 4);
 });
 
 test('P18: writers resolve to the doc after a successful write', async () => {
   OwnerStore._resetForTests();
-  const db = fakeDb();
+  const db = makeDb();
   OwnerStore.init(db);
   const doc = await OwnerStore.setJobBilling('p1', { jobName: 'x' }, 'a');
   assert.equal(doc.jobName, 'x');
-  assert.equal(db.writes.length, 1);
-  assert.equal(db.writes[0].name, 'jobBilling');
+  assert.equal(db._data.jobBilling.p1.data.jobName, 'x');
+  assert.equal(Object.keys(db._data.jobBilling).length, 1);
 });
 
 test('job billing: new doc defaults, hasJobDetails flips when customer+material+turnaround are set', async () => {

@@ -4,8 +4,9 @@
  * one of them, so app.js initialises this module ONLY after Features.isOwner() is true — his
  * browser never asks. Same cache-plus-listener shape as storage.js; works with no db (PASTE
  * mode, tests). Writes here are NOT swallowed: every writer returns the write promise,
- * console.warns on failure and rejects, so the forms can show the real error. The cache is
- * updated optimistically first; the realtime listener corrects it if the write is refused.
+ * console.warns on failure and rejects, so the forms can show the real error. Every write is a
+ * read-modify-write TRANSACTION on the server doc (never a rebuild from the cache — Phase 1
+ * ledger must-fix); the cache is updated after the commit, not optimistically.
  * Phase 1 writes job details, labor lines, ready state, cut-date corrections, the
  * billed-outside flag and settings. Phase 2 adds invoices/ and the billing writes.
  */
@@ -31,7 +32,17 @@ const OwnerStore = (() => {
       { id: 'cam',    name: 'CAM',    rate: 85,  minHours: 0.5, qbItem: 'Digital Design' },
     ] },
     materials: { items: [] },
+    // Phase 2 (spec §15): the standard price list, QuickBooks item names, invoice numbering.
+    // Per-material Taxable lives on each material (§15.8); billingStartDate (Decision 1) stays
+    // null until Travis sets it.
+    pricing: { defaultList: 'standard', lists: { standard: {
+      handlingFirst: 60, handlingRepeat: 40, hourlyRate: 135,
+      rush: { standard: 0, rush48: 0.5, rush24: 0.75 }, weekendRate: 0.5, cutMinimum: 150, roundTo: 5,
+    } } },
+    qbItems: { cnc: 'CNC Router Work', materials: 'Materials', taxable: { cnc: 'N', labor: 'N' } },
+    invoicing: { seedNumber: 3603, weekEndingDay: 6, defaultDue: 'receipt', billingStartDate: null },
   };
+  const clone = d => JSON.parse(JSON.stringify(d));
 
   function init(firestore) { db = firestore; }
   function onChange(cb) { changeListeners.push(cb); }
@@ -77,21 +88,35 @@ const OwnerStore = (() => {
     names.forEach(listen);
   }
 
-  // Optimistic cache update, then the Firestore write. Returns the write promise (resolves to
-  // the doc); a failed write warns and rejects so callers can show the error.
-  async function write(name, id, doc) {
-    caches[name][id] = doc;
-    emit();
-    if (db) {
-      try {
-        await db.collection(name).doc(id).set(doc);
-      } catch (e) {
-        console.warn(`Firestore ${name}/${id} write failed:`, e);
-        throw e;
-      }
+  // An expected "no" shown to the owner — not a failure worth a console.warn.
+  function refusal(message) { return Object.assign(new Error(message), { ownerRefusal: true }); }
+
+  // Read-modify-write inside a transaction (Phase 1 ledger must-fix: never rebuild an owner doc
+  // from the cache). fn receives a COPY of the current SERVER doc (or makeDefault()) and returns
+  // the next doc; it may throw to abort with that message (give the error ownerRefusal: true to
+  // skip the console.warn). fn can run up to 5 times — keep it pure. The cache and emit happen
+  // AFTER the commit; a failure leaves the cache untouched. Resolves to the committed doc.
+  async function mutate(name, id, makeDefault, fn, stamp) {
+    if (!db) {
+      const next = stamp(fn(clone(caches[name][id] || makeDefault())));
+      caches[name][id] = next; emit(); return next;
     }
-    return doc;
+    const ref = db.collection(name).doc(id);
+    let next;
+    try {
+      next = await db.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        const n = stamp(fn(clone(snap.exists ? snap.data() : makeDefault())));
+        tx.set(ref, n);
+        return n;
+      });
+    } catch (e) {
+      if (!e || !e.ownerRefusal) console.warn(`Firestore ${name}/${id} write failed:`, e);
+      throw e;
+    }
+    caches[name][id] = next; emit(); return next;
   }
+  const stampBy = by => d => ({ ...d, updatedAt: now(), updatedBy: by || '' });
 
   /* ── jobBilling/{jobKey} (spec §5.4) ── */
   function getJobBilling(jobKey) { return caches.jobBilling[jobKey] || null; }
@@ -105,9 +130,18 @@ const OwnerStore = (() => {
     };
   }
 
+  function mutateJobBilling(jobKey, fn, by) {
+    return mutate('jobBilling', jobKey, () => newJobBilling(''), fn, stampBy(by));
+  }
+
+  // Field patches only. Labor lines are a list that Billing also edits (it locks lines
+  // in-progress), so changing them must go through mutateJobBilling with a function that sees
+  // the server doc — a patch built from the cache could overwrite a concurrent lock.
   function setJobBilling(jobKey, patch, by) {
-    const base = caches.jobBilling[jobKey] || newJobBilling(patch && patch.jobName);
-    return write('jobBilling', jobKey, { ...base, ...patch, updatedAt: now(), updatedBy: by || '' });
+    if (patch && Object.prototype.hasOwnProperty.call(patch, 'laborLines')) {
+      throw new Error('setJobBilling cannot write laborLines — use mutateJobBilling(jobKey, cur => ({ ...cur, laborLines }))');
+    }
+    return mutate('jobBilling', jobKey, () => newJobBilling(patch && patch.jobName), cur => ({ ...cur, ...patch }), stampBy(by));
   }
 
   function hasJobDetails(jobKey) {
@@ -127,48 +161,84 @@ const OwnerStore = (() => {
   /* ── sheetBilling/{fileKey} (spec §5.1, §5.5) — flat fields; no doc = unbilled ── */
   function getSheetBilling(fileKey) { return caches.sheetBilling[fileKey] || null; }
 
+  function newSheetBilling() {
+    return { status: 'unbilled', invoiceNumber: null, poNumber: null, billedAt: null, cutAtBilled: null, priced: null, cutDateOverride: null, jobKey: null, customerKey: null };
+  }
+  function mutateSheetBilling(fileKey, fn, by) {
+    return mutate('sheetBilling', fileKey, newSheetBilling, fn, stampBy(by));
+  }
+  const withRefs = (d, refs) => ({
+    ...d,
+    jobKey: (refs && refs.jobKey) || d.jobKey || null,
+    customerKey: (refs && refs.customerKey) || d.customerKey || null,
+  });
+  function isRealYmd(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return false;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+  }
+
+  // The "already priced" check runs on the SERVER doc inside the transaction. An external (no
+  // charge) sheet is never billed, so its date may still be corrected.
   async function setCutDateOverride(fileKey, ymd, refs, by) {
-    const existing = caches.sheetBilling[fileKey];
-    if (existing && (existing.status === 'in-progress' || existing.status === 'billed')) {
-      throw new Error('This sheet is already priced on an invoice — its cut date is locked.');
-    }
-    const base = existing || { status: 'unbilled', invoiceNumber: null, poNumber: null, billedAt: null, cutAtBilled: null, priced: null };
-    return write('sheetBilling', fileKey, {
-      ...base, cutDateOverride: ymd || null,
-      jobKey: (refs && refs.jobKey) || base.jobKey || null,
-      customerKey: (refs && refs.customerKey) || base.customerKey || null,
-      updatedAt: now(), updatedBy: by || '',
-    });
+    if (ymd != null && ymd !== '' && !isRealYmd(ymd)) throw refusal('That is not a real date (use YYYY-MM-DD).');
+    return mutateSheetBilling(fileKey, cur => {
+      if (cur.status === 'in-progress' || cur.status === 'billed') {
+        throw refusal('This sheet is already priced on an invoice — its cut date is locked.');
+      }
+      return withRefs({ ...cur, cutDateOverride: ymd || null }, refs);
+    }, by);
+  }
+
+  // Decision 3: "no charge" marks a sheet external (never billed). Only an unbilled sheet can be
+  // marked; only an external one can be put back.
+  function setNoCharge(fileKey, on, refs, by) {
+    return mutateSheetBilling(fileKey, cur => {
+      if (on) {
+        if (cur.status !== 'unbilled') throw refusal('Only an unbilled sheet can be marked no charge (this one is ' + cur.status + ').');
+        return withRefs({ ...cur, status: 'external' }, refs);
+      }
+      if (cur.status !== 'external') throw refusal('This sheet is not marked no charge.');
+      return withRefs({ ...cur, status: 'unbilled' }, refs);
+    }, by);
   }
 
   /* ── customerBilling/{customerKey} (spec §5.7) ── */
   function getCustomerBilling(customerKey) { return caches.customerBilling[customerKey] || null; }
 
+  function newCustomerBilling() {
+    return { name: '', billedOutsideApp: false, priceList: 'standard', defaultMaterialByThickness: {}, notes: '', openInvoice: null };
+  }
+  function mutateCustomerBilling(customerKey, fn, by) {
+    return mutate('customerBilling', customerKey, newCustomerBilling, fn, stampBy(by));
+  }
   function setCustomerBilling(customerKey, patch, by) {
-    const base = caches.customerBilling[customerKey] || { name: '', billedOutsideApp: false, priceList: 'standard', defaultMaterialByThickness: {}, notes: '' };
-    return write('customerBilling', customerKey, { ...base, ...patch, updatedAt: now(), updatedBy: by || '' });
+    return mutateCustomerBilling(customerKey, cur => ({ ...cur, ...patch }), by);
   }
 
-  async function rememberMaterialDefault(customerKey, customerName, thicknessIn, material) {
+  async function rememberMaterialDefault(customerKey, customerName, thicknessIn, material, by) {
     if (!customerKey || thicknessIn == null) return null;
-    const base = getCustomerBilling(customerKey) || {};
-    const defaults = { ...(base.defaultMaterialByThickness || {}) };
-    defaults[String(thicknessIn)] = { kind: material.kind, materialId: material.materialId || null, name: material.name || '' };
-    return setCustomerBilling(customerKey, { name: customerName || base.name || '', defaultMaterialByThickness: defaults }, '');
+    return mutateCustomerBilling(customerKey, cur => {
+      const defaults = { ...(cur.defaultMaterialByThickness || {}) };
+      defaults[String(thicknessIn)] = { kind: material.kind, materialId: material.materialId || null, name: material.name || '' };
+      return { ...cur, name: customerName || cur.name || '', defaultMaterialByThickness: defaults };
+    }, by);
   }
 
   /* ── settings/{name} (spec §5.8) ── */
   function getSetting(name) { return caches.settings[name] || null; }
 
+  // Top-level keys of `data` replace the doc's keys; the rest of the SERVER doc is kept.
   function setSetting(name, data, by) {
-    return write('settings', name, { ...(caches.settings[name] || {}), ...data, savedAt: now(), savedBy: by || '' });
+    return mutate('settings', name, () => ({}), cur => ({ ...cur, ...data }), d => ({ ...d, savedAt: now(), savedBy: by || '' }));
   }
 
   // Writes the seed only when the settings load SUCCEEDED and the doc is confirmed missing.
   async function ensureSeeded(name, seed) {
     if (db && !settingsLoaded) return false;       // failed/denied/not-yet load: never seed
     if (caches.settings[name]) return false;
-    const doc = { ...seed, seededAt: now() };
+    const doc = { ...clone(seed), seededAt: now() };
     caches.settings[name] = doc;
     if (db) {
       try {
@@ -193,15 +263,34 @@ const OwnerStore = (() => {
   function laborTypes() { const s = getSetting('laborTypes'); return s && Array.isArray(s.types) ? s.types : []; }
   function materials() { const s = getSetting('materials'); return s && Array.isArray(s.items) ? s.items : []; }
 
+  // Phase 2 readers. Seed-shaped defaults sit under the stored doc so a missing key never
+  // changes a result silently — except price-list NUMBERS: priceListFor never guesses.
+  function pricing() { return { defaultList: 'standard', lists: {}, ...(getSetting('pricing') || {}) }; }
+  function qbItems() {
+    const s = getSetting('qbItems') || {};
+    return { ...clone(SEEDS.qbItems), ...s, taxable: { ...SEEDS.qbItems.taxable, ...(s.taxable || {}) } };
+  }
+  function invoicing() { return { ...clone(SEEDS.invoicing), ...(getSetting('invoicing') || {}) }; }
+  // The customer's price list (customerBilling.priceList, else the default), or null when it is
+  // not set up — Billing then shows "Price list not set up" instead of pricing from a guess.
+  function priceListFor(customerKey) {
+    const p = pricing();
+    const cb = getCustomerBilling(customerKey);
+    return (p.lists && p.lists[(cb && cb.priceList) || p.defaultList]) || null;
+  }
+
   function _resetForTests() {
     Object.values(caches).forEach(c => Object.keys(c).forEach(k => delete c[k]));
     changeListeners.length = 0; db = null; settingsLoaded = false; Object.keys(loadedFlags).forEach(k => delete loadedFlags[k]);
   }
   function _seedForTests(name, id, doc) { caches[name][id] = doc; }
+  // Cache-only write + emit — ONLY for InvoiceStore's no-db (PASTE/test) path.
+  function _putLocal(name, id, doc) { caches[name][id] = doc; emit(); }
 
-  return { SEEDS, init, loadAll, onChange, getJobBilling, newJobBilling, setJobBilling, hasJobDetails, newLaborLine,
-    getSheetBilling, setCutDateOverride, getCustomerBilling, setCustomerBilling, rememberMaterialDefault,
-    getSetting, setSetting, ensureSeeded, laborTypes, materials, loaded, _resetForTests, _seedForTests };
+  return { SEEDS, init, loadAll, onChange, getJobBilling, newJobBilling, mutateJobBilling, setJobBilling, hasJobDetails, newLaborLine,
+    getSheetBilling, mutateSheetBilling, setCutDateOverride, setNoCharge, getCustomerBilling, mutateCustomerBilling, setCustomerBilling, rememberMaterialDefault,
+    getSetting, setSetting, ensureSeeded, laborTypes, materials, pricing, qbItems, invoicing, priceListFor, loaded,
+    _resetForTests, _seedForTests, _putLocal };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = OwnerStore;
