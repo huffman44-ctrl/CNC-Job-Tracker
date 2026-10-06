@@ -1,7 +1,8 @@
 /**
  * js/billing.js — Billing screen B (spec §7.4, Phase 2 Task 14): reminders for invoices still in
  * progress, jobs that need details, the "bill work cut through" box, and one card per customer
- * with ready / partly cut / waiting rows and a Bill button. Owners only (app.js shows the header
+ * with ready / partly cut / design-hours-only rows (every row included by default; job names open
+ * the job card), a Bill button, Recent jobs, Recent invoices. Owners only (app.js shows the header
  * button only when Features.on('billing')).
  *
  * DISPLAY ONLY. No money math lives here: every figure comes from Pricing.priceInvoice() (the
@@ -60,7 +61,7 @@ const BillingScreen = (() => {
       screen: byId('billing-screen'), status: byId('billing-status'), reminders: byId('billing-reminders'),
       needs: byId('billing-needs'), date: byId('billing-through-date'), caption: byId('billing-through-caption'),
       everything: byId('billing-everything-btn'), refresh: byId('billing-refresh-btn'),
-      customers: byId('billing-customers'), recent: byId('billing-recent'),
+      customers: byId('billing-customers'), recentJobs: byId('billing-recent-jobs'), recent: byId('billing-recent'),
     };
     byId('billing-back-btn').addEventListener('click', () => opts.onBack());
     els.date.addEventListener('change', () => { through = els.date.value || null; render(); });
@@ -113,9 +114,12 @@ const BillingScreen = (() => {
   }
 
   // `o.status` (optional): a line to show on arrival, e.g. after the Invoice screen cancels an invoice.
+  // `o.resume`: coming back from a job card opened here — keep the date and the choices, no reload
+  // when the finished list is already in hand (the owner caches already carry any new hours).
   function show(o) {
     opts.hideOthers();
     els.screen.hidden = false;
+    if (o && o.resume && loadState === 'ok') { boardKeys = activeKeys(); render(); return; }
     selection = {};
     setStatus('');
     const inv = OwnerStore.invoicing();
@@ -166,14 +170,14 @@ const BillingScreen = (() => {
     paintStatus();
     renderCaption();
     if (loadState === 'idle' || loadState === 'loading') {
-      els.reminders.innerHTML = ''; els.needs.innerHTML = ''; els.customers.innerHTML = '<p class="billing-note">Loading…</p>';
+      els.reminders.innerHTML = ''; els.needs.innerHTML = ''; els.recentJobs.innerHTML = ''; els.customers.innerHTML = '<p class="billing-note">Loading…</p>';
       return;
     }
     const dataOk = ownerDataOk();
     els.reminders.innerHTML = remindersHtml(dataOk);
     renderRecent(dataOk);
     if (loadState === 'error') {
-      els.needs.innerHTML = '';
+      els.needs.innerHTML = ''; els.recentJobs.innerHTML = '';
       els.customers.innerHTML = `<p class="billing-note billing-note--error">${esc(`Couldn't load finished jobs — ${loadError}. Nothing is billable until this loads.`)}</p>`;
       return;
     }
@@ -190,6 +194,23 @@ const BillingScreen = (() => {
     els.customers.innerHTML += m.customers.length
       ? m.customers.map(c => customerHtml(c, ctxLabor, dataOk)).join('')
       : '<p class="billing-note">Nothing to bill right now.</p>';
+    els.recentJobs.innerHTML = recentJobsHtml(BillingModel.recentJobs({
+      finishedSheets: finished || [], activeSheets: opts.activeSheets() || [], nowMs: Date.now(),
+      sheetBillingOf: k => OwnerStore.getSheetBilling(k), jobBillingOf: k => OwnerStore.getJobBilling(k),
+      customerBillingOf: k => OwnerStore.getCustomerBilling(k), projectCustomerOf: jk => Storage.getProjectCustomer(jk),
+      customerKeyOf: opts.customerKey, noteKey: opts.noteKey,
+    }));
+  }
+
+  // Recent jobs (spec 2026-10-06 §3.3): every line's job name opens its card; Back comes back here.
+  function recentJobsHtml(list) {
+    if (!list.length) return '';
+    const rows = list.map(j => `<div class="billing-recent-job">
+        <button type="button" class="billing-job-link" data-act="open-job" data-job="${esc(j.jobName)}">${esc(j.jobName)}</button>
+        <span class="billing-recent-job-text">${esc(`${j.customerName} · finished ${j.finishedText} · ${j.billingText} · ${j.laborText}`)}</span>
+      </div>`).join('');
+    return `<section class="settings-card billing-recent-jobs-card"><h2 class="settings-card-title">Recent jobs</h2>
+      <p class="settings-card-hint">Finished in the last 30 days. Click one to add design or CAM hours.</p>${rows}</section>`;
   }
 
   function renderCaption() {
@@ -306,16 +327,16 @@ const BillingScreen = (() => {
     const rp = BillingModel.rowPricing(row, ctx);
     const detail = BillingModel.rowDetail(row, rp.priced);
     const n = row.sheetKeys.length;
-    let state, label;
-    if (row.state === 'ready') { state = 'Ready'; label = on ? 'Remove' : 'Add'; }
-    else if (row.state === 'labor-only') { state = 'Design / CAM hours only'; label = on ? 'Remove' : 'Add'; }
-    else if (row.state === 'partly') { state = `${plural(n, 'cut sheet', 'cut sheets')}, ${row.uncutCount} still to cut`; label = on ? 'Remove them' : `Bill the ${plural(n, 'cut sheet', 'cut sheets')} anyway`; }
-    else { state = 'Cut, but the job is not marked ready yet'; label = on ? 'Remove them' : `Add the ${plural(n, 'cut sheet', 'cut sheets')}`; }
+    let state;
+    if (row.state === 'ready') state = 'Ready';
+    else if (row.state === 'labor-only') state = 'Design hours only';
+    else state = `${plural(n, 'cut sheet', 'cut sheets')}, ${row.uncutCount} still to cut`;
+    const label = on ? 'Remove' : 'Add back';
     const later = row.laterCount ? ` · ${plural(row.laterCount, 'sheet', 'sheets')} cut later wait` : '';
     const amount = rp.error ? `<span class="billing-row-error">${esc(rp.error)}</span>` : `<span class="billing-row-amt">${esc(fmtMoney(rp.amount))}</span>`;
     return `<div class="billing-row billing-row--${esc(row.state)}${on ? '' : ' is-off'}">
       <div class="billing-row-main">
-        <div><strong>${esc(row.jobName)}</strong> <span class="billing-row-state">${esc(state)}${esc(later)}</span></div>
+        <div><button type="button" class="billing-job-link" data-act="open-job" data-job="${esc(row.jobName)}">${esc(row.jobName)}</button> <span class="billing-row-state">${esc(state)}${esc(later)}</span></div>
         <div class="billing-row-detail">${esc(detail)}</div>
       </div>
       ${amount}

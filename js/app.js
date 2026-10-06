@@ -34,6 +34,7 @@ let currentProject = null; // jobName string when inside a project, null on dire
 let finishedSheets  = [];     // owners' "Show finished jobs" view (one-shot load, not a listener)
 let showFinished    = false;  // the Projects checkbox
 let viewingFinished = false;  // the open job came from the finished list
+let cardReturn      = null;   // 'billing' while the open job card was reached from Billing (Back returns there)
 function visibleSheets() { return (showFinished || viewingFinished) ? finishedSheets : sheets; }
 let modalCtx       = null;
 let clearCtx       = null;
@@ -151,6 +152,7 @@ document.getElementById('clear-confirm').addEventListener('click', confirmClear)
 document.getElementById('back-to-projects-btn').addEventListener('click', () => {
   viewingFinished = false;
   currentProject = null;
+  if (cardReturn === 'billing') { cardReturn = null; setCardBackLabel(); BillingScreen.show({ resume: true }); return; }
   showProjectsScreen();
 });
 document.getElementById('upload-new-btn').addEventListener('click', goToUpload);
@@ -389,7 +391,13 @@ function resetFinishedView() {
   if (box) box.checked = false;
 }
 
+// The job card's Back button says where it goes (Projects, or Billing when the card was opened there).
+function setCardBackLabel() {
+  document.getElementById('back-to-projects-btn').textContent = cardReturn === 'billing' ? '← Billing' : '← Projects';
+}
+
 function showProjectsScreen() {
+  cardReturn = null; setCardBackLabel();
   resetFinishedView();
   hideAllScreens();
   projectsScreen.hidden      = false;
@@ -857,7 +865,7 @@ function buildProjectCard(jobName, projectSheets) {
   card.appendChild(hdr);
   card.appendChild(body);
 
-  if (Features.on('jobCard')) hdrText.appendChild(JobCard.cardChip(jobName));
+  if (Features.on('jobCard')) hdrText.appendChild(JobCard.cardChip(jobName, projectSheets));
   if (showFinished) {
     // Finished jobs: history. No delete, no export; open for the owner panel only.
     deleteBtn.hidden = true;
@@ -2503,13 +2511,14 @@ function rerenderCurrent() {
 }
 
 // Billing opens a job on the same job card Collin uses: the active board when the job is on it,
-// otherwise the owner's finished view (list handed over by Billing). Back still returns to Projects.
+// otherwise the owner's finished view (list handed over by Billing). Back returns to Billing.
 function openJobFromBilling(jobName, finishedList) {
   if (sheets.some(s => (s.jobName || s.fileName) === jobName)) {
     currentProject = jobName; viewingFinished = false;
   } else {
     finishedSheets = finishedList || []; viewingFinished = true; currentProject = jobName;
   }
+  cardReturn = 'billing'; setCardBackLabel();
   hideAllScreens();
   showContentScreen();
 }

@@ -1963,7 +1963,12 @@ body {
 .billing-row-amt { font-weight: 800; min-width: 70px; text-align: right; }
 .billing-row-error { font-size: 0.82rem; color: var(--red); font-weight: 600; }
 .billing-row.is-off .billing-row-main, .billing-row.is-off .billing-row-amt { opacity: 0.55; }
-.billing-row--waiting .billing-row-state, .billing-row--partly .billing-row-state { color: var(--gold); }
+.billing-row--partly .billing-row-state { color: var(--gold); }
+.billing-job-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--cyan); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left; }
+.billing-job-link:hover { color: var(--cyan-dark, var(--cyan)); }
+.billing-recent-jobs-card { margin-top: 16px; }
+.billing-recent-job { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; border-top: 1px solid var(--gray-200); font-size: 0.9rem; }
+.billing-recent-job-text { color: var(--gray-500); font-size: 0.85rem; }
 
 /* ── Invoice screen (js/invoice-screen.js) ── */
 .invoice-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr); gap: 16px; align-items: start; }
