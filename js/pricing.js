@@ -3,6 +3,7 @@
  * Aspire time is read, and what a sheet's cut date is. Phase 1 (2026-10-04 spec §8.1, §12.1)
  * shipped these helpers.
  * Phase 2: priceInvoice() — the ONLY place money is computed. Nothing else in the app does price math.
+ * 2026-10-06: the labor minimum is charged once per job across bills (`priorLaborHours`).
  * Pure: no DOM, no Firestore, no Date.now() — callers pass dates.
  * Browser global `Pricing`; module.exports for node --test.
  */
@@ -83,6 +84,18 @@ const Pricing = (() => {
     if (sheetBilling && sheetBilling.cutDateOverride) return sheetBilling.cutDateOverride;
     if (completion && completion.status === 'complete' && completion.completedAt) return localDate(completion.completedAt);
     return null;
+  }
+
+  // Hours of a job's labor lines already billed or on an invoice in progress, per type — the
+  // `prior` of the once-per-job minimum (spec 2026-10-06 §5). Real hours; top-ups are never stored.
+  function priorLaborHours(laborLines) {
+    const out = {};
+    (laborLines || []).forEach(l => {
+      const st = (l && l.status) || 'unbilled';
+      if (st !== 'billed' && st !== 'in-progress') return;
+      out[l.typeId] = (out[l.typeId] || 0) + (Number(l.hours) || 0);
+    });
+    return out;
   }
 
   /* -- Phase 2: the price engine (spec 8). Money lives ONLY here. -- */
@@ -166,19 +179,43 @@ const Pricing = (() => {
           if (!(typeof t.minHours === "number" && isFinite(t.minHours) && t.minHours >= 0)) throw new Error(`Labor type "${t.id}" has no minimum hours`);
           if (!(typeof l.hours === "number" && isFinite(l.hours) && l.hours > 0)) throw new Error(`A ${t.name || t.id} line on ${job.jobName} has no hours`);
         });
-        // Minimums per job, per type (Decision 7): sum each type's hours on this job, apply minHours
-        // once, and put any shortfall on the LAST line of that type (one line per entry stays).
-        const sumByType = {}, lastByType = {};
-        lines.forEach((l, i) => { sumByType[l.typeId] = (sumByType[l.typeId] || 0) + (Number(l.hours) || 0); lastByType[l.typeId] = i; });
+        // Minimums per job, per type (Decision 7), charged ONCE per job across all of its bills
+        // (spec 2026-10-06 §5):
+        //   prior    = hours of this type already billed / in progress on earlier invoices (real hours, no top-up)
+        //   charged  = prior > 0 ? max(minHours, prior) : 0
+        //   thisBill = max(minHours, prior + now) − charged           (never negative)
+        // thisBill − now lands on the LAST line of that type: a shortfall as a top-up, a credit (the
+        // minimum was already charged) as negative topUpHours. A credit larger than the last line's
+        // hours continues onto the line before it, so no line ever bills negative hours.
+        const priorOf = (input.priorLaborHours || {})[jk] || {};
+        const z = x => (Math.abs(x) < 1e-9 ? 0 : x);
+        const sumByType = {};
+        lines.forEach(l => { sumByType[l.typeId] = (sumByType[l.typeId] || 0) + (Number(l.hours) || 0); });
+        const adjust = {};   // line index -> signed hours adjustment
+        Object.keys(sumByType).forEach(typeId => {
+          const min = Number(types[typeId].minHours) || 0;
+          const prior = Number(priorOf[typeId]) || 0;
+          const now = sumByType[typeId];
+          const charged = prior > 0 ? Math.max(min, prior) : 0;
+          const thisBill = Math.max(0, Math.max(min, prior + now) - charged);
+          let diff = z(thisBill - now);
+          for (let i = lines.length - 1; i >= 0 && diff !== 0; i--) {
+            if (lines[i].typeId !== typeId) continue;
+            const take = diff > 0 ? diff : Math.max(diff, -(Number(lines[i].hours) || 0));
+            adjust[i] = take;
+            diff = z(diff - take);
+          }
+        });
         lines.forEach((l, i) => {
           const t = types[l.typeId];
           const hours = Number(l.hours) || 0;
-          const topUpHours = lastByType[l.typeId] === i ? Math.max(0, (Number(t.minHours) || 0) - sumByType[l.typeId]) : 0;
-          const billedHours = hours + topUpHours;
+          const topUpHours = adjust[i] || 0;
+          const billedHours = z(hours + topUpHours);
           const base = billedHours * Number(t.rate);
           const rush = base * rp;
           laborBase += base; laborRush += rush;
           labor.push({ jobKey: jk, lineId: l.id, typeId: t.id, typeName: t.name, note: l.note || '', hours, topUpHours, billedHours,
+            coveredHours: topUpHours < 0 ? -topUpHours : 0,
             minHours: Number(t.minHours) || 0, rate: Number(t.rate), base, rush, rushPct: rp });
         });
       }
@@ -275,8 +312,11 @@ const Pricing = (() => {
       out.push({ label: `${TURNAROUND_LABEL[jobs[jk].turnaround]} on ${jobs[jk].jobName}`, amount: p.rush + p.laborRush });
     });
     result.labor.forEach(l => {
-      const bracket = l.topUpHours > 0 ? ` (includes ${l.minHours}-h minimum)` : '';
-      out.push({ label: `${l.typeName} ${hoursText(l.billedHours)}${bracket}${l.note ? ' — ' + l.note : ''}`, amount: l.base });
+      let bracket = '';
+      if (l.topUpHours > 0) bracket = ` (includes ${l.minHours}-h minimum)`;
+      else if (l.coveredHours > 0) bracket = l.billedHours > 0 ? ` (${hoursText(l.coveredHours)} covered by the ${l.minHours}-h minimum)` : ` (covered by the ${l.minHours}-h minimum)`;
+      const shown = l.billedHours > 0 ? l.billedHours : l.hours;   // a 0-h line still shows the hours entered
+      out.push({ label: `${l.typeName} ${hoursText(shown)}${bracket}${l.note ? ' — ' + l.note : ''}`, amount: l.base });
     });
     if (Math.abs(result.roundingAdjustment) > 1e-9) out.push({ label: `Rounded to the nearest ${money(pl.roundTo)}`, amount: result.roundingAdjustment });
     if (result.minimumApplied) out.push({ label: `Cut minimum ${money(pl.cutMinimum)}`, amount: result.minimumAdjustment });
@@ -292,7 +332,7 @@ const Pricing = (() => {
     return out;
   }
 
-  return { signatureOf, round2, roundToStep, TURNAROUND_LABEL, priceInvoice, VBIT_KEYWORDS, sheetHasVbit, parseTimeSec, formatDuration, signature, repeatGroups, repeatCount, localDate, isWeekendDate, effectiveCutDate };
+  return { signatureOf, round2, roundToStep, TURNAROUND_LABEL, priceInvoice, priorLaborHours, VBIT_KEYWORDS, sheetHasVbit, parseTimeSec, formatDuration, signature, repeatGroups, repeatCount, localDate, isWeekendDate, effectiveCutDate };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Pricing;

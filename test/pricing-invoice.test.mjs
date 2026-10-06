@@ -204,3 +204,88 @@ test('refuses bad labor types, hours, material price and sheet time', () => {
   [undefined, NaN, '600', -5].forEach(v => assert.throws(() => price({ jobs: { S: job('S') }, sheets: [sheet('S', 1, v, '2026-10-01')] }), /Aspire time/));
   assert.equal(price({ jobs: { S: job('S') }, sheets: [sheet('S', 1, 0, '2026-10-01')] }).perJob.S.firsts, 1);
 });
+
+/* ---- spec 2026-10-06 §5: the minimum is charged once per job, across all of its bills ---- */
+const laborOnly = (lines, extra = {}) => price({ jobs: { J: job('J', { includeLabor: true, laborLines: lines, ...extra }) }, sheets: [] });
+const dl = (id, hours, note = '') => ({ id, typeId: 'design', hours, note });
+
+test('§5 row 1: 0.5 h then 0.5 h → 1 h $150, then 0 h $0.00; job total 1 h $150', () => {
+  const first = laborOnly([dl('a', 0.5, 'Sketch')]);
+  assert.deepEqual([first.labor[0].billedHours, first.labor[0].topUpHours, first.labor[0].coveredHours, first.perJob.J.laborBase], [1, 0.5, 0, 150]);
+  const second = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [dl('b', 0.5, 'Revisions')] }) }, sheets: [] }, { priorLaborHours: { J: { design: 0.5 } } });
+  const l = second.labor[0];
+  assert.deepEqual([l.hours, l.billedHours, l.topUpHours, l.coveredHours], [0.5, 0, -0.5, 0.5]);
+  assert.equal(second.perJob.J.laborBase, 0);
+  assert.equal(second.total, 0, 'a $0.00 labor-only invoice is a valid invoice');
+  assert.equal(second.lines.length, 1); assert.equal(second.lines[0].type, 'labor'); assert.equal(second.lines[0].amount, 0); assert.equal(second.lines[0].rate, 0);
+  assert.equal(second.breakdown.find(b => /^Design/.test(b.label)).label, 'Design 0.5 h (covered by the 1-h minimum) — Revisions');
+  assert.equal(first.perJob.J.laborBase + second.perJob.J.laborBase, 150);
+});
+
+test('§5 row 2: 0.5 h then 2 h → 1 h $150, then 1.5 h $225; job total 2.5 h $375', () => {
+  const second = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [dl('b', 2)] }) }, sheets: [] }, { priorLaborHours: { J: { design: 0.5 } } });
+  const l = second.labor[0];
+  assert.deepEqual([l.hours, l.billedHours, l.topUpHours, l.coveredHours], [2, 1.5, -0.5, 0.5]);
+  assert.equal(second.perJob.J.laborBase, 225);
+  assert.equal(second.total, 225);
+  assert.equal(second.breakdown.find(b => /^Design/.test(b.label)).label, 'Design 1.5 h (0.5 h covered by the 1-h minimum)');
+  assert.equal(150 + second.perJob.J.laborBase, 375);
+});
+
+test('§5 row 3: 1.5 h at once → 1.5 h $225, no bracket', () => {
+  const r = laborOnly([dl('a', 1.5)]);
+  assert.deepEqual([r.labor[0].billedHours, r.labor[0].topUpHours, r.perJob.J.laborBase], [1.5, 0, 225]);
+  assert.equal(r.breakdown.find(b => /^Design/.test(b.label)).label, 'Design 1.5 h');
+});
+
+test('§5 rush applies to the hours billed on THIS bill (row 2 at 48-hour rush)', () => {
+  const r = price({ jobs: { J: job('J', { turnaround: 'rush48', includeLabor: true, laborLines: [dl('b', 2)] }) }, sheets: [] }, { priorLaborHours: { J: { design: 0.5 } } });
+  assert.equal(r.perJob.J.laborBase, 225);
+  assert.equal(r.perJob.J.laborRush, 112.5);
+  assert.equal(r.total, 340);   // 337.5 rounded to $5
+});
+
+test('§5 a type with minHours 0: thisBill = now, prior changes nothing', () => {
+  const types = [{ id: 'cam', name: 'CAM', rate: 85, minHours: 0, qbItem: 'Digital Design' }];
+  const r = Pricing.priceInvoice({ priceList: STANDARD, laborTypes: types, priorBilled: [], priorLaborHours: { J: { cam: 0.25 } },
+    jobs: { J: job('J', { includeLabor: true, laborLines: [{ id: 'c', typeId: 'cam', hours: 0.5, note: '' }] }) }, sheets: [] });
+  assert.deepEqual([r.labor[0].billedHours, r.labor[0].topUpHours], [0.5, 0]);
+  assert.equal(r.perJob.J.laborBase, 42.5);
+});
+
+test('§5 priorLaborHours absent = today\'s behaviour (0.5 h Design bills the 1-h minimum)', () => {
+  const r = laborOnly([dl('a', 0.5)]);
+  assert.deepEqual([r.labor[0].billedHours, r.labor[0].topUpHours], [1, 0.5]);
+  const empty = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [dl('a', 0.5)] }) }, sheets: [] }, { priorLaborHours: {} });
+  assert.equal(empty.labor[0].billedHours, 1);
+  const otherJob = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [dl('a', 0.5)] }) }, sheets: [] }, { priorLaborHours: { K: { design: 5 } } });
+  assert.equal(otherJob.labor[0].billedHours, 1, 'another job\'s prior hours never count');
+});
+
+test('§5 credit larger than the last line: 0.5 h billed, then 0.25 h + 0.25 h → both 0 h, never negative', () => {
+  const r = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [dl('a', 0.25), dl('b', 0.25)] }) }, sheets: [] }, { priorLaborHours: { J: { design: 0.5 } } });
+  assert.deepEqual(r.labor.map(l => [l.lineId, l.billedHours, l.topUpHours]), [['a', 0, -0.25], ['b', 0, -0.25]]);
+  assert.ok(r.labor.every(l => l.billedHours >= 0));
+  assert.equal(r.perJob.J.laborBase, 0);
+});
+
+test('§5 prior hours of one type never touch another type; a type with no lines on this bill is ignored', () => {
+  const r = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [dl('a', 0.5), { id: 'c', typeId: 'cam', hours: 0.25, note: '' }] }) }, sheets: [] },
+    { priorLaborHours: { J: { design: 0.5, cam: 9 } } });
+  assert.deepEqual(r.labor.map(l => [l.lineId, l.billedHours, l.topUpHours]), [['a', 0, -0.5], ['c', 0.25, 0]], 'CAM: prior 9 ≥ 0.5 min → charged 9, thisBill = max(0.5, 9.25) − 9 = 0.25');
+  const noPriorCam = price({ jobs: { J: job('J', { includeLabor: true, laborLines: [{ id: 'c', typeId: 'cam', hours: 0.25, note: '' }] }) }, sheets: [] }, { priorLaborHours: { J: { design: 3 } } });
+  assert.equal(noPriorCam.labor[0].billedHours, 0.5, 'Design prior does not cover CAM');
+});
+
+test('Pricing.priorLaborHours sums billed and in-progress lines per type; unbilled and absent status are ignored', () => {
+  const lines = [
+    { id: 'a', typeId: 'design', hours: 0.5, status: 'billed', invoiceNumber: 3600 },
+    { id: 'b', typeId: 'design', hours: 1, status: 'in-progress', invoiceNumber: 3601 },
+    { id: 'c', typeId: 'cam', hours: 0.25, status: 'billed', invoiceNumber: 3600 },
+    { id: 'd', typeId: 'design', hours: 2, status: 'unbilled' },
+    { id: 'e', typeId: 'design', hours: 4 },
+  ];
+  assert.deepEqual(Pricing.priorLaborHours(lines), { design: 1.5, cam: 0.25 });
+  assert.deepEqual(Pricing.priorLaborHours([]), {});
+  assert.deepEqual(Pricing.priorLaborHours(undefined), {});
+});
