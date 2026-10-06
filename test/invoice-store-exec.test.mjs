@@ -26,7 +26,7 @@ function draft(over = {}) {
     },
     fingerprint: {
       sheets: { s1: { completedAt: cut1, cutDateOverride: null }, s2: { completedAt: cut2, cutDateOverride: null } },
-      jobs: { proj_a: { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, readyForBilling: true, labor: { ll_1: { typeId: 'design', hours: 2 } } } },
+      jobs: { proj_a: { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, priorLabor: {}, labor: { ll_1: { typeId: 'design', hours: 2 } } } },
     },
     csv: 'a,b', ...over,
   };

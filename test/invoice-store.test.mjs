@@ -26,7 +26,7 @@ function draft(over = {}) {
     },
     fingerprint: {
       sheets: { s1: { completedAt: cut1, cutDateOverride: null }, s2: { completedAt: cut2, cutDateOverride: null } },
-      jobs: { proj_a: { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, readyForBilling: true, labor: { ll_1: { typeId: 'design', hours: 2 } } } },
+      jobs: { proj_a: { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, priorLabor: {}, labor: { ll_1: { typeId: 'design', hours: 2 } } } },
     },
     csv: 'a,b',
     ...over,
@@ -123,7 +123,7 @@ test('lock: changed on any fingerprint mismatch', () => {
     kind: lockDocs({ jobBilling: { proj_a: jobDoc({ material: { kind: 'customer', materialId: null, name: '', pricePerSheet: 0 } }) } }),
     matId: lockDocs({ jobBilling: { proj_a: jobDoc({ material: { kind: 'ours', materialId: 'mat_x', name: '', pricePerSheet: 95 } }) } }),
     price: lockDocs({ jobBilling: { proj_a: jobDoc({ material: { kind: 'ours', materialId: 'mat_bb', name: '', pricePerSheet: 99 } }) } }),
-    ready: lockDocs({ jobBilling: { proj_a: jobDoc({ readyForBilling: false }) } }),
+    prior: lockDocs({ jobBilling: { proj_a: jobDoc({ laborLines: [l0, { ...l1, status: 'billed', invoiceNumber: 3590, billedAt: 2 }] }) } }),
     noJob: lockDocs({ jobBilling: { proj_a: null } }),
     hours: lockDocs({ jobBilling: { proj_a: jobDoc({ laborLines: [{ ...l0, hours: 3 }] }) } }),
     type: lockDocs({ jobBilling: { proj_a: jobDoc({ laborLines: [{ ...l0, typeId: 'cam' }] }) } }),
@@ -136,9 +136,19 @@ test('lock: changed on any fingerprint mismatch', () => {
   }
 });
 
-test('lock: readyForBilling only matters when labor is included', () => {
+test('lock: prior hours only matter when labor is included; readyForBilling is never read', () => {
   const d = draft({ laborLineRefs: [] }); d.fingerprint.jobs.proj_a.labor = {};
-  lock(lockDocs({ jobBilling: { proj_a: jobDoc({ readyForBilling: false }) } }), d);
+  lock(lockDocs({ jobBilling: { proj_a: jobDoc({ readyForBilling: false, laborLines: [{ ...jobDoc().laborLines[1], status: 'billed', invoiceNumber: 3590 }] }) } }), d);
+  const withLabor = draft(); withLabor.fingerprint.jobs.proj_a.priorLabor = { cam: 1 };
+  lock(lockDocs({ jobBilling: { proj_a: jobDoc({ readyForBilling: false, laborLines: [jobDoc().laborLines[0], { ...jobDoc().laborLines[1], status: 'in-progress', invoiceNumber: 3590 }] }) } }), withLabor);
+  const old = draft(); delete old.fingerprint.jobs.proj_a.priorLabor;
+  lock(lockDocs(), old);   // a draft without the key reads as {} — matches a job with no billed lines
+});
+
+test('lock: succeeds whether the job doc has readyForBilling true, false or absent', () => {
+  for (const extra of [{ readyForBilling: true }, { readyForBilling: false }, { readyForBilling: undefined }]) {
+    assert.doesNotThrow(() => lock(lockDocs({ jobBilling: { proj_a: jobDoc(extra) } })), JSON.stringify(extra));
+  }
 });
 
 test('lock: too-big over 400 sheets', () => {
@@ -318,7 +328,7 @@ test('lock: more than 500 planned writes is too-big even under 400 sheets', () =
   keys.forEach((k, i) => {
     d.perSheet[k] = { jobKey: 'j' + i, cutAt: cut1, priced: priced(1), row: rowFor(k, cut1) };
     d.fingerprint.sheets[k] = { completedAt: cut1, cutDateOverride: null };
-    d.fingerprint.jobs['j' + i] = { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, readyForBilling: true, labor: { ll_1: { typeId: 'design', hours: 2 } } };
+    d.fingerprint.jobs['j' + i] = { turnaround: 'standard', materialKind: 'ours', materialId: 'mat_bb', pricePerSheet: 95, priorLabor: {}, labor: { ll_1: { typeId: 'design', hours: 2 } } };
     docs.completions[k] = { completedAt: cut1 };
     docs.jobBilling['j' + i] = jobDoc();
   });

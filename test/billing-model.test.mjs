@@ -221,7 +221,7 @@ test('rowDetail: rush, weekend, labor hours, no-time note', () => {
 
 // ---- buildDraft + planLock integration ----
 function draftFor(selection) {
-  const w = world({ jobs: { NL_Arch: { customer: NL, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design', note: 'Layout' })] } },
+  const w = world({ jobs: { NL_Arch: { customer: NL, ready: true, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design', note: 'Layout' })] } },
     sheets: [{ job: 'NL_Arch', n: 1, sec: 720, cut: T }, { job: 'NL_Arch', n: 2, sec: 1080, cut: T, override: '2026-10-02' }, { job: 'NL_Arch', n: 3, sec: 900, cut: null }] });
   const c = cust(w.model, NL);
   const priced = Pricing.priceInvoice(BillingModel.pricingInput(c, selection, ctx));
@@ -269,7 +269,7 @@ test('integration: draft locks against the same world; a changed completedAt is 
 
 /* ---- fix round 1 ---- */
 test('draft fingerprint is the priced snapshot: world changes AFTER build() -> original values, lock refuses', () => {
-  const jobs = { NL_Arch: { customer: NL, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design' })] } };
+  const jobs = { NL_Arch: { customer: NL, ready: true, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design' })] } };
   const sheets = [{ job: 'NL_Arch', n: 1, sec: 720, cut: T }];
   const run = mutate => {
     const w = world({ jobs, sheets });

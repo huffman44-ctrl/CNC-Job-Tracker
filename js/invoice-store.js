@@ -7,9 +7,12 @@
  * Every write's `doc` is the FULL next document: the doc as it was read with this change merged on
  * top, so the executor's whole-doc set never drops a field and the Firestore rules (which diff
  * the stored doc against the new one) see only the intended keys change. Rule summary in HQ/firestore.rules.
+ *
+ * 2026-10-06: the lock re-checks the job's prior (billed / in-progress) labor hours instead of readyForBilling.
  */
 const InvoiceStore = (() => {
   const L = typeof LogRows !== 'undefined' ? LogRows : require('./log-rows.js');
+  const P = typeof Pricing !== 'undefined' ? Pricing : require('./pricing.js');
 
   const MAX_SHEETS = 400;   // 1 invoice + sheets + jobs + customer must stay under the 500-write transaction cap
 
@@ -17,6 +20,11 @@ const InvoiceStore = (() => {
   const nz = v => (v === undefined ? null : v);
   const same = (a, b) => nz(a) === nz(b);
   const status = doc => (doc && doc.status) || 'unbilled';
+  // Same keys, same hours (number compare; a missing key is 0).
+  function samePrior(a, b) {
+    const ks = [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])];
+    return ks.every(k => (Number((a || {})[k]) || 0) === (Number((b || {})[k]) || 0));
+  }
 
   // Same shapes as OwnerStore's new*Billing defaults (kept local so the planners stay pure).
   const sheetDefault = () => ({ status: 'unbilled', invoiceNumber: null, poNumber: null, billedAt: null, cutAtBilled: null, priced: null, cutDateOverride: null, jobKey: null, customerKey: null });
@@ -99,7 +107,8 @@ const InvoiceStore = (() => {
       if (!same(jd.turnaround, jf.turnaround) || !same(m.kind, jf.materialKind) || !same(m.materialId, jf.materialId)
         || !same(m.pricePerSheet, jf.pricePerSheet)) throw changed();
       const ids = refsByJob[jk] || [];
-      if (ids.length && !same(!!jd.readyForBilling, !!jf.readyForBilling)) throw changed();
+      // The once-per-job minimum was priced against these prior hours; different hours now = a different price.
+      if (ids.length && !samePrior(P.priorLaborHours(jd.laborLines), jf.priorLabor || {})) throw changed();
       for (const id of ids) {
         const line = (jd.laborLines || []).find(l => l.id === id);
         const lf = (jf.labor || {})[id];
