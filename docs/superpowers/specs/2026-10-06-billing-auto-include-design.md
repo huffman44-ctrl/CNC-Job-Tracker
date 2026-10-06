@@ -1,6 +1,6 @@
 # Billing — everything cut goes in, no Done step, jobs reachable from Billing
 
-**Status:** design approved in conversation 2026-10-06 (Travis); this document awaits his review.
+**Status:** design approved in conversation 2026-10-06 (Travis); implemented 2026-10-06 on branch `billing-auto-include` (plan: ../plans/2026-10-06-billing-auto-include.md). Not merged.
 **Builds on:** `2026-10-04-customer-billing-phase-1-2-design.md` (live since 2026-10-05). Only the parts named here change.
 
 ## 1. Why
