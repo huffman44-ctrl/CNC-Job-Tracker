@@ -142,7 +142,8 @@ async function main() {
     await page.fill('#owner-panel [data-line-hours]', hours);
     await page.fill('#owner-panel [data-line-note]', note);
     await page.click('#owner-panel [data-action="line-add"]');
-    await page.waitForFunction(h => new RegExp(h.replace('.', '\\.') + ' h added\\.').test(document.getElementById('owner-panel').textContent), hours);
+    // this line's own note shows in the panel and the form cleared (the "N h added." text can be left over from an earlier add on the same job)
+    await page.waitForFunction(n => document.getElementById('owner-panel').textContent.includes(n) && !document.querySelector('#owner-panel [data-line-note]').value, note);
   };
   const openBilling = async (page, everything = true) => {
     await toProjects(page);
@@ -438,14 +439,19 @@ async function main() {
   const ccRow = card(page, 'Copperline Stage').locator('.billing-row--labor-only');
   assert(await ccRow.count() === 1 && (await ccRow.locator('.billing-row-amt').textContent()).trim() === '$0', '9b Copperline: labor-only row at $0 (the 1-h minimum was charged on the first bill)');
   assert(/Bill Copperline Stage · \$0$/.test((await card(page, 'Copperline Stage').locator('button[data-act="bill"]').textContent()).trim()), '9b the Bill button reads "Bill Copperline Stage · $0"');
-  const desc = await page.evaluate(() => {
-    const m = BillingScreen.buildModel(null);
-    const c = m.customers.find(x => x.customerName === 'Copperline Stage');
-    const ctx = { priceList: c.priceList, laborTypes: OwnerStore.laborTypes() };
-    const priced = Pricing.priceInvoice(BillingModel.pricingInput(c, {}, ctx));
-    return InvoiceLines.finalize(priced, { qbItems: OwnerStore.qbItems(), laborTypes: ctx.laborTypes }).find(l => l.type === 'labor').description;
-  });
-  assert(desc === 'Design — Revisions (0.5 hrs, covered by the 1-hr minimum)', `9b the invoice line reads "${desc}"`);
+  await card(page, 'Copperline Stage').locator('button[data-act="bill"]').click();
+  await page.waitForSelector('#invoice-screen:not([hidden])');
+  await page.waitForFunction(() => document.getElementById('invoice-number-check').classList.contains('invoice-check--ok'));
+  const num3 = await page.inputValue('#invoice-number');
+  const dl0 = await downloadCsv(page);
+  const rows0 = parseCsv(readFileSync(await dl0.path()).toString('utf8').replace(/^\ufeff/, '')).filter(r => r.length > 1 || r[0] !== '').slice(1);
+  assert(rows0.length === 1 && parseFloat(rows0[0][8]) === 0 && rows0[0][5] === 'Design — Revisions (0.5 hrs, covered by the 1-hr minimum)', '9b the $0 invoice CSV has one labor row: amount 0, "Design — Revisions (0.5 hrs, covered by the 1-hr minimum)" (got ' + JSON.stringify(rows0.map(r => [r[5], r[8]])) + ')');
+  await page.waitForSelector('#invoice-imported-btn:not([disabled])');
+  await page.click('#invoice-imported-btn');
+  await page.waitForSelector('#billing-done-screen:not([hidden]) .done-headline');
+  await page.click('#billing-done-screen [data-act="next"]');
+  await page.waitForSelector('.billing-recent-row[data-number="' + num3 + '"]');
+  assert(/\$0(?![\d.])/.test(await page.locator('.billing-recent-row[data-number="' + num3 + '"]').innerText()), '9b Recent invoices shows ' + num3 + ' at $0');
   // (the Copperline $0 row stays on Billing for the rest of the run; steps 10–13 only look at other customers)
 
   // ── 10. Through date ──
@@ -527,6 +533,10 @@ async function main() {
   await page.click('#settings-labor-save');
   await page.waitForFunction(() => /Labor types saved./.test(document.getElementById('settings-status').textContent));
   assert(await page.evaluate(() => OwnerStore.laborTypes().map(t => t.name).join(',') === 'Design'), '13 the unused CAM type was removed and saved; Design stays');
+  await page.evaluate(() => { window.__realLT = OwnerStore.laborTypes; OwnerStore.laborTypes = () => []; });
+  await openCard(page, 1203);
+  assert(/No Design\/CAM types yet/.test(await page.textContent('#owner-panel')), '13 with no types the job card shows "No Design/CAM types yet"');
+  await page.evaluate(() => { OwnerStore.laborTypes = window.__realLT; });
   await page.close();
 
   // ── 14. No uncaught page errors anywhere ──
