@@ -32,7 +32,7 @@ const JobDetails = (() => {
   }
 
   // The transaction body for the form's Save (runs on the SERVER copy; pure). It owns only the
-  // form's fields — laborLines, readyForBilling and noDesignTime stay exactly as the server has
+  // form's fields — laborLines (and any stale fields on the doc) stay exactly as the server has
   // them, so an edit can never wipe hours. A customer change is refused once any labor line is
   // on an invoice (Decision 6; the form also checks the job's sheets before saving).
   function applyDetails(cur, form) {

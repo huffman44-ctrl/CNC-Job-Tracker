@@ -1,6 +1,7 @@
 /**
  * js/job-card.js — the owner panel on the job card (spec §7.2) plus the two small owner
- * decorations elsewhere: the board card's job-level chip and the sidebar row's status/tags.
+ * decorations elsewhere: the board card's chip (Needs job details, else the job's billing status)
+ * and the sidebar row's status/tags. No Done step: hours go on the next bill as entered.
  * Collin's sheet workspace is untouched: app.js calls nothing here unless
  * Features.on('jobCard'). Plain words, no status key, never a price (spec §5.1).
  * Globals used at runtime: escHtml, formatDT (app.js), OwnerStore, Storage, Pricing.
@@ -18,8 +19,8 @@ const JobCard = (() => {
   // 5 times — no clocks, no DOM). A refusal is shown to the owner, never console-warned.
   const refuse = msg => Object.assign(new Error(msg), { ownerRefusal: true });
   const lineStatus = l => (l && l.status) || 'unbilled';
+  // Hours go on the next bill as soon as they are entered (spec 2026-10-06 §4) — nothing to refuse.
   function applyLineAdd(cur, line) {
-    if (cur.readyForBilling) throw refuse('This job is marked ready — click Edit — not ready yet first.');
     return { ...cur, laborLines: [...(cur.laborLines || []), line] };
   }
   function applyLineRemove(cur, lineId) {
@@ -28,13 +29,12 @@ const JobCard = (() => {
     if (target && lineStatus(target) !== 'unbilled') throw refuse(`That line is already on invoice ${target.invoiceNumber}.`);
     return { ...cur, laborLines: lines.filter(l => l.id !== lineId) };
   }
-  function applyDone(cur, by, nowMs) {
-    if (!((cur.laborLines || []).length || cur.noDesignTime)) throw refuse('Add design hours or tick "No design time on this job" first.');
-    return { ...cur, readyForBilling: true, readyAt: nowMs, readyBy: by };
-  }
-  function applyNotReady(cur) {
-    if ((cur.laborLines || []).some(l => lineStatus(l) === 'in-progress' || lineStatus(l) === 'billed')) throw refuse('Design hours on this job are already on an invoice.');
-    return { ...cur, readyForBilling: false, readyAt: null, readyBy: null };
+  // Each design/CAM line's status in plain words.
+  function lineStatusText(l) {
+    const st = lineStatus(l);
+    if (st === 'billed') return `Billed · #${l.invoiceNumber}`;
+    if (st === 'in-progress') return `On invoice ${l.invoiceNumber} (in progress)`;
+    return 'Goes on the next bill';
   }
 
   function init(h) { hooks = { ...hooks, ...h }; }
@@ -56,21 +56,35 @@ const JobCard = (() => {
   }
   function shortDate(ms) { const d = new Date(ms); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
 
-  /* ── Job-level state ── */
-  function jobState(jobName) {
-    const jobKey = hooks.noteKey(jobName);
-    if (!OwnerStore.hasJobDetails(jobKey)) return 'needs';
-    return OwnerStore.getJobBilling(jobKey).readyForBilling ? 'ready' : 'not-ready';
+  /* ── Job-level state: Needs job details wins; otherwise the job's billing status (spec 2026-10-06 §4) ── */
+  // Pure over the job's sheets; No-charge (external) sheets are left out of the count.
+  function billingState(jobSheets) {
+    const sheets = jobSheets || [];
+    const nums = [];
+    let billed = 0, counted = 0;
+    sheets.forEach(s => {
+      const sb = OwnerStore.getSheetBilling(s.fileKey);
+      const st = (sb && sb.status) || 'unbilled';
+      if (st === 'external') return;
+      counted++;
+      if (st === 'billed') { billed++; if (sb.invoiceNumber != null && !nums.includes(sb.invoiceNumber)) nums.push(sb.invoiceNumber); }
+    });
+    if (!counted && sheets.length) return { key: 'not-billed', text: 'No charge' };
+    if (counted && billed === counted) return { key: 'billed', text: `Billed · ${nums.sort((a, b) => a - b).map(n => '#' + n).join(' and ')}` };
+    if (billed > 0) return { key: 'partly-billed', text: `${billed} of ${counted} sheets billed` };
+    return { key: 'not-billed', text: 'Not billed yet' };
   }
-
+  function jobState(jobName, jobSheets) {
+    if (!OwnerStore.hasJobDetails(hooks.noteKey(jobName))) return { key: 'needs', text: 'Needs job details' };
+    return billingState(jobSheets);
+  }
   function chip(state) {
     const span = document.createElement('span');
-    span.className = 'jc-chip ' + { needs: 'jc-chip--needs', ready: 'jc-chip--ready', 'not-ready': 'jc-chip--muted' }[state];
-    span.textContent = { needs: 'Needs job details', ready: 'Ready for billing ✓', 'not-ready': 'Not sent to billing yet' }[state];
+    span.className = 'jc-chip ' + ({ needs: 'jc-chip--needs', billed: 'jc-chip--ready' }[state.key] || 'jc-chip--muted');
+    span.textContent = state.text;
     return span;
   }
-
-  function cardChip(jobName) { return chip(jobState(jobName)); }
+  function cardChip(jobName, jobSheets) { return chip(jobState(jobName, jobSheets)); }
 
   /* ── Sheet-level words ── */
   function sheetStatus(sheet) {
@@ -141,7 +155,7 @@ const JobCard = (() => {
     const sameJob = container.dataset.jobName === jobName;
     const snap = sameJob ? snapshotInputs(container) : null;
     const prevCutKey = container.dataset.cutKey || '';
-    if (!container.dataset.jcBound) { container.addEventListener('click', onClick); container.addEventListener('change', onChange); container.dataset.jcBound = '1'; }
+    if (!container.dataset.jcBound) { container.addEventListener('click', onClick); container.dataset.jcBound = '1'; }
     const e = escHtml;
     const jobKey = hooks.noteKey(jobName);
     const jb = OwnerStore.getJobBilling(jobKey);
@@ -166,7 +180,7 @@ const JobCard = (() => {
       <button type="button" class="btn btn-outline btn-sm" data-action="edit"${noWrite}>${hasDetails ? 'Edit job details' : 'Add job details'}</button>
       ${outside ? '<span class="jc-caption">Billed outside this app</span>' : ''}
       <span class="jc-caption">${cut} of ${orderedSheets.length} sheet${orderedSheets.length !== 1 ? 's' : ''} cut</span>
-      ${chip(jobState(jobName)).outerHTML}
+      ${chip(jobState(jobName, orderedSheets)).outerHTML}
       ${finished ? '<button type="button" class="btn btn-ghost btn-sm" data-action="putback">Put back on the board</button>' : ''}
     </div>`;
     if (!jbOk) html += `<div class="jc-caption vanlab-status-error">${e(NOT_LOADED)}</div>`;
@@ -200,22 +214,22 @@ const JobCard = (() => {
     if (hasDetails) {
       const types = OwnerStore.laborTypes();
       const lines = Array.isArray(jb.laborLines) ? jb.laborLines : [];
-      const anyBilled = lines.some(l => l.status === 'billed' || l.status === 'in-progress');
       const rateOf = id => types.find(t => t.id === id);
       html += `<div class="jc-labor"><div class="jc-labor-title">Design / CAM hours</div>`;
       if (lines.length) {
-        html += `<table class="jc-table"><thead><tr><th>Type</th><th>Hours</th><th>What it was for (prints on the invoice)</th><th>Entered</th><th></th></tr></thead><tbody>` +
+        html += `<table class="jc-table"><thead><tr><th>Type</th><th>Hours</th><th>What it was for (prints on the invoice)</th><th>Entered</th><th>Status</th></tr></thead><tbody>` +
           lines.map(l => {
             const t = rateOf(l.typeId);
             const typeCell = (l.typeName || (t && t.name) || l.typeId) + (t ? (t.rate != null ? ` — $${Number(t.rate).toFixed(0)}/hr` : '') : " (type removed — Billing can't price this line)");
+            const remove = lineStatus(l) === 'unbilled' ? ` <button type="button" class="jc-link" data-action="line-remove" data-line="${e(l.id)}"${noWrite}>Remove</button>` : '';
             return `<tr><td>${e(typeCell)}</td><td>${e(l.hours)}</td><td>${e(l.note || '')}</td><td class="jc-caption">${e(l.enteredBy ? l.enteredBy.split('@')[0] : '')}${l.enteredAt ? ' · ' + e(formatDT(new Date(l.enteredAt))) : ''}</td>
-            <td>${(l.status || 'unbilled') === 'unbilled' ? `<button type="button" class="jc-link" data-action="line-remove" data-line="${e(l.id)}"${noWrite}>Remove</button>` : `<span class="jc-caption">${l.status === 'billed' ? `Billed · #${e(l.invoiceNumber)}` : `On invoice ${e(l.invoiceNumber)} (in progress)`}</span>`}</td></tr>`;
+            <td><span class="jc-caption">${e(lineStatusText(l))}</span>${remove}</td></tr>`;
           }).join('') +
           '</tbody></table>';
       }
-      if (!jb.readyForBilling && !types.length) {
+      if (!types.length) {
         html += `<div class="jc-caption">No Design/CAM types yet — add them in Settings › Labor types.</div>`;
-      } else if (!jb.readyForBilling) {
+      } else {
         const mins = types.filter(t => t.minHours).map(t => `${t.name} ${t.minHours} h`).join(', ');
         html += `<div class="jc-labor-add">
           <select class="form-input" data-line-type${noWrite}>${types.map(t => `<option value="${e(t.id)}">${e(t.name)} — $${Number(t.rate).toFixed(0)}/hr${t.minHours ? ` (min ${t.minHours} h per job)` : ''}</option>`).join('')}</select>
@@ -223,18 +237,8 @@ const JobCard = (() => {
           <input type="text" class="form-input jc-note" data-line-note placeholder="What it was for (prints on the invoice)"${noWrite}>
           <button type="button" class="btn btn-outline btn-sm" data-action="line-add"${noWrite}>Add line</button>
         </div>`;
-        if (mins) html += `<div class="jc-caption">Minimums apply per job: ${e(mins)} in total — short hours are topped up on the last line of that type.</div>`;
+        html += `<div class="jc-caption">Hours go on the next bill once you add them. The minimum is charged once per job, even if the hours go out on two bills.${mins ? ` Minimums: ${e(mins)}.` : ''}${jb.turnaround !== 'standard' ? ' Rush applies to these hours too.' : ''}</div>`;
       }
-      html += `<label class="jc-caption"><input type="checkbox" data-action="nodesign" ${jb.noDesignTime ? 'checked' : ''} ${(jb.readyForBilling || !jbOk) ? 'disabled' : ''}> No design time on this job</label>`;
-      html += `<div class="jc-actions">`;
-      if (jb.readyForBilling) {
-        html += `<span class="jc-caption">Marked ready${jb.readyBy ? ' by ' + e(jb.readyBy.split('@')[0]) : ''}${jb.readyAt ? ' · ' + e(formatDT(new Date(jb.readyAt))) : ''}.</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-action="notready" ${(anyBilled || !jbOk) ? `disabled title="${anyBilled ? 'Design hours on this job are already on an invoice' : e(NOT_LOADED)}"` : ''}>Edit — not ready yet</button>`;
-      } else {
-        html += `<button type="button" class="btn btn-primary btn-sm" data-action="done" ${((lines.length || jb.noDesignTime) && jbOk) ? '' : 'disabled'}>Done — ready for billing</button>
-          <span class="jc-caption">Cut sheets can still go on a weekly bill before this. Design hours wait for this button.${jb.turnaround !== 'standard' ? ' Rush applies to these hours too.' : ''}</span>`;
-      }
-      html += `</div>`;
       if (jb.updatedBy || jb.updatedAt) html += `<div class="jc-caption">Saved by ${e((jb.updatedBy || '').split('@')[0] || 'owner')}${jb.updatedAt ? ' · ' + e(formatDT(new Date(jb.updatedAt))) : ''}</div>`;
       html += '</div>';
     } else {
@@ -260,7 +264,7 @@ const JobCard = (() => {
     const by = hooks.currentEmail();
     const action = btn.dataset.action;
     // P24: every write that rebuilds jobBilling / sheetBilling from the cache needs a real load.
-    const needsJb = ['edit', 'line-add', 'line-remove', 'done', 'notready'].includes(action);
+    const needsJb = ['edit', 'line-add', 'line-remove'].includes(action);
     const needsSb = ['cutdate', 'cutdate-save', 'cutdate-clear', 'nocharge', 'nocharge-undo'].includes(action);
     if ((needsJb && !OwnerStore.loaded('jobBilling')) || (needsSb && !OwnerStore.loaded('sheetBilling'))) { setStatus(`Couldn't save — ${NOT_LOADED}`); return; }
     const jb = OwnerStore.getJobBilling(jobKey);
@@ -307,13 +311,6 @@ const JobCard = (() => {
         const lineId = btn.dataset.line;
         await OwnerStore.mutateJobBilling(jobKey, cur => applyLineRemove(cur, lineId), by);
         setStatus('Line removed.');
-      } else if (action === 'done') {
-        const nowMs = Date.now();
-        await OwnerStore.mutateJobBilling(jobKey, cur => applyDone(cur, by, nowMs), by);
-        setStatus('Ready for billing. Design hours go on the next bill.');
-      } else if (action === 'notready') {
-        await OwnerStore.mutateJobBilling(jobKey, cur => applyNotReady(cur), by);
-        setStatus('Not ready — edit away.');
       } else if (action === 'putback') {
         const sheetsNow = sheetsProvider();
         if (!confirm(`Put "${jobName}" back on the board for everyone? Its ${sheetsNow.length} sheet${sheetsNow.length !== 1 ? 's' : ''} become active again; billing records are untouched.`)) return;
@@ -327,21 +324,7 @@ const JobCard = (() => {
     }
   }
 
-  async function onChange(ev) {
-    const box = ev.target.closest('input[data-action="nodesign"]');
-    if (!box) return;
-    const container = ev.currentTarget;
-    if (!OwnerStore.loaded('jobBilling')) { setStatus(`Couldn't save — ${NOT_LOADED}`); return; }
-    const jobKey = hooks.noteKey(container.dataset.jobName);
-    try {
-      await OwnerStore.setJobBilling(jobKey, { noDesignTime: box.checked }, hooks.currentEmail());
-      setStatus(box.checked ? 'No design time on this job.' : '');
-    } catch (err) {
-      setStatus(`Couldn't save — ${err.message}`);
-    }
-  }
-
-  return { applyLineAdd, applyLineRemove, applyDone, applyNotReady, init, setSheetsProvider, cardChip, sheetStatus, sheetTags, navRowExtras, renderOwnerPanel, validYmd };
+  return { applyLineAdd, applyLineRemove, lineStatusText, billingState, jobState, init, setSheetsProvider, cardChip, sheetStatus, sheetTags, navRowExtras, renderOwnerPanel, validYmd };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = JobCard;

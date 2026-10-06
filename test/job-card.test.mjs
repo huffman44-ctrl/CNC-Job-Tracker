@@ -62,15 +62,12 @@ const JobDetails = require('../js/job-details.js');
 const refusalOf = fn => { try { fn(); } catch (e) { return e; } return null; };
 const line = (id, status = 'unbilled', extra = {}) => ({ id, typeId: 'design', typeName: 'Design', hours: 1, note: '', status, invoiceNumber: null, ...extra });
 
-test('applyLineAdd: appends; refuses when the job is already marked ready', () => {
-  const cur = { laborLines: [line('a')], readyForBilling: false };
+test('applyLineAdd: appends; never refuses (no Done step since 2026-10-06)', () => {
+  const cur = { laborLines: [line('a')], readyForBilling: true };
   const next = JobCard.applyLineAdd(cur, line('b'));
   assert.deepEqual(next.laborLines.map(l => l.id), ['a', 'b']);
   assert.equal(cur.laborLines.length, 1, 'input not mutated');
-  const e = refusalOf(() => JobCard.applyLineAdd({ laborLines: [], readyForBilling: true }, line('c')));
-  assert.equal(e.ownerRefusal, true);
-  assert.match(e.message, /marked ready/);
-  assert.deepEqual(JobCard.applyLineAdd({ readyForBilling: false }, line('z')).laborLines.map(l => l.id), ['z']);
+  assert.deepEqual(JobCard.applyLineAdd({}, line('z')).laborLines.map(l => l.id), ['z']);
 });
 
 test('applyLineRemove: removes an unbilled line; refuses one on an invoice', () => {
@@ -82,22 +79,49 @@ test('applyLineRemove: removes an unbilled line; refuses one on an invoice', () 
   assert.deepEqual(JobCard.applyLineRemove(cur, 'gone').laborLines.length, 2);
 });
 
-test('applyDone: needs a line or No design time; stamps ready', () => {
-  const e = refusalOf(() => JobCard.applyDone({ laborLines: [], noDesignTime: false }, 'o@x', 5));
-  assert.equal(e.ownerRefusal, true);
-  const a = JobCard.applyDone({ laborLines: [line('a')] }, 'o@x', 5);
-  assert.deepEqual([a.readyForBilling, a.readyAt, a.readyBy], [true, 5, 'o@x']);
-  assert.equal(JobCard.applyDone({ laborLines: [], noDesignTime: true }, 'o@x', 6).readyForBilling, true);
+test('Done / Not ready are gone', () => {
+  assert.equal(JobCard.applyDone, undefined);
+  assert.equal(JobCard.applyNotReady, undefined);
 });
 
-test('applyNotReady: refuses when hours are on an invoice', () => {
-  const ok = JobCard.applyNotReady({ readyForBilling: true, readyAt: 1, readyBy: 'o', laborLines: [line('a')] });
-  assert.deepEqual([ok.readyForBilling, ok.readyAt, ok.readyBy], [false, null, null]);
-  for (const st of ['in-progress', 'billed']) {
-    const e = refusalOf(() => JobCard.applyNotReady({ readyForBilling: true, laborLines: [line('a', st)] }));
-    assert.equal(e.ownerRefusal, true);
-    assert.match(e.message, /already on an invoice/);
-  }
+test('billingState: not billed / partly / billed (numbers joined with "and"); external sheets left out; all external = No charge', () => {
+  const sheets = [{ fileKey: 'a' }, { fileKey: 'b' }, { fileKey: 'c' }];
+  assert.deepEqual(JobCard.billingState(sheets), { key: 'not-billed', text: 'Not billed yet' });
+  sheetBilling.a = { status: 'billed', invoiceNumber: 3612 };
+  assert.deepEqual(JobCard.billingState(sheets), { key: 'partly-billed', text: '1 of 3 sheets billed' });
+  sheetBilling.b = { status: 'billed', invoiceNumber: 3620 }; sheetBilling.c = { status: 'external' };
+  assert.deepEqual(JobCard.billingState(sheets), { key: 'billed', text: 'Billed · #3612 and #3620' });
+  sheetBilling.b = { status: 'in-progress', invoiceNumber: 3620 };
+  assert.deepEqual(JobCard.billingState(sheets), { key: 'partly-billed', text: '1 of 2 sheets billed' });
+  sheetBilling.a = { status: 'external' }; sheetBilling.b = { status: 'external' };
+  assert.deepEqual(JobCard.billingState(sheets), { key: 'not-billed', text: 'No charge' });
+  assert.deepEqual(JobCard.billingState([]), { key: 'not-billed', text: 'Not billed yet' });
+});
+
+test('jobState: Needs job details wins over the billing status', () => {
+  globalThis.OwnerStore.hasJobDetails = () => false;
+  JobCard.init({ noteKey: n => 'proj_' + n });
+  assert.deepEqual(JobCard.jobState('J', [{ fileKey: 'a' }]), { key: 'needs', text: 'Needs job details' });
+  globalThis.OwnerStore.hasJobDetails = () => true;
+  sheetBilling.a = { status: 'billed', invoiceNumber: 7 };
+  assert.deepEqual(JobCard.jobState('J', [{ fileKey: 'a' }]), { key: 'billed', text: 'Billed · #7' });
+  delete globalThis.OwnerStore.hasJobDetails;
+});
+
+test('missing jobSheets (app.js before Task 7) is treated as []', () => {
+  assert.deepEqual(JobCard.billingState(), { key: 'not-billed', text: 'Not billed yet' });
+  assert.deepEqual(JobCard.billingState(undefined), { key: 'not-billed', text: 'Not billed yet' });
+  globalThis.OwnerStore.hasJobDetails = () => true;
+  JobCard.init({ noteKey: n => 'proj_' + n });
+  assert.deepEqual(JobCard.jobState('J'), { key: 'not-billed', text: 'Not billed yet' });
+  delete globalThis.OwnerStore.hasJobDetails;
+});
+
+test('lineStatusText: next bill / in progress / billed', () => {
+  assert.equal(JobCard.lineStatusText(line('a')), 'Goes on the next bill');
+  assert.equal(JobCard.lineStatusText({ id: 'b', typeId: 'design', hours: 1 }), 'Goes on the next bill');
+  assert.equal(JobCard.lineStatusText(line('c', 'in-progress', { invoiceNumber: 3612 })), 'On invoice 3612 (in progress)');
+  assert.equal(JobCard.lineStatusText(line('d', 'billed', { invoiceNumber: 3612 })), 'Billed · #3612');
 });
 
 test('sheetStatus: external reads No charge', () => {
