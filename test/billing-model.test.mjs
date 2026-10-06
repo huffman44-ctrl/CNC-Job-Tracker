@@ -78,7 +78,7 @@ test('ready job, all cut -> one ready row, included; Example A rowAmount 885.25'
   assert.equal(Pricing.round2(BillingModel.rowAmount(r, ctx)), 885.25);
   assert.equal(BillingModel.summaryText(c), '1 job · 10 sheets cut Oct 1');
   const detail = BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced);
-  assert.equal(detail, '10 sheets · 3 designs, 7 repeats · 3 h 09 m Aspire time · customer supplied');
+  assert.equal(detail, '10 sheets · 3 designs, 7 repeats · 3 h 09 m Aspire time · customer supplied · no design hours');
 });
 
 test('through date: a sheet cut Sun Oct 4 waits; null = everything to date', () => {
@@ -92,26 +92,27 @@ test('through date: a sheet cut Sun Oct 4 waits; null = everything to date', () 
   assert.equal(all.rows[0].sheetKeys.length, 3); assert.equal(all.rows[0].laterCount, 0);
 });
 
-test('partly cut ready job: sheets opt-in, labor included by default', () => {
+test('partly cut job: included by default; Remove switches sheets AND labor off together', () => {
   const sheets = [{ job: 'NL_Corridor_Arches', n: 1, sec: 720, cut: T }, { job: 'NL_Corridor_Arches', n: 2, sec: 1080, cut: null }];
   const labor = [line('ll1', 'design', 1.5, { note: 'Arch drawings' })];
-  const w = world({ jobs: { NL_Corridor_Arches: { customer: NL, ready: true, labor } }, sheets });
+  const w = world({ jobs: { NL_Corridor_Arches: { customer: NL, labor } }, sheets });
   const c = cust(w.model, NL); const r = c.rows[0];
-  assert.equal(r.state, 'partly'); assert.equal(r.defaultIncluded, false);
+  assert.equal(r.state, 'partly'); assert.equal(r.defaultIncluded, true);
   assert.equal(r.uncutCount, 1); assert.deepEqual(r.laborLineIds, ['ll1']);
   const def = BillingModel.pricingInput(c, {}, ctx);
-  assert.equal(def.sheets.length, 0); assert.equal(def.jobs[r.jobKey].includeLabor, true); assert.equal(def.jobs[r.jobKey].laborLines.length, 1);
-  const withSheets = BillingModel.pricingInput(c, { [r.jobKey]: { sheets: true } }, ctx);
-  assert.equal(withSheets.sheets.length, 1); assert.equal(withSheets.sheets[0].order, 1);
+  assert.equal(def.sheets.length, 1); assert.equal(def.jobs[r.jobKey].includeLabor, true); assert.equal(def.jobs[r.jobKey].laborLines.length, 1);
+  assert.deepEqual(def.priorLaborHours, { [r.jobKey]: {} });
+  const off = BillingModel.pricingInput(c, { [r.jobKey]: { sheets: false } }, ctx);
+  assert.equal(off.sheets.length, 0); assert.deepEqual(Object.keys(off.jobs), []);
 });
 
-test('waiting job: sheets opt-in, no labor even when selected', () => {
+test('no Done step: a job never marked ready is a ready row with its labor billable; waiting is never produced', () => {
   const w = world({ jobs: { NL_Stage_Set: { customer: NL, ready: false, labor: [line('ll1', 'design', 1)] } }, sheets: [{ job: 'NL_Stage_Set', n: 1, sec: 600, cut: T }] });
   const c = cust(w.model, NL); const r = c.rows[0];
-  assert.equal(r.state, 'waiting'); assert.equal(r.defaultIncluded, false); assert.deepEqual(r.laborLineIds, []);
-  assert.equal(BillingModel.pricingInput(c, {}, ctx).sheets.length, 0);
-  const sel = BillingModel.pricingInput(c, { [r.jobKey]: { sheets: true } }, ctx);
-  assert.equal(sel.sheets.length, 1); assert.equal(sel.jobs[r.jobKey].includeLabor, false);
+  assert.equal(r.state, 'ready'); assert.equal(r.defaultIncluded, true); assert.deepEqual(r.laborLineIds, ['ll1']);
+  const def = BillingModel.pricingInput(c, {}, ctx);
+  assert.equal(def.sheets.length, 1); assert.equal(def.jobs[r.jobKey].includeLabor, true);
+  assert.ok(!c.rows.some(x => x.state === 'waiting'));
 });
 
 test('labor-only row after all sheets billed', () => {
@@ -121,6 +122,8 @@ test('labor-only row after all sheets billed', () => {
   assert.equal(r.state, 'labor-only'); assert.equal(r.defaultIncluded, true); assert.equal(r.sheetKeys.length, 0);
   assert.equal(r.priorBilled.length, 1);
   assert.equal(BillingModel.rowAmount(r, ctx), 300);
+  assert.deepEqual(r.billedOn, [3500]);
+  assert.equal(BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced), 'Sheets billed on #3500 · 2 h design added after');   // this file's line() helper sets typeName = typeId
 });
 
 test('Needs job details: sheetless jobs never listed; no-customer job listed; billed-outside skipped', () => {
@@ -213,12 +216,12 @@ test('rowDetail: rush, weekend, labor hours, no-time note', () => {
   assert.equal(r.zeroTimeCount, 1);
   const d = BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced);
   assert.match(d, /^3 sheets · 48-hour rush · 1 weekend sheet · /);
-  assert.match(d, /1\.5 design hrs/); assert.match(d, /1 sheet has no Aspire time$/);
+  assert.match(d, /1\.5 h Design/); assert.match(d, /1 sheet has no Aspire time$/);
 });
 
 // ---- buildDraft + planLock integration ----
 function draftFor(selection) {
-  const w = world({ jobs: { NL_Arch: { customer: NL, ready: true, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design', note: 'Layout' })] } },
+  const w = world({ jobs: { NL_Arch: { customer: NL, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design', note: 'Layout' })] } },
     sheets: [{ job: 'NL_Arch', n: 1, sec: 720, cut: T }, { job: 'NL_Arch', n: 2, sec: 1080, cut: T, override: '2026-10-02' }, { job: 'NL_Arch', n: 3, sec: 900, cut: null }] });
   const c = cust(w.model, NL);
   const priced = Pricing.priceInvoice(BillingModel.pricingInput(c, selection, ctx));
@@ -232,12 +235,13 @@ function draftFor(selection) {
 }
 
 test('buildDraft: shape, lock-time row, fingerprint, sheetKeys follow the selection', () => {
-  const none = draftFor({}).draft;
-  assert.deepEqual(none.sheetKeys, []);
+  const none = draftFor({}).draft;   // absent selection = every row in (spec 2026-10-06)
+  assert.deepEqual(none.sheetKeys, ['fk_NL_Arch_1', 'fk_NL_Arch_2']);
   assert.deepEqual(none.laborLineRefs, [{ jobKey: 'proj_NL_Arch', lineId: 'll1' }]);
   assert.equal(none.customerKey, NLK); assert.equal(none.number, 3604); assert.equal(none.poNumber, 'PO-7');
   const fj = none.fingerprint.jobs.proj_NL_Arch;
-  assert.deepEqual([fj.labor.ll1, fj.materialKind, fj.pricePerSheet, fj.readyForBilling, fj.turnaround], [{ typeId: 'design', hours: 1.5 }, 'ours', 95, true, 'rush48']);
+  assert.deepEqual([fj.labor.ll1, fj.materialKind, fj.pricePerSheet, fj.priorLabor, fj.turnaround], [{ typeId: 'design', hours: 1.5 }, 'ours', 95, {}, 'rush48']);
+  assert.ok(!('readyForBilling' in fj));
   const { draft: d2, priced } = draftFor({ proj_NL_Arch: { sheets: true } });
   assert.deepEqual(d2.sheetKeys, ['fk_NL_Arch_1', 'fk_NL_Arch_2']);
   const k = 'fk_NL_Arch_2';
@@ -265,7 +269,7 @@ test('integration: draft locks against the same world; a changed completedAt is 
 
 /* ---- fix round 1 ---- */
 test('draft fingerprint is the priced snapshot: world changes AFTER build() -> original values, lock refuses', () => {
-  const jobs = { NL_Arch: { customer: NL, ready: true, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design' })] } };
+  const jobs = { NL_Arch: { customer: NL, turnaround: 'rush48', material: OURS, labor: [line('ll1', 'design', 1.5, { typeName: 'Design' })] } };
   const sheets = [{ job: 'NL_Arch', n: 1, sec: 720, cut: T }];
   const run = mutate => {
     const w = world({ jobs, sheets });
@@ -332,5 +336,60 @@ test('rowDetail counts only the row own sheets and job labor', () => {
   const priced = BillingModel.rowPricing(r, ctx).priced;
   priced.perSheet.other = { weekendPremium: 9 }; priced.labor = [{ jobKey: 'proj_other', typeName: 'Design', billedHours: 2 }];
   const d = BillingModel.rowDetail(r, priced);
-  assert.ok(!/weekend|design/.test(d), d);
+  assert.ok(!/weekend/.test(d), d); assert.ok(/2 h Design/.test(d) === false); assert.match(d, /· no design hours$/);
+});
+
+/* ---- spec 2026-10-06: prior hours, billedOn, laborText ---- */
+test('prior hours: billed lines feed priorLaborHours; 0.5 h after 0.5 h billed prices $0 (labor-only row)', () => {
+  const labor = [line('old', 'design', 0.5, { status: 'billed', invoiceNumber: 3500 }), line('new', 'design', 0.5, { note: 'Revisions' })];
+  const w = world({ jobs: { NL_A: { customer: NL, labor } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T, status: 'billed', cutAtBilled: T, invoiceNumber: 3500 }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.equal(r.state, 'labor-only'); assert.deepEqual(r.laborLineIds, ['new']);
+  assert.deepEqual(r.priorLaborHours, { design: 0.5 });
+  assert.equal(BillingModel.rowAmount(r, ctx), 0);
+  assert.equal(BillingModel.laborAmount(r, ctx), 0);
+  assert.equal(r.captured.job.priorLabor.design, 0.5);
+  assert.equal(BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced), 'Sheets billed on #3500 · 0.5 h design added after');
+  const c = cust(w.model, NL);
+  const input = BillingModel.pricingInput(c, {}, ctx);
+  assert.deepEqual(input.priorLaborHours, { proj_NL_A: { design: 0.5 } });
+  assert.equal(Pricing.priceInvoice(input).total, 0);
+});
+
+test('prior hours: an in-progress line on another invoice counts as prior; the unbilled 2 h bills 1.5 h', () => {
+  const labor = [line('p', 'design', 0.5, { status: 'in-progress', invoiceNumber: 3601 }), line('n', 'design', 2)];
+  const w = world({ jobs: { NL_A: { customer: NL, labor } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.deepEqual(r.priorLaborHours, { design: 0.5 });
+  const priced = BillingModel.rowPricing(r, ctx).priced;
+  assert.equal(priced.labor[0].billedHours, 1.5);
+});
+
+test('billedOn lists each billed invoice once, ascending; a job with uncut sheets and labor only reads "still to cut"', () => {
+  const sheets = [{ job: 'NL_A', n: 1, sec: 600, cut: T, status: 'billed', cutAtBilled: T, invoiceNumber: 3620 }, { job: 'NL_A', n: 2, sec: 600, cut: T, status: 'billed', cutAtBilled: T, invoiceNumber: 3612 },
+    { job: 'NL_A', n: 3, sec: 600, cut: T, status: 'billed', cutAtBilled: T, invoiceNumber: 3612 }];
+  const w = world({ jobs: { NL_A: { customer: NL, labor: [line('ll1', 'design', 1.5), line('ll2', 'cam', 0.5, { typeName: 'CAM' })] } }, sheets });
+  const r = cust(w.model, NL).rows[0];
+  assert.deepEqual(r.billedOn, [3612, 3620]);
+  assert.equal(BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced), 'Sheets billed on #3612 and #3620 · 1.5 h design, 0.5 h CAM added after');
+  const uncut = world({ jobs: { NL_B: { customer: NL, labor: [line('ll1', 'design', 1, { typeName: 'Design' })] } }, sheets: [{ job: 'NL_B', n: 1, sec: 600, cut: null }, { job: 'NL_B', n: 2, sec: 600, cut: null }] });
+  const rb = cust(uncut.model, NL).rows[0];
+  assert.equal(rb.state, 'labor-only'); assert.deepEqual(rb.billedOn, []);
+  assert.equal(BillingModel.rowDetail(rb, BillingModel.rowPricing(rb, ctx).priced), '2 still to cut · 1 h Design');
+});
+
+test('laborText: entered hours per type in line order; typeName as stored; empty = no design hours', () => {
+  assert.equal(BillingModel.laborText([]), 'no design hours');
+  assert.equal(BillingModel.laborText(undefined), 'no design hours');
+  assert.equal(BillingModel.laborText([{ typeId: 'design', typeName: 'Design', hours: 1 }, { typeId: 'cam', typeName: 'CAM', hours: 0.25 }, { typeId: 'design', typeName: 'Design', hours: 0.5 }]), '1.5 h Design, 0.25 h CAM');
+  assert.equal(BillingModel.laborText([{ typeId: 'design', hours: 2 }]), '2 h design', 'typeName missing -> the id');
+});
+
+test('every row is included by default in every state', () => {
+  const w = world({ jobs: { A: { customer: NL }, B: { customer: NL, labor: [line('x', 'design', 1)] }, C: { customer: NL, labor: [line('y', 'design', 1)] } },
+    sheets: [{ job: 'A', n: 1, sec: 600, cut: T }, { job: 'B', n: 1, sec: 600, cut: T }, { job: 'B', n: 2, sec: 600, cut: null }, { job: 'C', n: 1, sec: 600, cut: T, status: 'billed', cutAtBilled: T, invoiceNumber: 3500 }] });
+  const c = cust(w.model, NL);
+  assert.deepEqual(c.rows.map(r => [r.state, r.defaultIncluded]).sort(), [['labor-only', true], ['partly', true], ['ready', true]]);
+  const input = BillingModel.pricingInput(c, {}, ctx);
+  assert.equal(Object.keys(input.jobs).length, 3); assert.equal(input.sheets.length, 2);
 });
