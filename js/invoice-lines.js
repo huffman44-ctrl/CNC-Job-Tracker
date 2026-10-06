@@ -104,8 +104,7 @@ const InvoiceLines = (() => {
     const headers = ['Invoice No.', 'Customer', 'Invoice Date', 'Due Date', 'Item(Product/Service)', 'Item Description', 'Item Quantity', 'Item Rate', 'Item Amount', 'Taxable', 'Service Date'];
     const rows = lines.map(l => {
       const qty = l.quantity || 1;
-      const rate = parseFloat((l.amount / qty).toFixed(4));
-      return [number, customerName, mdy(invoiceDate), mdy(dueDate), l.qbItem, l.description, qty, rate, l.amount, l.taxable, mdy(l.serviceDate)];
+      return [number, customerName, mdy(invoiceDate), mdy(dueDate), l.qbItem, l.description, qty, l.rate, l.amount, l.taxable, mdy(l.serviceDate)];
     });
     return [headers].concat(rows).map(r => r.map(csvField).join(',')).join('\r\n');
   }

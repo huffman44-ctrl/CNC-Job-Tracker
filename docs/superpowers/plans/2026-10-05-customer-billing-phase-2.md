@@ -1359,7 +1359,7 @@ Verify the **deployed** text: Firebase console → Firestore → Rules → the `
 - Labor types: Design $150 min 1 h, CAM $85 min 0.5 h, item `Digital Design` (seeded at Phase 1 H6; if the list is empty click **Restore Design and CAM**).
 - QuickBooks: the exact item names from B3; Taxable N/N unless he says otherwise.
 - Invoicing: Last QuickBooks invoice number = the number from B3; Week ends on Saturday; Default due Due upon receipt; **Billing starts on** = the day after the last week billed the old way (Decision 1).
-- Materials: add each material Golden Boys supplies (name, thickness, price per sheet, Taxable).
+- Materials: add each material Golden Boys supplies (name, thickness, price per sheet, Taxable) **before entering any job details** — a job keeps the price and Taxable it was saved with; a later Settings change only affects jobs saved after it.
 - Customers (billing): tick **Billed outside this app** for VanLab, Golden Boys (in-house) and **ZZTEST** (the Phase 1 live-test customer — its finished sheets can never be deleted, so this keeps them out of Billing).
 
 **B6 — Phase 0 audit (spec prerequisite).** Download the `Orville - Season 4` tab as CSV (vault Next Actions) → Claude runs the read-only double-billing check → Travis sees the result **before B7's real invoice**.

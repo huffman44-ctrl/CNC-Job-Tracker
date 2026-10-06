@@ -139,7 +139,7 @@ const InvoiceScreen = (() => {
   let checkTimer = null;
 
   const byId = id => document.getElementById(id);
-  const ownerOk = () => OwnerStore.loaded('jobBilling') && OwnerStore.loaded('sheetBilling') && OwnerStore.loaded('settings') && InvoiceStore.loaded();
+  const ownerOk = () => OwnerStore.loaded('jobBilling') && OwnerStore.loaded('sheetBilling') && OwnerStore.loaded('customerBilling') && OwnerStore.loaded('settings') && InvoiceStore.loaded();
   const by = () => (typeof currentUserEmail === 'function' ? currentUserEmail() : '');
 
   function bind() {

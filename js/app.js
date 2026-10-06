@@ -2514,6 +2514,11 @@ function openJobFromBilling(jobName, finishedList) {
   showContentScreen();
 }
 
+function invoiceScreenOpen() {
+  const el = document.getElementById('invoice-screen');
+  return typeof InvoiceScreen !== 'undefined' && !!el && !el.hidden;
+}
+
 SettingsScreen.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen, currentEmail: currentUserEmail });
 JobDetails.init({ noteKey, customerKey, currentEmail: currentUserEmail, fillCustomerSelect });
 JobCard.init({
@@ -2531,6 +2536,8 @@ BillingScreen.init({
   loadFinishedSheets: () => Storage.loadFinishedSheets({ strict: true }),
   noteKey, customerKey, compareSheets, openJob: openJobFromBilling, currentEmail: currentUserEmail,
   openInvoice: d => { if (typeof InvoiceScreen !== 'undefined') InvoiceScreen.show(d); },
+  invoiceOpen: invoiceScreenOpen,
+  onFinishedLoaded: () => { if (invoiceScreenOpen()) InvoiceScreen.render(); },
 });
 if (typeof BillingDone !== 'undefined') BillingDone.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen });
 document.getElementById('billing-btn').addEventListener('click', () => BillingScreen.show());
@@ -2603,6 +2610,7 @@ async function loadDataAndShowApp() {
 
   Storage.onCompletionChange(() => {
     BillingScreen.render();   // no-op unless Billing is open
+    if (invoiceScreenOpen()) InvoiceScreen.render();
     if (!projectsScreen.hidden) renderProjects();
     if (!contentScreen.hidden)  renderAllSheets();
   });

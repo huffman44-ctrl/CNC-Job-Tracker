@@ -63,6 +63,9 @@ const InvoiceStore = (() => {
       throw refuse('number-used', `${number} is already on ${prev.customerName || 'another customer'} (${dateText(prev)}). Use another number.`);
     }
     const customer = docs.customer || null;
+    if (customer && customer.billedOutsideApp) {
+      throw refuse('outside', `${draft.customerName || 'This customer'} is billed outside this app (Settings › Customers).`);
+    }
     const open = customer && customer.openInvoice;
     if (open != null && Number(open) !== number) {
       throw refuse('customer-busy', `Finish invoice ${open} first — Imported OK or Cancel.`);

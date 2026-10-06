@@ -21,6 +21,7 @@ const BillingScreen = (() => {
   let loadState = 'idle';       // idle | loading | ok | error
   let loadError = '';
   let loadToken = 0;
+  let boardKeys = null;         // the board's fileKeys at the last change (see boardChanged)
   let through = null;           // 'YYYY-MM-DD' or null (= everything to date)
   let selection = {};           // { [customerKey]: { [jobKey]: { sheets: bool } } }
   let statusText = '';
@@ -74,7 +75,7 @@ const BillingScreen = (() => {
   }
 
   function ownerDataOk() {
-    return OwnerStore.loaded('jobBilling') && OwnerStore.loaded('sheetBilling') && OwnerStore.loaded('settings') && InvoiceStore.loaded();
+    return OwnerStore.loaded('jobBilling') && OwnerStore.loaded('sheetBilling') && OwnerStore.loaded('customerBilling') && OwnerStore.loaded('settings') && InvoiceStore.loaded();
   }
 
   function setStatus(text, isError) { statusText = text || ''; statusIsError = !!isError; paintStatus(); }
@@ -86,10 +87,10 @@ const BillingScreen = (() => {
   }
 
   /* ── Loading ── */
-  async function loadFinished() {
+  // `quiet`: a background refresh keeps the current list on screen until the new one arrives.
+  async function loadFinished(quiet) {
     const token = ++loadToken;
-    loadState = 'loading'; loadError = '';
-    render();
+    if (!(quiet && loadState === 'ok')) { loadState = 'loading'; loadError = ''; render(); }
     try {
       const list = await opts.loadFinishedSheets();
       if (token !== loadToken) return;
@@ -101,6 +102,7 @@ const BillingScreen = (() => {
       loadError = (e && e.message) ? e.message : String(e || 'unknown error');
     }
     render();
+    if (opts.onFinishedLoaded) opts.onFinishedLoaded();   // the Invoice screen prices from this list too
   }
 
   // `o.status` (optional): a line to show on arrival, e.g. after the Invoice screen cancels an invoice.
@@ -114,6 +116,7 @@ const BillingScreen = (() => {
     catch (e) { through = null; setStatus(`Week-ending day in Settings › Invoicing isn't valid (${e.message}); showing everything to date.`, true); }
     els.date.value = through || '';
     if (o && o.status) setStatus(o.status);
+    boardKeys = activeKeys();
     loadFinished();
   }
 
@@ -412,10 +415,22 @@ const BillingScreen = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 100);
   }
 
-  // An active job that left the board (exported) must stay billable: reload the finished list.
+  // An active job that left the board (exported) must stay billable, and a Put back job must not be
+  // counted twice: reload the finished list — quietly — only when the board's set of sheets moved
+  // that way. Uploads, archive links and other sheet edits only repaint. Billing and the Invoice
+  // screen (which prices from this list) both count as open.
+  function activeKeys() { return new Set((opts.activeSheets() || []).map(s => s.fileKey)); }
   function boardChanged() {
-    if (!els || els.screen.hidden) return;
-    if (loadState === 'ok') loadFinished(); else render();
+    if (!els) return;
+    const keys = activeKeys();
+    const prev = boardKeys; boardKeys = keys;
+    const invoiceOpen = !!(opts.invoiceOpen && opts.invoiceOpen());
+    if (els.screen.hidden && !invoiceOpen) return;
+    const left = !!prev && [...prev].some(k => !keys.has(k));
+    const back = (finished || []).some(s => keys.has(s.fileKey));
+    if (loadState === 'ok' && (left || back)) { loadFinished(true); return; }
+    render();
+    if (invoiceOpen && opts.onFinishedLoaded) opts.onFinishedLoaded();
   }
 
   return { init, show, render, fmtMoney, boardChanged, buildModel: model };

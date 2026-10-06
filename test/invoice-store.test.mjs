@@ -98,6 +98,13 @@ test('lock: customer-busy when another invoice is open (Decision 2); the same nu
   lock(lockDocs({ customer: customerDoc({ openInvoice: 3598 }), invoice: { number: 3598, status: 'cancelled', createdAt: 5, createdBy: 'x', customerName: 'N', history: [] } }));
 });
 
+test('lock: refuses a customer billed outside this app, read inside the transaction', () => {
+  const e = thrown(() => lock(lockDocs({ customer: customerDoc({ billedOutsideApp: true }) })));
+  assert.equal(e.code, 'outside');
+  assert.match(e.message, /billed outside this app/);
+  lock(lockDocs({ customer: customerDoc({ billedOutsideApp: false }) }));
+});
+
 test('lock: sheet-taken when any sheet is no longer unbilled', () => {
   const docs = lockDocs({ sheetBilling: { s1: sheetDoc({ status: 'in-progress', invoiceNumber: 3613 }), s2: sheetDoc({ status: 'billed', invoiceNumber: 3613 }) } });
   const e = thrown(() => lock(docs));

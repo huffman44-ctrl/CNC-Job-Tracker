@@ -179,10 +179,12 @@ const JobDetails = (() => {
     }
     els.confirm.disabled = true;
     try {
+      // jobBilling first: its transaction can refuse a customer change, and projectCustomer (which
+      // routes Collin's log rows) must not move unless that commit succeeded.
+      await OwnerStore.mutateJobBilling(ctx.jobKey, cur => applyDetails(cur, form), by);
       if (!Storage.getCustomers().some(c => c.key === customerKey)) await Storage.addCustomer(customerKey, customerName);
       await Storage.setProjectCustomer(ctx.jobKey, customerName);
       await Storage.upsertJob(ctx.jobKey, ctx.jobName, by);
-      await OwnerStore.mutateJobBilling(ctx.jobKey, cur => applyDetails(cur, form), by);
       // The details are saved; a failed remembered-default must not strand the form.
       try { await OwnerStore.rememberMaterialDefault(customerKey, customerName, ctx.thicknessIn, material, by); }
       catch (err) { console.warn('rememberMaterialDefault failed:', err); }
