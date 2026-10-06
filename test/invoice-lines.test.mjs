@@ -124,3 +124,18 @@ test('no money: amounts pass through untouched', () => {
     assert.ok(l.quantity === priced.lines[i].quantity);
   });
 });
+
+test('labor wording when an earlier bill already charged the minimum (spec 2026-10-06 §5)', () => {
+  const zero = InvoiceLines.finalize(price(laborJob([{ id: 'b', typeId: 'design', hours: 0.5, note: 'Revisions' }]), { priorLaborHours: { L: { design: 0.5 } } }), ctx).find(l => l.type === 'labor');
+  assert.equal(zero.description, 'Design — Revisions (0.5 hrs, covered by the 1-hr minimum)');
+  assert.equal(zero.amount, 0); assert.equal(zero.rate, 0); assert.equal(zero.quantity, 1);
+  const part = InvoiceLines.finalize(price(laborJob([{ id: 'b', typeId: 'design', hours: 2, note: '' }]), { priorLaborHours: { L: { design: 0.5 } } }), ctx).find(l => l.type === 'labor');
+  assert.equal(part.description, 'Design (1.5 hrs @ $150/hr, 0.5 hrs covered by the 1-hr minimum)');
+  assert.equal(part.amount, 225);
+  // a $0 line at rush carries no "+ Rush" (nothing to rush)
+  const rushed = InvoiceLines.finalize(price({ jobs: { L: job('L_Job', { turnaround: 'rush48', includeLabor: true, laborLines: [{ id: 'b', typeId: 'design', hours: 0.5, note: '' }] }) }, sheets: [] }, { priorLaborHours: { L: { design: 0.5 } } }), ctx).find(l => l.type === 'labor');
+  assert.equal(rushed.description, 'Design (0.5 hrs, covered by the 1-hr minimum)');
+  // the CSV carries the 0 amount as a plain 0
+  const csv = InvoiceLines.buildQuickBooksCsv({ number: 3700, customerName: 'Northlight Studios', invoiceDate: '2026-10-06', dueDate: '2026-10-06', lines: [zero] });
+  assert.match(csv.split('\r\n')[1], /,1,0,0,N,$/);
+});

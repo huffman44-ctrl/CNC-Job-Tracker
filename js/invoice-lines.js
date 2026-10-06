@@ -35,9 +35,13 @@ const InvoiceLines = (() => {
   register('labor', {
     describe(line) {
       const f = line.facts || {};
+      const hrs = h => `${h} ${h === 1 ? 'hr' : 'hrs'}`;
       let s = f.typeName + (f.note ? ' — ' + f.note : '');
-      const inc = f.topUpHours > 0 ? `, includes ${f.minHours}-hr minimum` : '';
-      s += ` (${f.billedHours} ${f.billedHours === 1 ? 'hr' : 'hrs'} @ $${f.rate}/hr${inc})`;
+      if (!(f.billedHours > 0)) return s + ` (${hrs(f.hours)}, covered by the ${f.minHours}-hr minimum)`;   // minimum charged on an earlier bill
+      let extra = '';
+      if (f.topUpHours > 0) extra = `, includes ${f.minHours}-hr minimum`;
+      else if (f.coveredHours > 0) extra = `, ${hrs(f.coveredHours)} covered by the ${f.minHours}-hr minimum`;
+      s += ` (${hrs(f.billedHours)} @ $${f.rate}/hr${extra})`;
       if (f.rushPct > 0) s += ` + Rush (+${Math.round(f.rushPct * 100)}%)`;
       return s;
     },
