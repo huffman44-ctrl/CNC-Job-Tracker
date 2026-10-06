@@ -92,6 +92,7 @@ const InvoiceScreen = (() => {
     const msg = (e && e.message) || String(e || 'unknown error');
     if (code === 'number-used') return { kind: 'number', text: msg };
     if (code === 'sheet-taken' || code === 'customer-busy') return { kind: 'taken', text: TAKEN_TEXT, back: true };
+    if (code === 'outside') return { kind: 'taken', text: `${msg} Nothing was downloaded.`, back: true };
     if (code === 'changed') return { kind: 'changed', text: CHANGED_TEXT };
     if (code === 'mixed-taxable') return { kind: 'mixed', text: msg };
     return { kind: 'other', text: `Couldn't lock the sheets — ${msg}. Nothing was downloaded.` };

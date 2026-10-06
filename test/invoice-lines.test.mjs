@@ -83,7 +83,7 @@ test('two materials: same taxable merges; differing taxable throws mixed-taxable
 
 test('CSV quoting: comma quoted, quote doubled', () => {
   const csv = InvoiceLines.buildQuickBooksCsv({ number: 1, customerName: 'Smith, Jones', invoiceDate: '2026-10-06', dueDate: '2026-10-06',
-    lines: [{ qbItem: 'X', description: 'say "hi"', quantity: 1, amount: 10, taxable: 'N', serviceDate: '' }] });
+    lines: [{ qbItem: 'X', description: 'say "hi"', quantity: 1, rate: 10, amount: 10, taxable: 'N', serviceDate: '' }] });
   const row = csv.split('\r\n')[1];
   assert.ok(row.includes('"Smith, Jones"'));
   assert.ok(row.includes('"say ""hi"""'));

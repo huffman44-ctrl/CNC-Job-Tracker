@@ -40,6 +40,9 @@ test('refusalInfo maps the codes to the brief texts', () => {
     assert.equal(r.text, 'Another owner just billed some of these. Back to Billing.');
     assert.equal(r.back, true);
   }
+  const out = IS.refusalInfo(err('outside', 'Ridgeway Vans is billed outside this app (Settings › Customers).'));
+  assert.equal(out.text, 'Ridgeway Vans is billed outside this app (Settings › Customers). Nothing was downloaded.');
+  assert.equal(out.back, true);
   assert.match(IS.refusalInfo(err('changed')).text, /^Something changed since this screen was drawn — the total has been refreshed; check it and click again\.$/);
   assert.equal(IS.refusalInfo(err('mixed-taxable', 'Materials on this bill are taxed differently — bill those jobs separately.')).text, 'Materials on this bill are taxed differently — bill those jobs separately.');
   assert.equal(IS.refusalInfo(err('too-big', 'That is 401 sheets')).text, "Couldn't lock the sheets — That is 401 sheets. Nothing was downloaded.");

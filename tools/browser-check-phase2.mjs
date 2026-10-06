@@ -225,6 +225,33 @@ async function main() {
   assert(X % 5 === 0 && X >= 150, `3 Bill amount ${X} is a multiple of 5 and at least 150`);
   assert(billText === `Bill Northlight Studios · ${await fmt(page, X)}`, `3 Bill button reads "${billText}" = priceInvoice total`);
 
+  // ── 3b. Board changes reload the finished list quietly; a failed quiet reload keeps the old list ──
+  // A probe finished job is served by a patched Storage.loadFinishedSheets; a sheet appearing and
+  // leaving the board triggers the reload (`sheets` is app.js's top-level board list).
+  const probeIn = () => page.evaluate(() => BillingScreen.buildModel().needsDetails.some(j => j.jobName === 'NL_Probe_Job'));
+  const boardBlip = () => page.evaluate(() => {
+    const extra = { ...sheets[0], fileKey: 'blip_key' };
+    sheets = sheets.concat([extra]); BillingScreen.boardChanged();
+    sheets = sheets.filter(s => s.fileKey !== 'blip_key'); BillingScreen.boardChanged();
+  });
+  await page.evaluate(() => {
+    window.__origLoadFinished = Storage.loadFinishedSheets;
+    Storage.loadFinishedSheets = async () => [{ ...sheets[0], fileKey: 'probe_fin', fileName: 'NL_Probe_Job_Sheet 1.html', jobName: 'NL_Probe_Job', finished: true }];
+  });
+  await boardBlip();
+  await page.waitForFunction(() => BillingScreen.buildModel().needsDetails.some(j => j.jobName === 'NL_Probe_Job'), null, { timeout: 5000 });
+  assert(await page.$$eval('.billing-card', c => c.length) === 1, '3b quiet reload: the customer card stayed on screen');
+  await page.evaluate(() => { Storage.loadFinishedSheets = () => Promise.reject(new Error('net blip')); });
+  await boardBlip();
+  await page.waitForFunction(() => /Couldn't refresh finished jobs \(net blip\)/.test(document.getElementById('billing-status').textContent), null, { timeout: 5000 });
+  assert(await probeIn(), '3b failed quiet reload: the finished job is still in the model (no shorter list to bill from)');
+  assert(!/Loading…/.test(await page.textContent('#billing-customers')), '3b failed quiet reload: no Loading… flash');
+  await page.evaluate(() => { Storage.loadFinishedSheets = window.__origLoadFinished; });
+  await boardBlip();
+  await page.waitForFunction(() => !BillingScreen.buildModel().needsDetails.some(j => j.jobName === 'NL_Probe_Job'), null, { timeout: 5000 });
+  assert(!(await probeIn()), '3b restored: the probe job is gone again');
+  await openBilling(page);   // fresh visit clears the status line for the steps below
+
   // ── 4. Invoice: suggested number and the "already on" check ──
   await page.click('button[data-act="bill"]');
   await page.waitForSelector('#invoice-screen:not([hidden])');

@@ -22,6 +22,7 @@ const BillingScreen = (() => {
   let loadError = '';
   let loadToken = 0;
   let boardKeys = null;         // the board's fileKeys at the last change (see boardChanged)
+  let reloadAgain = false;      // a sheet left/returned to the board while a load was running
   let through = null;           // 'YYYY-MM-DD' or null (= everything to date)
   let selection = {};           // { [customerKey]: { [jobKey]: { sheets: bool } } }
   let statusText = '';
@@ -88,9 +89,12 @@ const BillingScreen = (() => {
 
   /* ── Loading ── */
   // `quiet`: a background refresh keeps the current list on screen until the new one arrives.
+  // A failed quiet refresh keeps the list it had (never a shorter one the Invoice screen could bill
+  // from) and says so. A board change during a load asks for one more quiet load when it settles.
   async function loadFinished(quiet) {
     const token = ++loadToken;
-    if (!(quiet && loadState === 'ok')) { loadState = 'loading'; loadError = ''; render(); }
+    const wasQuiet = quiet && loadState === 'ok';
+    if (!wasQuiet) { loadState = 'loading'; loadError = ''; render(); }
     try {
       const list = await opts.loadFinishedSheets();
       if (token !== loadToken) return;
@@ -98,9 +102,12 @@ const BillingScreen = (() => {
       loadState = 'ok';
     } catch (e) {
       if (token !== loadToken) return;
-      finished = null; loadState = 'error';
-      loadError = (e && e.message) ? e.message : String(e || 'unknown error');
+      const msg = (e && e.message) ? e.message : String(e || 'unknown error');
+      if (wasQuiet) { setStatus(`Couldn't refresh finished jobs (${msg}). Click Refresh before billing.`, true); reloadAgain = false; }
+      else { finished = null; loadState = 'error'; loadError = msg; }
     }
+    if (reloadAgain && loadState === 'ok') { reloadAgain = false; loadFinished(true); return; }
+    reloadAgain = false;
     render();
     if (opts.onFinishedLoaded) opts.onFinishedLoaded();   // the Invoice screen prices from this list too
   }
@@ -428,7 +435,10 @@ const BillingScreen = (() => {
     if (els.screen.hidden && !invoiceOpen) return;
     const left = !!prev && [...prev].some(k => !keys.has(k));
     const back = (finished || []).some(s => keys.has(s.fileKey));
-    if (loadState === 'ok' && (left || back)) { loadFinished(true); return; }
+    if (left || back) {
+      if (loadState === 'ok') { loadFinished(true); return; }
+      if (loadState === 'loading') reloadAgain = true;
+    }
     render();
     if (invoiceOpen && opts.onFinishedLoaded) opts.onFinishedLoaded();
   }
