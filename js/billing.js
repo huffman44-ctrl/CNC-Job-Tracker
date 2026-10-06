@@ -115,11 +115,11 @@ const BillingScreen = (() => {
 
   // `o.status` (optional): a line to show on arrival, e.g. after the Invoice screen cancels an invoice.
   // `o.resume`: coming back from a job card opened here — keep the date and the choices, no reload
-  // when the finished list is already in hand (the owner caches already carry any new hours).
+  // when the finished list is already in hand: render it now, then quietly reload it (a job exported while the card was open).
   function show(o) {
     opts.hideOthers();
     els.screen.hidden = false;
-    if (o && o.resume && loadState === 'ok') { boardKeys = activeKeys(); render(); return; }
+    if (o && o.resume && loadState === 'ok') { boardKeys = activeKeys(); render(); loadFinished(true); return; }
     selection = {};
     setStatus('');
     const inv = OwnerStore.invoicing();
