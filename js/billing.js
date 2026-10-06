@@ -184,7 +184,7 @@ const BillingScreen = (() => {
     let m;
     try { m = model(); }
     catch (e) {
-      els.needs.innerHTML = '';
+      els.needs.innerHTML = ''; els.recentJobs.innerHTML = '';
       els.customers.innerHTML = `<p class="billing-note billing-note--error">${esc(`Couldn't work out what is billable — ${e.message}.`)}</p>`;
       return;
     }

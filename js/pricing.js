@@ -196,6 +196,7 @@ const Pricing = (() => {
           const min = Number(types[typeId].minHours) || 0;
           const prior = Number(priorOf[typeId]) || 0;
           const now = sumByType[typeId];
+          // `charged` assumes the earlier bill used the CURRENT minimum; changing a labor type's minimum between a job's two bills is not back-corrected.
           const charged = prior > 0 ? Math.max(min, prior) : 0;
           const thisBill = Math.max(0, Math.max(min, prior + now) - charged);
           let diff = z(thisBill - now);

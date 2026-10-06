@@ -462,3 +462,29 @@ test('recentJobs: outside-app customers skipped; no job details → projectCusto
   const outsideByProject = recentWorld({ finished: [{ fk: 'p1', job: 'PC_Job', n: 1, at }], projectCustomer: { proj_PC_Job: 'Ridgeway Vans' }, customers: { 'cust_Ridgeway Vans': { billedOutsideApp: true } } });
   assert.equal(outsideByProject.length, 0);
 });
+
+/* ---- final review: billed design hours shown on a sheets-only row ---- */
+test('rowDetail: new cut sheets + design already billed → "design hours billed on #N"', () => {
+  const labor = [line('old', 'design', 1.5, { status: 'billed', invoiceNumber: 3612 })];
+  const w = world({ jobs: { NL_A: { customer: NL, labor } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.deepEqual(r.laborBilledOn, [3612]);
+  const d = BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced);
+  assert.match(d, /· design hours billed on #3612$/); assert.ok(!/no design hours/.test(d), d);
+});
+
+test('rowDetail: design billed on two invoices (incl. in-progress) → "#3612 and #3620", ascending, unique', () => {
+  const labor = [line('a', 'design', 1, { status: 'billed', invoiceNumber: 3620 }), line('b', 'design', 1, { status: 'billed', invoiceNumber: 3612 }),
+    line('c', 'cam', 1, { status: 'in-progress', invoiceNumber: 3620 })];
+  const w = world({ jobs: { NL_A: { customer: NL, labor } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.deepEqual(r.laborBilledOn, [3612, 3620]);
+  assert.match(BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced), /· design hours billed on #3612 and #3620$/);
+});
+
+test('rowDetail: no labor lines at all → "no design hours" unchanged', () => {
+  const w = world({ jobs: { NL_A: { customer: NL } }, sheets: [{ job: 'NL_A', n: 1, sec: 600, cut: T }] });
+  const r = cust(w.model, NL).rows[0];
+  assert.deepEqual(r.laborBilledOn, []);
+  assert.match(BillingModel.rowDetail(r, BillingModel.rowPricing(r, ctx).priced), /· no design hours$/);
+});

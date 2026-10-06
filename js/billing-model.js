@@ -153,6 +153,8 @@ const BillingModel = (() => {
         sheetInputs, priorBilled: [...buckets.billed, ...buckets.beforeStart].map(e => e.prior),
         priorLaborHours: { ...priorLabor },
         billedOn: [...new Set(buckets.billed.map(e => e.invoiceNumber).filter(v => v != null))].sort((a, b) => a - b),
+        // Invoices carrying this job's billed / in-progress labor lines — so a sheets-only row can say the design is already billed.
+        laborBilledOn: [...new Set((jb.laborLines || []).filter(l => l && ['billed', 'in-progress'].includes(l.status) && l.invoiceNumber != null).map(l => l.invoiceNumber))].sort((a, b) => a - b),
         captured: {
           sheets: Object.fromEntries(buckets.eligible.map(e => [e.fileKey, e.captured])),
           job: { turnaround: nz(jb.turnaround), materialKind: nz(jb.material.kind), materialId: nz(jb.material.materialId), pricePerSheet: nz(jb.material.pricePerSheet),
@@ -284,7 +286,9 @@ const BillingModel = (() => {
     if (!n && billedOn.length) parts.push(`Sheets billed on ${billedOn.map(x => '#' + x).join(' and ')}`);
     else if (!n && row.uncutCount) parts.push(`${row.uncutCount} still to cut`);
     const lt = laborText(row.jobInput.laborLines);
-    parts.push(!n && billedOn.length && row.laborLineIds.length ? `${lt} added after` : lt);
+    const lbo = row.laborBilledOn || [];
+    if (n && !row.laborLineIds.length && lbo.length) parts.push(`design hours billed on ${lbo.map(x => '#' + x).join(' and ')}`);
+    else parts.push(!n && billedOn.length && row.laborLineIds.length ? `${lt} added after` : lt);
     let s = parts.join(' · ');
     if (row.zeroTimeCount) s += `${s ? ' · ' : ''}${row.zeroTimeCount === 1 ? '1 sheet has' : row.zeroTimeCount + ' sheets have'} no Aspire time`;
     return s;
