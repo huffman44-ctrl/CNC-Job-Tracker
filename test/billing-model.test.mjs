@@ -393,3 +393,72 @@ test('every row is included by default in every state', () => {
   const input = BillingModel.pricingInput(c, {}, ctx);
   assert.equal(Object.keys(input.jobs).length, 3); assert.equal(input.sheets.length, 2);
 });
+
+/* ---- spec 2026-10-06 §3.3: Recent jobs ---- */
+const DAY = 86400000;
+const NOW = new Date(2026, 9, 6, 9).getTime();   // Tue Oct 6
+function recentWorld({ finished, active = [], jobs = {}, sb = {}, customers = {}, projectCustomer = {} }) {
+  const noteKey = n => 'proj_' + n;
+  const jobDocs = {};
+  Object.entries(jobs).forEach(([name, j]) => { jobDocs[noteKey(name)] = { jobName: name, customerKey: 'cust_' + j.customer, customerName: j.customer, laborLines: j.labor || [] }; });
+  const fin = finished.map(s => ({ fileKey: s.fk, fileName: `${s.job} Sheet ${s.n}.html`, jobName: s.job, finished: true, finishedAt: s.at }));
+  const act = active.map(s => ({ fileKey: s.fk, fileName: `${s.job} Sheet ${s.n}.html`, jobName: s.job }));
+  return BillingModel.recentJobs({ finishedSheets: fin, activeSheets: act, nowMs: NOW,
+    sheetBillingOf: fk => sb[fk] || null, jobBillingOf: jk => jobDocs[jk] || null, customerBillingOf: ck => customers[ck] || null,
+    projectCustomerOf: jk => projectCustomer[jk] || null, customerKeyOf: n => 'cust_' + n, noteKey });
+}
+
+test('recentJobs: 30-day window on max(finishedAt), newest first, all sheets finished', () => {
+  const list = recentWorld({
+    finished: [
+      { fk: 'a1', job: 'NL_A', n: 1, at: NOW - 2 * DAY }, { fk: 'a2', job: 'NL_A', n: 2, at: NOW - 4 * DAY },
+      { fk: 'b1', job: 'NL_B', n: 1, at: NOW - 1 * DAY },
+      { fk: 'c1', job: 'NL_Old', n: 1, at: NOW - 31 * DAY },
+      { fk: 'd1', job: 'NL_Edge', n: 1, at: NOW - 30 * DAY },
+      { fk: 'e1', job: 'NL_Part', n: 1, at: NOW - 1 * DAY },
+      { fk: 'f1', job: 'NL_NoDate', n: 1, at: undefined },
+    ],
+    active: [{ fk: 'e2', job: 'NL_Part', n: 2 }],
+    jobs: { NL_A: { customer: NL }, NL_B: { customer: NL }, NL_Old: { customer: NL }, NL_Edge: { customer: NL }, NL_Part: { customer: NL }, NL_NoDate: { customer: NL } },
+  });
+  assert.deepEqual(list.map(j => j.jobName), ['NL_B', 'NL_A', 'NL_Edge']);
+  const a = list.find(j => j.jobName === 'NL_A');
+  assert.equal(a.finishedAt, NOW - 2 * DAY); assert.equal(a.finishedText, 'Oct 4'); assert.equal(a.sheetCount, 2);
+  assert.equal(a.customerName, NL); assert.equal(a.jobKey, 'proj_NL_A');
+});
+
+test('recentJobs: billing and labor wording', () => {
+  const sb = { a1: { status: 'billed', invoiceNumber: 3612 }, a2: { status: 'billed', invoiceNumber: 3612 },
+    b1: { status: 'billed', invoiceNumber: 3612 }, b2: { status: 'billed', invoiceNumber: 3620 }, b3: { status: 'external' },
+    c1: { status: 'billed', invoiceNumber: 3612 }, d1: { status: 'external' } };
+  const at = NOW - DAY;
+  const list = recentWorld({
+    finished: [
+      { fk: 'a1', job: 'NL_All', n: 1, at }, { fk: 'a2', job: 'NL_All', n: 2, at },
+      { fk: 'b1', job: 'NL_Two', n: 1, at }, { fk: 'b2', job: 'NL_Two', n: 2, at }, { fk: 'b3', job: 'NL_Two', n: 3, at },
+      { fk: 'c1', job: 'NL_Some', n: 1, at }, { fk: 'c2', job: 'NL_Some', n: 2, at }, { fk: 'c3', job: 'NL_Some', n: 3, at },
+      { fk: 'd1', job: 'NL_NC', n: 1, at }, { fk: 'n1', job: 'NL_None', n: 1, at },
+    ],
+    jobs: { NL_All: { customer: NL, labor: [line('x', 'design', 1.5, { typeName: 'Design' })] }, NL_Two: { customer: NL }, NL_Some: { customer: NL }, NL_NC: { customer: NL }, NL_None: { customer: NL } },
+    sb,
+  });
+  const by = Object.fromEntries(list.map(j => [j.jobName, j]));
+  assert.equal(by.NL_All.billingText, '2 sheets billed #3612'); assert.equal(by.NL_All.laborText, '1.5 h Design');
+  assert.equal(by.NL_Two.billingText, '2 sheets billed #3612, #3620', 'external sheet left out; numbers ascending');
+  assert.equal(by.NL_Some.billingText, '1 of 3 sheets billed');
+  assert.equal(by.NL_NC.billingText, 'no charge');
+  assert.equal(by.NL_None.billingText, 'not billed yet'); assert.equal(by.NL_None.laborText, 'no design hours');
+});
+
+test('recentJobs: outside-app customers skipped; no job details → projectCustomer name, else "No customer yet"', () => {
+  const at = NOW - DAY;
+  const list = recentWorld({
+    finished: [{ fk: 'r1', job: 'RV_Job', n: 1, at }, { fk: 'p1', job: 'PC_Job', n: 1, at }, { fk: 'q1', job: 'Mystery', n: 1, at }],
+    jobs: { RV_Job: { customer: 'Ridgeway Vans' } },
+    customers: { 'cust_Ridgeway Vans': { billedOutsideApp: true } },
+    projectCustomer: { proj_PC_Job: 'Copperline Stage' },
+  });
+  assert.deepEqual(list.map(j => [j.jobName, j.customerName]).sort(), [['Mystery', 'No customer yet'], ['PC_Job', 'Copperline Stage']]);
+  const outsideByProject = recentWorld({ finished: [{ fk: 'p1', job: 'PC_Job', n: 1, at }], projectCustomer: { proj_PC_Job: 'Ridgeway Vans' }, customers: { 'cust_Ridgeway Vans': { billedOutsideApp: true } } });
+  assert.equal(outsideByProject.length, 0);
+});

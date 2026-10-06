@@ -330,7 +330,57 @@ const BillingModel = (() => {
     };
   }
 
-  return { defaultThroughDate, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, buildDraft };
+  const monthDayMs = ms => { const d = new Date(ms); return Number.isNaN(d.getTime()) ? '' : `${MONTHS[d.getMonth()]} ${d.getDate()}`; };
+
+  // Recent jobs (spec 2026-10-06 §3.3): one line per job whose sheets are ALL finished (none on the board)
+  // and whose latest finishedAt is within `days` of nowMs; newest first; customers billed outside this
+  // app left out. Built from the finished list Billing already holds — no new reads.
+  function recentJobs(input) {
+    const { sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, noteKey } = input;
+    const cutoff = input.nowMs - (input.days || 30) * 86400000;
+    const onBoard = new Set((input.activeSheets || []).map(s => noteKey(s.jobName || s.fileName)));
+    const groups = new Map();
+    const seen = new Set();
+    (input.finishedSheets || []).forEach(s => {
+      if (!s || seen.has(s.fileKey)) return;
+      seen.add(s.fileKey);
+      const name = s.jobName || s.fileName;
+      const jk = noteKey(name);
+      if (!groups.has(jk)) groups.set(jk, { jobKey: jk, jobName: name, sheets: [] });
+      groups.get(jk).sheets.push(s);
+    });
+    const out = [];
+    groups.forEach(g => {
+      if (onBoard.has(g.jobKey)) return;
+      const finishedAt = g.sheets.reduce((m, s) => Math.max(m, Number(s.finishedAt) || 0), 0);
+      if (!finishedAt || finishedAt < cutoff) return;
+      const jb = jobBillingOf(g.jobKey) || null;
+      const custName = (jb && jb.customerName) || projectCustomerOf(g.jobKey) || null;
+      const ck = (jb && jb.customerKey) || (custName && customerKeyOf(custName)) || null;
+      if (ck && (customerBillingOf(ck) || {}).billedOutsideApp) return;
+      let billed = 0, counted = 0;
+      const nums = [];
+      g.sheets.forEach(s => {
+        const sb = sheetBillingOf(s.fileKey) || null;
+        const st = (sb && sb.status) || 'unbilled';
+        if (st === 'external') return;
+        counted++;
+        if (st === 'billed') { billed++; if (sb.invoiceNumber != null && !nums.includes(sb.invoiceNumber)) nums.push(sb.invoiceNumber); }
+      });
+      nums.sort((a, b) => a - b);
+      let billingText;
+      if (!counted) billingText = 'no charge';
+      else if (billed === counted) billingText = `${plural(counted, 'sheet', 'sheets')} billed ${nums.map(n => '#' + n).join(', ')}`;
+      else if (billed > 0) billingText = `${billed} of ${counted} sheets billed`;
+      else billingText = 'not billed yet';
+      out.push({ jobKey: g.jobKey, jobName: g.jobName, customerName: custName || 'No customer yet', finishedAt, finishedText: monthDayMs(finishedAt),
+        sheetCount: g.sheets.length, billingText, laborText: laborText(jb && jb.laborLines) });
+    });
+    out.sort((a, b) => b.finishedAt - a.finishedAt);
+    return out;
+  }
+
+  return { defaultThroughDate, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;
