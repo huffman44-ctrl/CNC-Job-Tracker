@@ -123,8 +123,8 @@ async function main() {
     await page.waitForSelector('#projects-screen:not([hidden])');
     await page.waitForTimeout(300);
   };
-  // On the open job card: each sheet Mark In Progress -> Mark Complete (modal) through the UI, then No design time -> Done.
-  const cutAndFinish = async (page, sheetCount) => {
+  // On the open job card: each sheet Mark In Progress -> Mark Complete (modal) through the UI. No Done step (2026-10-06).
+  const cutAll = async (page, sheetCount) => {
     for (let i = 0; i < sheetCount; i++) {
       await page.locator('.sheet-nav-row').first().click();   // completed sheets move below the active ones
       await page.click('.sheet-complete-footer button:has-text("Mark In Progress")');
@@ -134,10 +134,15 @@ async function main() {
       await page.waitForSelector('#modal-overlay', { state: 'hidden' });
       await page.waitForTimeout(150);
     }
-    await page.click('#owner-panel input[data-action="nodesign"]');
-    await page.waitForSelector('#owner-panel [data-action="done"]:not([disabled])');
-    await page.click('#owner-panel [data-action="done"]');
-    await page.waitForFunction(() => /Ready for billing ✓/.test(document.getElementById('owner-panel').textContent));
+  };
+  // On the open job card: add a Design/CAM line through the owner panel's form (type picked by its name).
+  const addHours = async (page, typeName, hours, note) => {
+    const id = await page.$eval('#owner-panel [data-line-type]', (s, name) => [...s.options].find(o => o.textContent.startsWith(name)).value, typeName);
+    await page.selectOption('#owner-panel [data-line-type]', id);
+    await page.fill('#owner-panel [data-line-hours]', hours);
+    await page.fill('#owner-panel [data-line-note]', note);
+    await page.click('#owner-panel [data-action="line-add"]');
+    await page.waitForFunction(h => new RegExp(h.replace('.', '\\.') + ' h added\\.').test(document.getElementById('owner-panel').textContent), hours);
   };
   const openBilling = async (page, everything = true) => {
     await toProjects(page);
@@ -163,6 +168,7 @@ async function main() {
   await page.setInputFiles('#file-input', join(dst, sample));
   await page.waitForSelector('#projects-screen:not([hidden])'); await page.waitForTimeout(300);
   assert(await page.isHidden('#billing-btn'), '1 Collin: no Billing button');
+  assert(await page.isHidden('#billing-recent-jobs') || (await page.textContent('#billing-recent-jobs')) === '', '1 Collin: no Recent jobs block');
   assert(await page.isHidden('#settings-btn'), '1 Collin: no Settings button');
   assert(await page.isHidden('#projects-show-finished-wrap'), '1 Collin: no Show finished jobs toggle');
   assert(await page.$eval('#job-details-overlay', el => el.classList.contains('hidden')), '1 Collin: upload opens no job-details form');
@@ -213,17 +219,38 @@ async function main() {
   await page.waitForSelector('#projects-screen:not([hidden])');
   assert(await page.isVisible('#billing-btn'), '3 owner with Billing on: Billing button visible');
   await openCard(page, 1195);
-  await cutAndFinish(page, 2);
+  await cutAll(page, 2);
   assert(await page.evaluate(() => sheets.filter(s => (Storage.get(s.fileKey, 'sheet') || {}).status === 'complete').length === 2), '3 both sheets went In Progress → Complete through the UI');
+  const panel = await page.textContent('#owner-panel');
+  assert(/Not billed yet/.test(panel) && !/Done — ready for billing|No design time|not ready yet/.test(panel) && !(await page.$('#owner-panel input[data-action="nodesign"]')), '3 job card: chip "Not billed yet"; no Done button, no No-design-time box');
   await openBilling(page);
   const cards = await page.$$('.billing-card');
   assert(cards.length === 1, '3 Billing: one customer card (got ' + cards.length + ')');
   const rowEls = await page.$$('.billing-row');
-  assert(rowEls.length === 1 && await rowEls[0].evaluate(e => e.classList.contains('billing-row--ready')), '3 Billing: one ready row');
+  assert(rowEls.length === 1 && await rowEls[0].evaluate(e => e.classList.contains('billing-row--ready') && !e.classList.contains('is-off')), '3 Billing: one ready row, included without a Done step');
+  assert((await page.textContent('.billing-row button[data-act="toggle"]')).trim() === 'Remove', '3 the row toggle reads "Remove"');
+  assert(/· no design hours$/.test((await page.textContent('.billing-row-detail')).trim()), '3 detail ends "no design hours"');
+  await page.click('.billing-row button[data-act="toggle"]');
+  assert(await page.$eval('.billing-row', e => e.classList.contains('is-off')) && (await page.textContent('.billing-row button[data-act="toggle"]')).trim() === 'Add back' && !(await page.$('button[data-act="bill"]')), '3 Remove: row dims, toggle reads "Add back", no Bill button');
+  await page.click('.billing-row button[data-act="toggle"]');
+  assert(!(await page.$eval('.billing-row', e => e.classList.contains('is-off'))), '3 Add back: row is back on');
+  // job-name link → card → hours → Back lands on Billing
+  await page.click('.billing-row button[data-act="open-job"]');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.waitForSelector('#owner-panel:not([hidden])');
+  assert(/Order_1195/.test(await page.textContent('#header-job-name')) && /Billing/.test(await page.textContent('#back-to-projects-btn')), '3 the job-name link opens the card; Back reads "← Billing"');
+  await addHours(page, 'Design', '1.5', 'Layout');
+  assert(/Goes on the next bill/.test(await page.textContent('#owner-panel')), '3 the new line says "Goes on the next bill"');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#billing-screen:not([hidden])');
+  assert(/· 1\.5 h Design$/.test((await page.textContent('.billing-row-detail')).trim()), '3 Back landed on Billing; the row detail ends "1.5 h Design"');
+  await openCard(page, 1195);
+  assert(/Projects/.test(await page.textContent('#back-to-projects-btn')), '3 opened from Projects: Back reads "← Projects" again');
+  await openBilling(page);
   const X = await priceOf(page, 'Northlight Studios');
   const billText = (await page.textContent('button[data-act="bill"]')).trim();
   assert(X % 5 === 0 && X >= 150, `3 Bill amount ${X} is a multiple of 5 and at least 150`);
-  assert(billText === `Bill Northlight Studios · ${await fmt(page, X)}`, `3 Bill button reads "${billText}" = priceInvoice total`);
+  assert(billText === `Bill Northlight Studios · ${await fmt(page, X)}`, `3 Bill button reads "${billText}" = priceInvoice total (sheets + 1.5 h Design)`);
 
   // ── 3b. Board changes reload the finished list quietly; a failed quiet reload keeps the old list ──
   // A probe finished job is served by a patched Storage.loadFinishedSheets; a sheet appearing and
@@ -295,6 +322,7 @@ async function main() {
   assert(dataRows.length > 0 && dataRows.every(r => r[0] === '3605' && r[1] === 'Northlight Studios'), `6 every data row (${dataRows.length}) starts "3605,Northlight Studios,"`);
   const sum = Math.round(dataRows.reduce((s, r) => s + parseFloat(r[8]), 0) * 100) / 100;
   assert(sum === X, `6 the amounts sum to ${sum} = X (${X})`);
+  assert(dataRows.some(r => /^Design — Layout \(1\.5 hrs @ \$150\/hr\)/.test(r[5])), '6 the CSV carries the Design line');
   await page.waitForTimeout(300);
   await openCard(page, 1195);
   assert(/On invoice 3605 \(in progress\)/.test(await page.textContent('#content-screen')), '6 job card says "On invoice 3605 (in progress)"');
@@ -326,11 +354,50 @@ async function main() {
   await page.click('#billing-done-screen [data-act="jobs"]');
   await openCard(page, 1195);
   assert(/Billed · #3605/.test(await page.textContent('#content-screen')), '7 job card says "Billed · #3605"');
+  assert(/Billed · #3605/.test(await page.$eval('#owner-panel .jc-chip--ready', e => e.textContent)), '7 job chip reads "Billed · #3605"');
+  assert((await page.$$eval('#owner-panel .jc-labor .jc-caption', els => els.map(e => e.textContent))).some(t => /^Billed · #3605$/.test(t)), '7 the Design line reads "Billed · #3605"');
   await openBilling(page);
   assert((await page.$$('.billing-card')).length === 0 && !/Northlight/.test(await page.textContent('#billing-customers')), '7 Billing has no Northlight card any more');
   assert(await page.locator('.billing-recent-row[data-number="3605"]').count() === 1, '7 Recent invoices lists 3605');
 
+  // ── 7b. Hours added after the sheets were billed: a labor-only row; the minimum was charged once ──
+  await openCard(page, 1195);
+  await addHours(page, 'Design', '0.5', 'Revisions');
+  await openBilling(page);
+  const nlRow = card(page, 'Northlight Studios').locator('.billing-row');
+  assert(await nlRow.count() === 1 && await nlRow.evaluate(e => e.classList.contains('billing-row--labor-only')), '7b Northlight: one labor-only row');
+  assert(/Design hours only/.test(await nlRow.locator('.billing-row-state').textContent()), '7b state reads "Design hours only"');
+  assert(/Sheets billed on #3605 · 0\.5 h Design added after/.test(await nlRow.locator('.billing-row-detail').textContent()), '7b detail: "Sheets billed on #3605 · 0.5 h Design added after"');
+  assert((await nlRow.locator('.billing-row-amt').textContent()).trim() === '$75', '7b 0.5 h after 1.5 h billed = $75 (the 1-h minimum was already covered)');
+
+  // ── 7c. Recent jobs: job A finished (served by a patched loader, as in 3b) → link → card → Put back → Projects ──
+  await page.evaluate(() => {
+    const isA = s => /Order_1195/.test(s.jobName || s.fileName);
+    window.__finA = sheets.filter(isA).map(s => ({ ...s, finished: true, finishedAt: Date.now() - 2 * 86400000 }));
+    sheets = sheets.filter(s => !isA(s));
+    Storage.loadFinishedSheets = async () => window.__finA;
+    BillingScreen.boardChanged();
+  });
+  await openBilling(page);
+  const recent = page.locator('#billing-recent-jobs .billing-recent-job', { hasText: 'Order_1195' });
+  assert(await recent.count() === 1 && /Recent jobs/.test(await page.textContent('#billing-recent-jobs')), '7c Recent jobs lists the finished job');
+  assert(/Northlight Studios · finished .* · 2 sheets billed #3605 · 2 h Design/.test(await recent.textContent()), '7c line: "Northlight Studios · finished <date> · 2 sheets billed #3605 · 2 h Design"');
+  assert(await card(page, 'Northlight Studios').locator('.billing-row--labor-only').count() === 1, '7c the finished job keeps its labor-only row');
+  await recent.locator('button[data-act="open-job"]').click();
+  await page.waitForSelector('#content-screen:not([hidden])');
+  assert(await page.$eval('#content-screen', e => e.classList.contains('content-screen--finished')) && /Billing/.test(await page.textContent('#back-to-projects-btn')), '7c the link opens the finished job card; Back reads "← Billing"');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#billing-screen:not([hidden])');
+  assert(true, '7c Back from a finished card lands on Billing');
+  await recent.locator('button[data-act="open-job"]').click();
+  await page.waitForSelector('#content-screen:not([hidden])');
+  dialogs = [];
+  await page.click('#owner-panel [data-action="putback"]');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  assert(dialogs.some(d => /^confirm:Put/.test(d)) && /Projects/.test(await page.textContent('#back-to-projects-btn')), '7c Put back from a Billing-opened card lands on Projects and resets the Back label');
+
   // ── 8. Add PO ──
+  await openBilling(page, false);   // 7c ended on Projects (Put back)
   await page.click('.billing-recent-row[data-number="3605"] [data-act="add-po"]');
   await page.fill('input[data-po]', 'PO-4471');
   await page.click('[data-act="save-po"]');
@@ -342,7 +409,8 @@ async function main() {
   await toProjects(page);
   await uploadJob(page, FILE_B, 'Copperline Stage');
   await openCard(page, 1201);
-  await cutAndFinish(page, 1);
+  await cutAll(page, 1);
+  await addHours(page, 'Design', '0.5', 'Sketch');
   await openBilling(page);
   await card(page, 'Copperline Stage').locator('button[data-act="bill"]').click();
   await page.waitForSelector('#invoice-screen:not([hidden])');
@@ -363,11 +431,28 @@ async function main() {
   await page.waitForFunction(n => !document.querySelector(`.billing-recent-row[data-number="${n}"] .billing-recent-note`), num2);
   assert(await page.evaluate(n => InvoiceStore.get(n).logWritten === true, Number(num2)), '9 restored + Retry: the note is gone and the log is written');
 
+  // ── 9b. 0.5 h after 0.5 h billed: a $0.00 line, still shown with its hours ──
+  await openCard(page, 1201);
+  await addHours(page, 'Design', '0.5', 'Revisions');
+  await openBilling(page);
+  const ccRow = card(page, 'Copperline Stage').locator('.billing-row--labor-only');
+  assert(await ccRow.count() === 1 && (await ccRow.locator('.billing-row-amt').textContent()).trim() === '$0', '9b Copperline: labor-only row at $0 (the 1-h minimum was charged on the first bill)');
+  assert(/Bill Copperline Stage · \$0$/.test((await card(page, 'Copperline Stage').locator('button[data-act="bill"]').textContent()).trim()), '9b the Bill button reads "Bill Copperline Stage · $0"');
+  const desc = await page.evaluate(() => {
+    const m = BillingScreen.buildModel(null);
+    const c = m.customers.find(x => x.customerName === 'Copperline Stage');
+    const ctx = { priceList: c.priceList, laborTypes: OwnerStore.laborTypes() };
+    const priced = Pricing.priceInvoice(BillingModel.pricingInput(c, {}, ctx));
+    return InvoiceLines.finalize(priced, { qbItems: OwnerStore.qbItems(), laborTypes: ctx.laborTypes }).find(l => l.type === 'labor').description;
+  });
+  assert(desc === 'Design — Revisions (0.5 hrs, covered by the 1-hr minimum)', `9b the invoice line reads "${desc}"`);
+  // (the Copperline $0 row stays on Billing for the rest of the run; steps 10–13 only look at other customers)
+
   // ── 10. Through date ──
   await toProjects(page);
   await uploadJob(page, FILE_C, 'Ridgeway Vans');
   await openCard(page, 1202);
-  await cutAndFinish(page, 1);
+  await cutAll(page, 1);
   const setThrough = (p, which) => p.evaluate(which => {
     const d = new Date(); const p2 = n => String(n).padStart(2, '0');
     const ymd = x => `${x.getFullYear()}-${p2(x.getMonth() + 1)}-${p2(x.getDate())}`;
@@ -434,12 +519,14 @@ async function main() {
   assert(prices.join('/') === '60/40/135/50/75/50/150/5', '13 Prices card shows ' + prices.join('/'));
   const typeNames = await page.$$eval('#settings-labor-body input[data-f="name"]', els => els.map(e => e.value));
   assert(typeNames.join(',') === 'Design,CAM', '13 Labor types shows ' + typeNames.join(','));
-  while (await page.locator('#settings-labor-body button[data-lt-remove]').count()) await page.locator('#settings-labor-body button[data-lt-remove]').first().click();
+  // Design carries unbilled hours now (steps 7b / 9b), so it cannot be removed; CAM is unused and can.
+  const rowOf = n => page.locator('#settings-labor-body tr', { has: page.locator('input[data-f="name"][value="' + n + '"]') });
+  await rowOf('Design').locator('button[data-lt-remove]').click();
+  assert(/Design is used on \d+ jobs? that (isn.t|aren.t) billed yet/.test(await page.textContent('#settings-status')), '13 Design (unbilled hours on jobs) cannot be removed: "' + (await page.textContent('#settings-status')) + '"');
+  await rowOf('CAM').locator('button[data-lt-remove]').click();
   await page.click('#settings-labor-save');
-  await page.waitForFunction(() => /Labor types saved\./.test(document.getElementById('settings-status').textContent));
-  assert(await page.evaluate(() => OwnerStore.laborTypes().length === 0), '13 all labor types removed and saved');
-  await openCard(page, 1203);
-  assert(/No Design\/CAM types yet/.test(await page.textContent('#owner-panel')), '13 with no types the job card shows "No Design/CAM types yet"');
+  await page.waitForFunction(() => /Labor types saved./.test(document.getElementById('settings-status').textContent));
+  assert(await page.evaluate(() => OwnerStore.laborTypes().map(t => t.name).join(',') === 'Design'), '13 the unused CAM type was removed and saved; Design stays');
   await page.close();
 
   // ── 14. No uncaught page errors anywhere ──

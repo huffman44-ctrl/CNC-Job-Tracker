@@ -120,7 +120,7 @@ async function main() {
   assert(await page.isVisible('#settings-btn'), 'owner: Settings button visible');
   // the chip only exists once the jobCard switch is on
   await setOwner(page, jobCardOn);
-  assert(/Not sent to billing yet/.test(await page.textContent('.project-card')), 'owner: board chip reads Not sent to billing yet (jobCard on)');
+  assert(/Not billed yet/.test(await page.textContent('.project-card')), 'owner: board chip reads Not billed yet (jobCard on)');
   dialogs = [];
   const dl2 = page.waitForEvent('download');
   await page.click('.project-card .btn-primary');   // Export CSV on the card
@@ -192,13 +192,13 @@ async function main() {
   await page.waitForSelector('#owner-panel:not([hidden])');
   assert(/Copperline Stage/.test(await page.textContent('#owner-panel')), 'panel: customer shown');
   assert(/Not cut yet/.test(await page.textContent('.sheet-nav-row .jc-row-tags')), 'panel: sidebar row status Not cut yet');
-  assert(await page.$eval('#owner-panel [data-action="done"]', b => b.disabled), 'panel: Done disabled with no labor and no "no design time"');
+  assert(!(await page.$('#owner-panel [data-action="done"]')) && !(await page.$('#owner-panel [data-action="nodesign"]')), 'panel: no Done button and no "No design time" box (2026-10-06)');
+  assert(/Not billed yet/.test(await page.textContent('#owner-panel')), 'panel: chip reads "Not billed yet"');
   await page.fill('#owner-panel [data-line-hours]', '1.5');
   await page.fill('#owner-panel [data-line-note]', 'Bridge wall panels');
   await page.click('#owner-panel [data-action="line-add"]');
   await page.waitForTimeout(200);
   assert(/Bridge wall panels/.test(await page.textContent('#owner-panel')), 'panel: labor line added');
-  assert(await page.$eval('#owner-panel [data-action="done"]', b => !b.disabled), 'panel: Done enabled after a labor line');
   const typeOptions = await page.$$eval('#owner-panel [data-line-type] option', os => os.map(o => o.textContent));
   assert(typeOptions.some(t => /Design — \$150\/hr \(min 1 h per job\)/.test(t)) && typeOptions.some(t => /CAM — \$85\/hr \(min 0.5 h per job\)/.test(t)), 'panel: labor types come from the seeded settings doc');
   // Half-typed input survives a shop-floor completion change (owner panel redraw), focus included.
@@ -213,14 +213,12 @@ async function main() {
   await page.fill('#owner-panel [data-line-note]', '');
   // Owner data did not load (jobBilling): every write control is disabled and the notice shows.
   await page.evaluate(() => { window.__realLoaded = OwnerStore.loaded; OwnerStore.loaded = (n) => n === 'jobBilling' ? false : window.__realLoaded(n); rerenderCurrent(); });
-  const writeOff = await page.evaluate(() => ['[data-action="edit"]', '[data-action="done"]', '[data-action="line-add"]', '[data-line-hours]', '[data-line-note]', '[data-line-type]', '[data-action="nodesign"]']
+  const writeOff = await page.evaluate(() => ['[data-action="edit"]', '[data-action="line-add"]', '[data-line-hours]', '[data-line-note]', '[data-line-type]']
     .map(sel => { const el = document.querySelector('#owner-panel ' + sel); return !!el && el.disabled; }));
   assert(writeOff.every(v => v === true), 'panel: jobBilling not loaded -> every write control is disabled');
   assert((await page.textContent('#owner-panel')).includes("Owner data didn't load — reload the page."), 'panel: shows "Owner data didn\'t load — reload the page."');
   await page.evaluate(() => { OwnerStore.loaded = window.__realLoaded; rerenderCurrent(); });
-  await page.click('#owner-panel [data-action="done"]');
-  await page.waitForTimeout(200);
-  assert(/Ready for billing ✓/.test(await page.textContent('#owner-panel')), 'panel: Done marks the job ready');
+  assert(/Not billed yet/.test(await page.textContent('#owner-panel')) && !(await page.$('#owner-panel [data-action="done"]')), 'panel: after the redraw the chip still reads "Not billed yet" and there is no Done control');
   await page.setViewportSize({ width: 320, height: 700 });
   await page.waitForTimeout(200);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= 320), 'panel: no horizontal scroll at 320px');
