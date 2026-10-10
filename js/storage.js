@@ -520,13 +520,42 @@ const Storage = (() => {
     return { stamped: todo.length, total: snap.size };
   }
 
-  async function deleteSheet(fileKey) {
-    if (!db) return;
-    try {
-      await db.collection('sheets').doc(fileKey).delete();
-    } catch (e) {
-      console.warn('Firestore deleteSheet failed:', e);
-    }
+  // The per-sheet documents that make up a sheet's record besides sheets/{fileKey} itself (the sheet
+  // record table in CLAUDE.md). deleteSheets removes these; a fifth per-sheet doc is added here.
+  const SHEET_RECORD_PARTS = [
+    { collection: 'completions', cache: completionsCache },
+    { collection: 'sheetNotes', cache: sheetNotesCache },
+    { collection: 'sheetAnnotations', cache: annotationsCache },
+  ];
+
+  // Deletes each sheet's whole record (spec .scratch/complete-sheet-delete). The sheet doc goes
+  // FIRST; its completion, note and markup (docs and caches) only once that worked, so a refused
+  // delete never wipes a billed sheet's cut record. The rules refuse an on-board sheet's delete only
+  // when its billing record is in-progress/billed, so permission-denied = blocked (on an invoice);
+  // any other error = failed. Never throws per sheet, never shows anything; results in input order.
+  async function deleteSheets(fileKeys) {
+    const outcomes = await Promise.all(fileKeys.map(async fileKey => {
+      if (db) {
+        try {
+          await db.collection('sheets').doc(fileKey).delete();
+        } catch (e) {
+          if (e && e.code === 'permission-denied') return { fileKey, kind: 'blocked' };
+          return { fileKey, kind: 'failed', message: (e && e.message) || String(e) };
+        }
+      }
+      SHEET_RECORD_PARTS.forEach(p => { delete p.cache[fileKey]; });
+      if (db) {
+        // The sheet is gone, so it is reported deleted whatever happens here; a leftover is only logged.
+        await Promise.all(SHEET_RECORD_PARTS.map(p => db.collection(p.collection).doc(fileKey).delete()
+          .catch(e => console.warn(`deleteSheets: sheet ${fileKey} deleted but its ${p.collection} doc was not:`, e))));
+      }
+      return { fileKey, kind: 'deleted' };
+    }));
+    return {
+      deleted: outcomes.filter(o => o.kind === 'deleted').map(o => o.fileKey),
+      blocked: outcomes.filter(o => o.kind === 'blocked').map(o => o.fileKey),
+      failed: outcomes.filter(o => o.kind === 'failed').map(o => ({ fileKey: o.fileKey, message: o.message })),
+    };
   }
 
   async function clearSheets() {
@@ -761,7 +790,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheet, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, upsertJobForUpload, finishJob, reopenJob, migrateFinishedFlag };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheets, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, upsertJobForUpload, finishJob, reopenJob, migrateFinishedFlag };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;

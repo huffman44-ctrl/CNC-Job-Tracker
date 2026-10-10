@@ -266,6 +266,95 @@ async function main() {
   assert(await page.isVisible('.layout-svg-oversize a'), 'put-back: the note links to the archived sheet');
   await page.close();
 
+  // ── Delete (spec .scratch/complete-sheet-delete): one action, board follows what was deleted ──
+  const uploadTwo = async (page) => {
+    await page.setInputFiles('#file-input', [join(dst, sample), join(dst, sample2)]);
+    await page.waitForSelector('#projects-screen:not([hidden])');
+    await page.waitForFunction(() => sheets.length === 2);
+  };
+  // Delete Sheet in the job view: whole record goes, selection moves on, last one → Projects
+  page = await fresh();
+  await uploadTwo(page);
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  const firstKey = await page.evaluate(async () => {
+    const k = selectedSheetKey || getDisplaySheets()[0].fileKey;
+    selectedSheetKey = k;
+    await Storage.set(k, 'sheet', { status: 'complete', completedAt: Date.now(), operator: 'Collin', notes: '' });
+    await Storage.setSheetNote(k, 'cut the pocket first');
+    await Storage.setAnnotations(k, [{ type: 'rect', x: 0, y: 0, w: 1, h: 1, color: 'red' }]);
+    renderAllSheets();
+    return k;
+  });
+  dialogs = [];
+  await page.click('.detail-delete-btn');
+  await page.waitForFunction(() => sheets.length === 1);
+  assert(dialogs.some(d => d.startsWith('confirm:Delete "')), 'delete sheet: the same confirm prompt as before');
+  const afterOne = await page.evaluate((k) => ({ left: sheets.map(s => s.fileKey), sel: selectedSheetKey, rec: Storage.get(k, 'sheet'), note: Storage.getSheetNote(k), marks: Storage.getAnnotations(k).length, notice: !document.getElementById('notice-overlay').classList.contains('hidden') }), firstKey);
+  assert(!afterOne.left.includes(firstKey), 'delete sheet: the sheet left the board');
+  assert(afterOne.rec === null && afterOne.note === null && afterOne.marks === 0, 'delete sheet: its completion, note and markup are gone too');
+  assert(afterOne.sel !== firstKey, 'delete sheet: the selection moved off the deleted sheet');
+  assert(!afterOne.notice, 'delete sheet: no notice when everything was deleted');
+  assert(await page.isVisible('#content-screen'), 'delete sheet: still on the job screen while sheets remain');
+  await page.click('.detail-delete-btn');
+  await page.waitForFunction(() => sheets.length === 0);
+  assert(await page.isVisible('#projects-screen'), 'delete sheet: deleting the last sheet lands on Projects (as today)');
+  await page.close();
+
+  // Trash icon on the project card: whole job gone; Collin's empty board → Upload
+  page = await fresh();
+  await uploadTwo(page);
+  dialogs = [];
+  await page.click('.project-delete-btn');
+  await page.waitForFunction(() => sheets.length === 0);
+  assert(dialogs.some(d => d.startsWith('confirm:Delete "')), 'delete job: the same confirm prompt as before');
+  assert(await page.isVisible('#upload-screen'), 'delete job: Collin lands on Upload when the board is empty');
+  await page.close();
+
+  // A sheet on an invoice stays on the board and gets ONE notice; others in the job still go
+  page = await fresh();
+  await uploadTwo(page);
+  await page.evaluate(() => {
+    const blockedKey = sheets[0].fileKey;
+    const real = Storage.deleteSheets;
+    Storage.deleteSheets = async (keys) => {
+      const res = await real(keys.filter(k => k !== blockedKey));
+      return { ...res, blocked: keys.filter(k => k === blockedKey) };
+    };
+    window.__blockedKey = blockedKey;
+  });
+  await page.click('.project-delete-btn');
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 5000 });
+  assert(/^1 sheet wasn't deleted because it's on an invoice\. Ask Travis or Eva\.$/.test(await page.textContent('#notice-modal-text')), 'delete job, one blocked: the "on an invoice — ask Travis or Eva" notice');
+  assert(await page.evaluate(() => sheets.length === 1 && sheets[0].fileKey === window.__blockedKey), 'delete job, one blocked: only the blocked sheet is left on the board');
+  assert(await page.isVisible('#projects-screen'), 'delete job, one blocked: stays on Projects with the blocked sheet showing');
+  await page.click('#notice-ok');
+  // A failed delete names the sheet and says to retry; the sheet stays
+  await page.evaluate(() => { Storage.deleteSheets = async (keys) => ({ deleted: [], blocked: [], failed: keys.map(k => ({ fileKey: k, message: 'offline' })) }); });
+  await page.click('.project-delete-btn');
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 5000 });
+  const failText = await page.textContent('#notice-modal-text');
+  const failLabel = await page.evaluate(() => sheets[0].sheetTitle || sheets[0].fileName);
+  assert(failText.includes(`Couldn't delete "${failLabel}".`) && /Check your connection and try again\./.test(failText), 'delete failed: the notice names the sheet and says to try again');
+  assert(await page.evaluate(() => sheets.length === 1), 'delete failed: the sheet stays on the board');
+  await page.close();
+
+  // Owner job-details Cancel: removes only the sheets that drop saved, whole record; earlier sheets stay
+  page = await fresh();
+  await upload(page);
+  const keptKey = await page.evaluate(() => sheets[0].fileKey);
+  await page.evaluate(async () => { Features._setForTests(Features.defaults('t@x'), 't@x'); await OwnerStore.loadAll(); OwnerStore.onChange(rerenderCurrent); });
+  await page.setInputFiles('#file-input', join(dst, sample2));
+  await page.waitForSelector('#job-details-overlay:not(.hidden)', { timeout: 10000 });
+  const droppedKey = await page.evaluate((kept) => sheets.find(s => s.fileKey !== kept).fileKey, keptKey);
+  await page.evaluate(async (k) => { await Storage.setSheetNote(k, 'leftover?'); }, droppedKey);
+  await page.click('#job-details-cancel');
+  await page.waitForFunction(() => sheets.length === 1);
+  const afterCancel = await page.evaluate((k) => ({ left: sheets.map(s => s.fileKey), note: Storage.getSheetNote(k) }), droppedKey);
+  assert(afterCancel.left.length === 1 && afterCancel.left[0] === keptKey, 'cancel: only the sheet this drop saved was removed');
+  assert(afterCancel.note === null, 'cancel: nothing is left behind for the cancelled sheet');
+  await page.close();
+
   // ── Settings screen ──
   page = await fresh();
   await upload(page);

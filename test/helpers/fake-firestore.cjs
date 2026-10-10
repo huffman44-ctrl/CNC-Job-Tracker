@@ -7,7 +7,7 @@
  * fn re-runs (max 5 attempts, then { code: 'aborted' }).
  * Hooks: db._hooks.beforeCommit (async, runs ONCE, between fn and commit — land a "concurrent"
  * write there), db._hooks.failWrites(col, id) -> true makes that write reject with
- * { code: 'permission-denied' }. db._data = { col: { id: { data } } }; db._seed(col, id, doc).
+ * { code: 'permission-denied' }; returning an Error rejects with that Error instead. db._data = { col: { id: { data } } }; db._seed(col, id, doc).
  * { merge: true } is shallow.
  */
 function makeDb() {
@@ -21,7 +21,12 @@ function makeDb() {
   function entry(col, id) { return data[col] && data[col][id]; }
   function version(col, id) { return versions[col + '/' + id] || 0; }
   function bump(col, id) { versions[col + '/' + id] = version(col, id) + 1; }
-  function checkWrite(col, id) { if (hooks.failWrites && hooks.failWrites(col, id)) throw err('permission-denied', 'permission-denied'); }
+  function checkWrite(col, id) {
+    const f = hooks.failWrites && hooks.failWrites(col, id);
+    if (!f) return;
+    if (f instanceof Error) throw f;
+    throw err('permission-denied', 'permission-denied');
+  }
   function put(col, id, doc) {
     data[col] = data[col] || {};
     data[col][id] = { data: copy(doc) };

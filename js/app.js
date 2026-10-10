@@ -328,12 +328,10 @@ async function finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, u
   }
 }
 
-// Job-details Cancel: remove ONLY the sheets this drop saved for the job (they are unfinished and
-// unbilled, so the rules allow it). Pre-existing sheets/completions of the job are never touched.
+// Job-details Cancel: remove ONLY the sheets this drop saved for the job, whole record each (they
+// are unfinished and unbilled, so the rules allow it). Pre-existing sheets of the job are never touched.
 async function cancelDroppedJob(jobName, fileKeys) {
-  await Promise.all(fileKeys.map(k => Storage.deleteSheet(k)));
-  const gone = new Set(fileKeys);
-  sheets = sheets.filter(s => !gone.has(s.fileKey));
+  await deleteSheetsAndReport(fileKeys);
   if (!sheets.length) showBoardOrUpload();
   else if (!projectsScreen.hidden) renderProjects();
   else if (!contentScreen.hidden) renderAllSheets();
@@ -700,15 +698,32 @@ function renderProjects() {
   }
 }
 
+// The one delete action behind the trash icon, Delete Sheet and job-details Cancel (spec
+// .scratch/complete-sheet-delete). Waits for Storage.deleteSheets, takes ONLY the sheets it reports
+// deleted off the board, and shows one notice for any it couldn't delete. Callers navigate.
+async function deleteSheetsAndReport(fileKeys) {
+  // Labels first: the live sheets listener may redraw `sheets` while the deletes are in flight.
+  const labels = new Map(sheets.filter(s => fileKeys.includes(s.fileKey)).map(s => [s.fileKey, s.sheetTitle || s.fileName]));
+  const result = await Storage.deleteSheets(fileKeys);
+  const gone = new Set(result.deleted);
+  sheets = sheets.filter(s => !gone.has(s.fileKey));
+  const notices = [];
+  const nBlocked = result.blocked.length;
+  if (nBlocked) {
+    notices.push(nBlocked === 1
+      ? "1 sheet wasn't deleted because it's on an invoice. Ask Travis or Eva."
+      : `${nBlocked} sheets weren't deleted because they're on an invoice. Ask Travis or Eva.`);
+  }
+  if (result.failed.length) {
+    const names = result.failed.map(f => `"${labels.get(f.fileKey) || f.fileKey}"`).join(', ');
+    notices.push(`Couldn't delete ${names}. Check your connection and try again.`);
+  }
+  if (notices.length) showNotice(notices.join('\n\n'));
+  return gone;
+}
+
 async function deleteProject(jobName) {
-  const projectSheets = sheets.filter(s => projectKey(s) === jobName);
-  await Promise.all(projectSheets.flatMap(s => [
-    Storage.deleteSheet(s.fileKey),
-    Storage.clear(s.fileKey, 'sheet'),
-    Storage.setSheetNote(s.fileKey, ''),
-    Storage.setAnnotations(s.fileKey, []),
-  ]));
-  sheets = sheets.filter(s => projectKey(s) !== jobName);
+  await deleteSheetsAndReport(sheets.filter(s => projectKey(s) === jobName).map(s => s.fileKey));
   if (!sheets.length) {
     showBoardOrUpload();
   } else {
@@ -720,14 +735,7 @@ async function deleteSheetFromProject(sheet) {
   const label = sheet.sheetTitle || sheet.fileName;
   if (!confirm(`Delete "${label}"? This removes its completion record and note for everyone.`)) return;
 
-  await Promise.all([
-    Storage.deleteSheet(sheet.fileKey),
-    Storage.clear(sheet.fileKey, 'sheet'),
-    Storage.setSheetNote(sheet.fileKey, ''),
-    Storage.setAnnotations(sheet.fileKey, []),
-  ]);
-
-  sheets = sheets.filter(s => s.fileKey !== sheet.fileKey);
+  const gone = await deleteSheetsAndReport([sheet.fileKey]);
 
   const remaining = currentProject ? sheets.filter(s => projectKey(s) === currentProject) : sheets;
   if (!remaining.length) {
@@ -735,7 +743,7 @@ async function deleteSheetFromProject(sheet) {
     return;
   }
 
-  if (selectedSheetKey === sheet.fileKey) selectedSheetKey = null;
+  if (gone.has(selectedSheetKey)) selectedSheetKey = null;
   renderAllSheets();
 }
 
