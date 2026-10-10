@@ -1576,9 +1576,6 @@ function updateOverallProgress(displaySheets) {
   progressLabel.textContent = `${done} of ${total} sheet${total !== 1 ? 's' : ''} complete (${pct}%)`;
 }
 
-// One rule for "has a V-bit" — the log column, the CSV and the repeat detection all read Pricing.
-function sheetHasVbit(sheet) { return Pricing.sheetHasVbit(sheet); }
-
 /* ══════════════════════════════════════════
    Export / Reset
 ══════════════════════════════════════════ */
@@ -1637,35 +1634,14 @@ function hasDatabase() {
 
 async function exportJob(jobName, jobSheets, customerName) {
   if (!jobSheets.length) { alert('No sheets loaded to export.'); return; }
-  const dataRows = jobSheets.map(sheet => {
-    const rec = Storage.get(sheet.fileKey, 'sheet');
-    return [
-      sheet.sheetTitle || sheet.fileName,
-      sheet.jobName    || '',
-      sheet.totalTime  || '',
-      sheet.toolpaths ? sheet.toolpaths.length : '',
-      sheetHasVbit(sheet) ? 'Y' : 'N',
-      rec?.completedAt ? formatDT(new Date(rec.completedAt)) : '',
-      rec?.operator || '',
-      rec?.notes    || '',
-    ];
-  });
+  const completionOf = fileKey => Storage.get(fileKey, 'sheet');
 
-  // CSV download: 9 columns now (Customer appended — Estimating App import contract).
-  const rows = [
-    ['Sheet', 'Job', 'Total Time', 'Toolpath Count', 'Has V-bit', 'Completed At', 'Operator', 'Notes', 'Customer'],
-    ...dataRows.map(r => [...r, customerName || '']),
-  ];
-  const escape = c => String(c).replace(/"/g, '""').replace(/[\r\n]+/g, ' ');
-  const out  = rows.map(r => r.map(c => `"${escape(c)}"`).join(',')).join('\r\n');
-  const blob = new Blob([out], { type: 'text/csv' });
+  const file = ExportFinish.csvFile(jobSheets, completionOf, customerName);
+  const blob = new Blob([file.text], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
-  const baseName = (jobSheets[0]?.fileName || 'cnc-job')
-    .replace(/\.html?$/i, '')
-    .replace(/_summary.*/i, '');
   const a = document.createElement('a');
   a.href = url;
-  a.download = `CNC Job Exports/${sanitizeForPath(customerName)}/${baseName}.csv`;
+  a.download = file.name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
 
@@ -1677,47 +1653,18 @@ async function exportJob(jobName, jobSheets, customerName) {
   Storage.saveTicketRecord(meta);
 
   // Master Job Log: ONE object per sheet, upserted by Sheet Key - exporting the same job twice
-  // updates the same rows and can never append a second copy (spec 6.2 / 7.3).
-  let logged = false;
-  let failReason = ' (endpoint unreachable)';
-  try {
-    let idToken = null;
-    if (Endpoint.enabled()) {
-      try { idToken = await Auth.getIdToken(); }
-      catch (tokenErr) { tokenErr.signInProblem = true; throw tokenErr; }
-    }
-    const rows = jobSheets.map(sheet => LogRows.build(sheet, Storage.get(sheet.fileKey, 'sheet'), customerName));
-    const result = await Endpoint.upsertLogRows(rows, idToken);
-    logged = !!(result && result.ok);
-    // An offline result (endpoint not configured) only counts as logged in no-database (PASTE)
-    // test mode; in a real-database session nothing was written, so keep the job.
-    if (logged && result.offline && hasDatabase()) {
-      logged = false;
-      failReason = ": the Master Job Log connection isn't set up on this computer";
-    }
-  } catch (err) {
-    console.warn('Master Job Log upsert failed:', err);
-    if (err && err.signInProblem) failReason = ': could not confirm your sign-in - sign out and back in';
-    else if (err && err.endpointError) failReason = `: ${err.message}`;
-  }
-
-  if (!logged) {
-    alert(`Master Job Log was NOT updated${failReason}. The CSV still downloaded. The job was kept so you can export it again later.`);
-    return;
-  }
-
-  // Finish, don't delete: sheets stay in Firestore with finished:true and leave the board.
-  // Job doc first, sheets second: if the sheets write fails the job really is still on the
-  // board, so "stays on the board" is true; a retry re-runs both.
-  try {
-    const by = currentUserEmail();
-    if (jobName) await Storage.finishJob(noteKey(jobName), jobName, by);
-    await Storage.finishSheets(jobSheets, by);
-  } catch (err) {
-    console.warn('Finish after export failed:', err);
-    alert(`The Master Job Log was updated, but the job could not be marked finished (${err.message}). It stays on the board - export it again once the connection is back; the log rows will not be duplicated.`);
-    return;
-  }
+  // updates the same rows and can never append a second copy (spec 6.2 / 7.3). The job is
+  // finished only if that write worked; ExportFinish holds the rules and the messages.
+  const outcome = await ExportFinish.logAndFinish({ jobName, jobSheets, customerName, by: currentUserEmail() }, {
+    logEnabled:    () => Endpoint.enabled(),
+    getIdToken:    () => Auth.getIdToken(),
+    upsertLogRows: (rows, token) => Endpoint.upsertLogRows(rows, token),
+    completionOf,
+    hasDatabase,
+    finishJob:     (name, by) => Storage.finishJob(noteKey(name), name, by),
+    finishSheets:  (list, by) => Storage.finishSheets(list, by),
+  });
+  if (!outcome.finished) { alert(outcome.message); return; }
 
   const finishedKeys = new Set(jobSheets.map(s => s.fileKey));
   sheets = sheets.filter(s => !finishedKeys.has(s.fileKey));
