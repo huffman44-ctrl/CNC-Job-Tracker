@@ -1,5 +1,5 @@
 /**
- * Thin client for the Apps Script endpoint (apps-script/logging-endpoint.gs): archive on upload, append (legacy) / upsert (Phase 1) log rows on export, order lookup, packing PDFs, print-queue documents.
+ * Thin client for the Apps Script endpoint (apps-script/logging-endpoint.gs): archive on upload, append (legacy) / upsert (Phase 1) log rows on export, order lookup, packing PDFs, print-queue documents, and logWriteOutcome — the one rule for whether a Master Job Log write worked.
  * Content-Type must stay text/plain — anything else triggers a CORS
  * preflight that Apps Script web apps cannot answer.
  */
@@ -57,11 +57,16 @@ const Endpoint = (() => {
   // The ONE rule for "did a Master Job Log write work?" — Export and Billing both read it
   // (spec .scratch/shared-log-write-rule/spec.md). Judges a reply that came back; thrown errors
   // stay with the callers. Written only on a clear ok. An offline reply (endpoint not configured)
-  // counts as written only with no database (PASTE test mode).
+  // counts as written only with a clear ok and no database (PASTE test mode); any other offline
+  // reply carries the not-set-up reason. Callers wrap `reason` in their own sentence.
   const LOG_OFFLINE_REASON = "Master Job Log connection isn't set up on this computer";
   function logWriteOutcome(reply, hasDatabase) {
+    if (reply && reply.offline) {
+      return (reply.ok && !hasDatabase)
+        ? { written: true, offline: false, reason: null }
+        : { written: false, offline: true, reason: LOG_OFFLINE_REASON };
+    }
     if (!(reply && reply.ok)) return { written: false, offline: false, reason: (reply && (reply.error || reply.message)) || null };
-    if (reply.offline && hasDatabase) return { written: false, offline: true, reason: LOG_OFFLINE_REASON };
     return { written: true, offline: false, reason: null };
   }
 

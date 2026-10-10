@@ -82,3 +82,7 @@ Nothing changes for Collin, Travis or Eva in any case that can happen today. Eve
 - The case this fixes can't happen today, so the change protects future edits rather than fixing a live problem. The estimated build is 20–30 minutes plus review.
 - It depends on the unpushed `export-finish` branch. Ship both together, or this one right after, so the shop computer needs one Ctrl+Shift+R.
 - A push to `master` is a live deploy to the shop floor. Ask Travis before pushing.
+
+## Comments
+
+- 2026-10-10 — Implemented on branch `shared-log-rule` (stacked on `export-finish`), not pushed. Review fix: the rule checks "offline" before "ok", so every offline reply that is not a clear PASTE-mode success keeps the not-set-up reason (Billing word-for-word as before). Side effect, accepted: Export now shows the not-set-up message, instead of "endpoint unreachable", for an offline reply that lacks a clear ok. That reply shape cannot occur with today's Job Log client.

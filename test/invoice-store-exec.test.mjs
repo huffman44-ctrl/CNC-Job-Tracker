@@ -150,6 +150,31 @@ test('a log reply with no success flag is not logged: invoice stays retryable wi
   assert.equal(inv.status, 'imported');
   assert.equal(inv.logWritten, false);
   assert.equal(inv.logError, 'The Master Job Log did not accept the rows');
+  upsertImpl = async () => ({ ok: true });
+  const again = await InvoiceStore.writeBack(3598, BY);
+  assert.equal(again.logWritten, true); assert.equal(again.logError, null);
+});
+
+test('a log reply that says it failed keeps the server text as the error', async () => {
+  setup();
+  await InvoiceStore.lockAndCreate(draft(), BY);
+  upsertImpl = async () => ({ ok: false, error: 'row 2 has no key' });
+  const inv = await InvoiceStore.markImported(3598, BY);
+  assert.equal(inv.logWritten, false);
+  assert.equal(inv.logError, 'row 2 has no key');
+});
+
+test('any offline reply that is not a clear PASTE-mode success keeps the not-set-up reason', async () => {
+  setup();
+  await InvoiceStore.lockAndCreate(draft(), BY);
+  upsertImpl = async () => ({ ok: false, offline: true });
+  const inv = await InvoiceStore.markImported(3598, BY);
+  assert.equal(inv.logWritten, false);
+  assert.equal(inv.logError, "Master Job Log connection isn't set up on this computer");
+  upsertImpl = async () => ({ offline: true });
+  const again = await InvoiceStore.writeBack(3598, BY);
+  assert.equal(again.logWritten, false);
+  assert.equal(again.logError, "Master Job Log connection isn't set up on this computer");
 });
 
 test('labor-only invoice: logWritten true with no call', async () => {

@@ -41,7 +41,8 @@ const ExportFinish = (() => {
   }
 
   // deps: logEnabled(), getIdToken(), upsertLogRows(rows, token), completionOf(fileKey),
-  //       hasDatabase(), finishJob(jobName, by), finishSheets(sheets, by)
+  //       hasDatabase(), finishJob(jobName, by), finishSheets(sheets, by). The reply is judged by
+  //       Endpoint.logWriteOutcome (module dependency, not injected: it is pure, Billing shares it).
   async function logAndFinish({ jobName, jobSheets, customerName, by }, deps) {
     let logged = false;
     let failReason = ' (endpoint unreachable)';
