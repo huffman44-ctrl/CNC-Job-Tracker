@@ -189,11 +189,17 @@ modalOperator.addEventListener('change', () => {
   if (isOther) setTimeout(() => modalOperatorOther.focus(), 50);
 });
 
-// fileKeys being checked/saved right now. Claimed synchronously next to the in-memory check so a
-// re-drop (or the same name twice in one FileList) can't slip past the await on getSheetDoc.
-const uploadsInFlight = new Set();
+// FileReader as a promise: a read error rejects, so one unreadable file can't stall the drop.
+function readText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('read failed'));
+    reader.readAsText(file);
+  });
+}
 
-function handleFiles(fileList, isFirstLoad) {
+async function handleFiles(fileList, isFirstLoad) {
   const htmlFiles = Array.from(fileList).filter(f => f.name.match(/\.(html?|htm)$/i));
   if (!htmlFiles.length) {
     showUploadError('Please select HTML files (.html or .htm).');
@@ -218,97 +224,34 @@ function handleFiles(fileList, isFirstLoad) {
     }
   }
 
-  let loadedCount = 0;
-  const alreadyLoaded  = [];   // on the board already (in-memory match) — unchanged behaviour
-  const finishedBefore = [];   // { name, doc } — finished sheets live in Firestore, not in `sheets`
-  const unchecked      = [];   // file names whose Firestore read failed — blocked, not saved
-  const savedByJob     = new Map();   // jobName -> [fileKey] saved by THIS drop (Cancel removes only these)
-
-  for (const file of htmlFiles) {
-    const reader = new FileReader();
-    reader.onload = async e => {
-      let claimedKey = null;
-      try {
-        const parsed = parseJobSheet(e.target.result);
-        const key    = Keys.sheet(file.name);
-        if (sheets.find(s => s.fileKey === key) || uploadsInFlight.has(key)) {
-          // A sheet with this exact filename is already loaded. Record it so we can tell the
-          // operator, instead of silently doing nothing (which reads as "the import is broken").
-          alreadyLoaded.push(file.name);
-        } else {
-          uploadsInFlight.add(key);
-          claimedKey = key;
-          // Re-upload guard (spec §5.2): finished sheets are not in the array any more, so ask
-          // Firestore before saving — re-dropping one must never overwrite it. A FAILED read is
-          // not "not found": block this file and say so (the rest of the drop still loads).
-          let existing = null, checked = true;
-          try { existing = await Storage.getSheetDoc(key); }
-          catch (err) { checked = false; console.warn('getSheetDoc failed:', err); }
-          if (!checked) {
-            unchecked.push(file.name);
-          } else if (existing && existing.finished === true) {
-            finishedBefore.push({ name: file.name, doc: existing });
-          } else {
-            const sheet = { fileKey: key, fileName: file.name, ...parsed };
-            sheets.push(sheet);
-
-            const result = await Storage.saveSheet(sheet);
-            if (!result.ok) {
-              // The sheets listener will drop this sheet from the screen on the
-              // next snapshot — say why, so it isn't a silent disappearance.
-              const idx = sheets.findIndex(s => s.fileKey === key);
-              if (idx !== -1) sheets.splice(idx, 1);
-              showSaveBanner(`Couldn't save "${file.name}" — ${result.error?.message || 'unknown error'}. The file was still archived to Drive.`);
-            } else {
-              const jn = Keys.jobOf(sheet);
-              if (!savedByJob.has(jn)) savedByJob.set(jn, []);
-              savedByJob.get(jn).push(key);
-              if (result.mode === 'oversize') {
-                showSaveBanner(`"${file.name}" was saved, but its layout drawing is too large to store. Everything else tracks normally — use the archive link to view the drawing.`);
-              }
-            }
-
-            // Archive after the save resolves, so setArchiveUrl's update() has a
-            // document to attach to.
-            Endpoint.archiveSheet(file.name, sheet.jobName || '', e.target.result)
-              .then(url => { if (url) Storage.setArchiveUrl(key, url); })
-              .catch(err => console.warn('Archive upload failed:', err));
-          }
-        }
-      } catch (err) {
-        console.warn('Upload of', file.name, 'failed:', err);
-        unchecked.push(file.name);
-      } finally {
-        if (claimedKey) uploadsInFlight.delete(claimedKey);
-        loadedCount++;
-        if (loadedCount === htmlFiles.length) {
-          try { await finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, unchecked, savedByJob }); }
-          catch (err) { console.warn('finishUploadBatch failed:', err); }
-        }
-      }
-    };
-    reader.readAsText(file);
+  // What happens to each file (the re-upload guard included) is decided in UploadBatch
+  // (spec .scratch/upload-guard); this function does the screen work around it.
+  const result = await UploadBatch.run(htmlFiles.map(f => ({ name: f.name, read: () => readText(f) })), {
+    parse: parseJobSheet,
+    onBoard: k => sheets.some(s => s.fileKey === k),
+    addToBoard: s => { sheets.push(s); },
+    removeFromBoard: k => { sheets = sheets.filter(s => s.fileKey !== k); },
+    getSheetDoc: k => Storage.getSheetDoc(k),
+    saveSheet: s => Storage.saveSheet(s),
+    archive: (name, jobName, text) => Endpoint.archiveSheet(name, jobName, text),
+    setArchiveUrl: (k, url) => Storage.setArchiveUrl(k, url),
+  });
+  // The sheets listener drops a sheet that failed to save on its next snapshot — say why.
+  for (const f of result.saveFailed) showSaveBanner(`Couldn't save "${f.name}" — ${f.message}. The file was still archived to Drive.`);
+  for (const s of result.saved) {
+    if (s.mode === 'oversize') showSaveBanner(`"${s.sheet.fileName}" was saved, but its layout drawing is too large to store. Everything else tracks normally — use the archive link to view the drawing.`);
   }
+  try { await finishUploadBatch(isFirstLoad, result); }
+  catch (err) { console.warn('finishUploadBatch failed:', err); }
 }
 
-async function finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, unchecked, savedByJob }) {
+async function finishUploadBatch(isFirstLoad, result) {
   if (sheets.length) {
     if (isFirstLoad) showProjectsScreen(); else renderAllSheets();
   }
-  const notices = [];
-  if (alreadyLoaded.length) {
-    notices.push(alreadyLoaded.length === 1
-      ? `"${alreadyLoaded[0]}" is already loaded — it's on the board, so nothing was changed.`
-      : `${alreadyLoaded.length} sheets were already loaded, so they were left unchanged.`);
-  }
-  for (const { name, doc } of finishedBefore) {
-    const when = doc.finishedAt ? formatDT(new Date(doc.finishedAt)) : 'an earlier export';
-    notices.push(`"${name}" was already cut and finished on ${when} (job ${doc.jobName || 'unknown'}). If this is a new cut, save it from Aspire under a new file name.`);
-  }
-  for (const name of unchecked) {
-    notices.push(`Couldn't check whether "${name}" was already cut — check your connection and drop it again.`);
-  }
-  if (notices.length) showNotice(notices.join('\n\n'));
+  const notice = UploadBatch.notice(result, formatDT);
+  if (notice) showNotice(notice);
+  const savedByJob = result.savedByJob;
 
   // Every new job gets its jobs/ doc (createdAt/createdBy only if missing) whatever the owner
   // switches say — operator-writable, spec §5.3.

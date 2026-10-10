@@ -23,6 +23,8 @@ cpSync(join(ROOT, sample), join(dst, sample));
 // A second sheet under another name (parses as Sheet 10 → different fileKey) for the mixed-drop case.
 const sample2 = sample.replace(/Sheet 9\.html$/, 'Sheet 10.html');
 cpSync(join(ROOT, sample), join(dst, sample2));
+// An HTML file that is not an Aspire setup sheet (a saved web page) for the not-a-sheet case.
+writeFileSync(join(dst, 'saved-web-page.html'), '<!doctype html><html><head><title>Recipe</title></head><body><h1>Banana bread</h1></body></html>\n');
 // PASTE mode: BOTH configs are overwritten in the COPY, fully written before the server listens.
 writeFileSync(join(dst, 'js/firebase-config.js'), "const FIREBASE_CONFIG = { apiKey: 'x', authDomain: 'x', projectId: 'PASTE_DISABLED', appId: 'x' };\n");
 writeFileSync(join(dst, 'js/endpoint-config.js'), "const ENDPOINT_CONFIG = { url: 'PASTE_URL', token: 'x' };\n");
@@ -160,6 +162,28 @@ async function main() {
   await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 10000 });
   assert(/already cut and finished on .* \(job Old Job\)/.test(await page.textContent('#notice-modal-text')), 'guard: blocking notice names the date and job');
   assert(await page.evaluate(() => sheets.length === 0), 'guard: nothing was saved or shown');
+  await page.close();
+
+  // Guard: on the board in the database but not on this computer's board yet → already loaded, never overwritten
+  page = await fresh();
+  await page.evaluate(() => {
+    window.__saves = 0;
+    Storage.getSheetDoc = async () => ({ finished: false, jobName: 'Other Device Job' });
+    const realSave = Storage.saveSheet;
+    Storage.saveSheet = async (sh) => { window.__saves++; return realSave(sh); };
+  });
+  await page.setInputFiles('#file-input', join(dst, sample));
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 10000 });
+  assert(/is already loaded — it's on the board, so nothing was changed\./.test(await page.textContent('#notice-modal-text')), 'guard: a sheet already in the database (not on this board) gets the "already loaded" notice');
+  assert(await page.evaluate(() => window.__saves === 0 && sheets.length === 0), 'guard: that sheet is never saved over');
+  await page.close();
+
+  // A file that isn't an Aspire setup sheet is refused; a real sheet in the same drop still loads
+  page = await fresh();
+  await page.setInputFiles('#file-input', [join(dst, 'saved-web-page.html'), join(dst, sample)]);
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 10000 });
+  assert(/"saved-web-page\.html" isn't an Aspire setup sheet, so it wasn't added\./.test(await page.textContent('#notice-modal-text')), 'not a sheet: refused with the plain notice');
+  assert(await page.evaluate(() => sheets.length === 1 && !sheets.some(s => s.fileName === 'saved-web-page.html')), 'not a sheet: only the real sheet is on the board');
   await page.close();
 
   // Guard: a failed lookup blocks the file
