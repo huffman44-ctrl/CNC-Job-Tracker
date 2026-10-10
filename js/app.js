@@ -2487,7 +2487,7 @@ function rerenderCurrent() {
 // Billing opens a job on the same job card Collin uses: the active board when the job is on it,
 // otherwise the owner's finished view (list handed over by Billing). Back returns to Billing.
 function openJobFromBilling(jobName, finishedList) {
-  if (sheets.some(s => (s.jobName || s.fileName) === jobName)) {
+  if (sheets.some(s => Keys.jobOf(s) === jobName)) {
     currentProject = jobName; viewingFinished = false;
   } else {
     finishedSheets = finishedList || []; viewingFinished = true; currentProject = jobName;

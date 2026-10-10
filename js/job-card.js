@@ -4,7 +4,7 @@
  * and the sidebar row's status/tags. No Done step: hours go on the next bill as entered.
  * Collin's sheet workspace is untouched: app.js calls nothing here unless
  * Features.on('jobCard'). Plain words, no status key, never a price (spec §5.1).
- * Globals used at runtime: escHtml, formatDT (app.js), OwnerStore, Storage, Pricing.
+ * Globals used at runtime: escHtml, formatDT (app.js), OwnerStore, Storage, Pricing, Keys.
  */
 const JobCard = (() => {
   const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');

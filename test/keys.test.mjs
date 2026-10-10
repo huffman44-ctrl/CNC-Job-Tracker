@@ -13,6 +13,13 @@ test('job IDs are locked (no trimming, ever)', () => {
   assert.equal(Keys.job('Copperline Stage Set'), 'proj_m1ww4z');
   assert.equal(Keys.job(' Harbor Lane '), 'proj_gn2egw');
   assert.equal(Keys.job(''), 'proj_0');
+  assert.notEqual(Keys.job(' Harbor Lane '), Keys.job('Harbor Lane'), 'the job name is never trimmed');
+});
+
+test('empty names are locked too', () => {
+  assert.equal(Keys.customer(''), 'cust_0');
+  assert.equal(Keys.customer('   '), 'cust_0');
+  assert.equal(Keys.sheet(''), '0');
 });
 
 test('customer IDs are locked (the name is trimmed first)', () => {

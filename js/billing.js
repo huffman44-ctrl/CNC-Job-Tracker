@@ -8,7 +8,7 @@
  * DISPLAY ONLY. No money math lives here: every figure comes from Pricing.priceInvoice() (the
  * Bill total) or BillingModel (rows). fmtMoney() only formats a number that is already computed.
  * Globals used at runtime: escHtml (app.js), Storage, OwnerStore, InvoiceStore, InvoiceLines,
- * Pricing, BillingModel; BillingDone / InvoiceScreen are optional (later tasks).
+ * Pricing, BillingModel, Keys; BillingDone / InvoiceScreen are optional (later tasks).
  */
 const BillingScreen = (() => {
   const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');

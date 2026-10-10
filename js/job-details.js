@@ -4,7 +4,7 @@
  * projectCustomer/, jobs/ and jobBilling/. The same form reopens from the job card as "Edit job
  * details". Collin never sees it: app.js opens it only when Features.on('jobDetails').
  * Pure helpers (thickness, size) have no DOM so node --test can load this file; init() wires it.
- * Uses app.js globals at runtime only: escHtml.
+ * Uses app.js globals at runtime only: escHtml. Also Keys (js/keys.js).
  */
 const JobDetails = (() => {
   const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');
