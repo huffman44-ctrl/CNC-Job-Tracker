@@ -1,7 +1,9 @@
 /**
- * js/export-finish.js — what Export does after the ticket prints: write the Master Job Log, and
- * only if that worked, finish the job (job doc first, then its sheets). Returns the outcome and
- * the exact text the operator sees; never shows it itself. Spec 2026-10-10 (docs/specs).
+ * js/export-finish.js — Export's two jobs that are not screen work: csvFile() builds the
+ * 9-column CSV and its download name; logAndFinish() writes the Master Job Log and, only if that
+ * worked, finishes the job (job doc first, then its sheets). Returns the outcome and the exact
+ * text the operator sees; never shows it itself.
+ * Spec: docs/specs/2026-10-10-print-ticket-and-export-finish.md
  */
 const ExportFinish = (() => {
   const LR = typeof LogRows !== 'undefined' ? LogRows : require('./log-rows.js');
