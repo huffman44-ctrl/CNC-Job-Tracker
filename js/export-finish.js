@@ -9,6 +9,7 @@ const ExportFinish = (() => {
   const LR = typeof LogRows !== 'undefined' ? LogRows : require('./log-rows.js');
   const P  = typeof Pricing !== 'undefined' ? Pricing : require('./pricing.js');
   const PU = typeof PathUtils !== 'undefined' ? PathUtils : require('./path-utils.js');
+  const EP = typeof Endpoint !== 'undefined' ? Endpoint : require('./endpoint.js');
 
   // The CSV download: 9 columns (Customer appended — Estimating App import contract).
   function csvFile(jobSheets, completionOf, customerName) {
@@ -52,13 +53,10 @@ const ExportFinish = (() => {
       }
       const rows = jobSheets.map(sheet => LR.build(sheet, deps.completionOf(sheet.fileKey), customerName));
       const result = await deps.upsertLogRows(rows, idToken);
-      logged = !!(result && result.ok);
-      // An offline result (endpoint not configured) only counts as logged in no-database (PASTE)
-      // test mode; in a real-database session nothing was written, so keep the job.
-      if (logged && result.offline && deps.hasDatabase()) {
-        logged = false;
-        failReason = ": the Master Job Log connection isn't set up on this computer";
-      }
+      // The shared rule (Endpoint.logWriteOutcome) — Billing reads the same one.
+      const outcome = EP.logWriteOutcome(result, deps.hasDatabase());
+      logged = outcome.written;
+      if (outcome.offline) failReason = `: the ${outcome.reason}`;
     } catch (err) {
       console.warn('Master Job Log upsert failed:', err);
       if (err && err.signInProblem) failReason = ': could not confirm your sign-in - sign out and back in';

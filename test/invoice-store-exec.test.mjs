@@ -142,6 +142,16 @@ test('offline result with a database is a failure with the exact reason; without
   assert.equal((await InvoiceStore.writeBack(3598, BY)).logWritten, true);
 });
 
+test('a log reply with no success flag is not logged: invoice stays retryable with the did-not-accept error', async () => {
+  setup();
+  await InvoiceStore.lockAndCreate(draft(), BY);
+  upsertImpl = async () => ({});
+  const inv = await InvoiceStore.markImported(3598, BY);
+  assert.equal(inv.status, 'imported');
+  assert.equal(inv.logWritten, false);
+  assert.equal(inv.logError, 'The Master Job Log did not accept the rows');
+});
+
 test('labor-only invoice: logWritten true with no call', async () => {
   setup();
   const d = draft({ sheetKeys: [], perSheet: {}, fingerprint: { sheets: {}, jobs: { proj_a: draft().fingerprint.jobs.proj_a } } });

@@ -241,7 +241,7 @@ const InvoiceStore = (() => {
 
   /* ══ Executors (Task 9): Firestore transactions around the planners above ══ */
   const OS = () => (typeof OwnerStore !== 'undefined' ? OwnerStore : require('./storage-owner.js'));
-  const OFFLINE_REASON = "Master Job Log connection isn't set up on this computer";
+  const EP = () => (typeof Endpoint !== 'undefined' ? Endpoint : require('./endpoint.js'));   // logWriteOutcome: the shared log rule
   let db = null;
   let deps = {};
   const cache = {};                 // number(string) -> invoice doc
@@ -421,9 +421,9 @@ const InvoiceStore = (() => {
       try {
         const token = await deps.getIdToken();
         const res = await deps.upsertLogRows(logRowsFor(cur), token);
-        if (res && res.ok !== false && (!res.offline || !hasDatabase())) patch = { logWritten: true, logError: null, logWrittenAt: nowMs() };
-        else if (res && res.offline) patch = { logWritten: false, logError: OFFLINE_REASON };
-        else patch = { logWritten: false, logError: String((res && (res.error || res.message)) || 'The Master Job Log did not accept the rows') };
+        const outcome = EP().logWriteOutcome(res, hasDatabase());
+        if (outcome.written) patch = { logWritten: true, logError: null, logWrittenAt: nowMs() };
+        else patch = { logWritten: false, logError: String(outcome.reason || 'The Master Job Log did not accept the rows') };
       } catch (e) {
         patch = { logWritten: false, logError: String((e && e.message) || e || 'Master Job Log update failed') };
       }

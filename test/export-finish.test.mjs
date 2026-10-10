@@ -83,6 +83,13 @@ test('log answers without ok -> job kept, reported as unreachable', async () => 
   assert.deepEqual(finishCalls(calls), []);
 });
 
+test('log reply with no success flag -> job kept, reported as unreachable', async () => {
+  const { deps, calls } = fakeDeps({ upsertLogRows: async () => ({}) });
+  const out = await ExportFinish.logAndFinish(job, deps);
+  assert.deepEqual(out, { finished: false, message: keptMessage(' (endpoint unreachable)') });
+  assert.deepEqual(finishCalls(calls), []);
+});
+
 const finishFailedMessage = why => `The Master Job Log was updated, but the job could not be marked finished (${why}). It stays on the board - export it again once the connection is back; the log rows will not be duplicated.`;
 
 test('job doc finish fails after the log write -> kept, sheets never touched', async () => {

@@ -54,6 +54,17 @@ const Endpoint = (() => {
     return post({ action: 'upsertRows', rows, idToken }, { timeoutMs: 60000 });
   }
 
+  // The ONE rule for "did a Master Job Log write work?" — Export and Billing both read it
+  // (spec .scratch/shared-log-write-rule/spec.md). Judges a reply that came back; thrown errors
+  // stay with the callers. Written only on a clear ok. An offline reply (endpoint not configured)
+  // counts as written only with no database (PASTE test mode).
+  const LOG_OFFLINE_REASON = "Master Job Log connection isn't set up on this computer";
+  function logWriteOutcome(reply, hasDatabase) {
+    if (!(reply && reply.ok)) return { written: false, offline: false, reason: (reply && (reply.error || reply.message)) || null };
+    if (reply.offline && hasDatabase) return { written: false, offline: true, reason: LOG_OFFLINE_REASON };
+    return { written: true, offline: false, reason: null };
+  }
+
   async function lookupOrder(orderNum, idToken) {
     if (!enabled()) return null;
     const data = await post({ action: 'lookupOrder', orderNum, idToken });
@@ -80,5 +91,7 @@ const Endpoint = (() => {
     return data.pdfBase64;
   }
 
-  return { enabled, archiveSheet, appendLogRows, upsertLogRows, lookupOrder, getPackingPdf, uploadDoc, getDoc, DOC_TIMEOUT_MS };
+  return { enabled, archiveSheet, appendLogRows, upsertLogRows, logWriteOutcome, lookupOrder, getPackingPdf, uploadDoc, getDoc, DOC_TIMEOUT_MS };
 })();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Endpoint;

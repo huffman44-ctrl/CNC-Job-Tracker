@@ -34,7 +34,7 @@ CNC_WebApp/
 ├── test/helpers/fake-firestore.cjs — in-memory compat-shaped fake Firestore for tests: optimistic transactions that retry on conflict, a beforeCommit hook to land a concurrent write, and a failWrites hook for permission-denied. Defines no tests
 ├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
 ├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
-├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, upserts Master Job Log rows on export (`upsertLogRows`, one row per sheet keyed by Sheet Key; `appendLogRows` kept for un-refreshed shop tabs); uploadDoc/getDoc for print-queue documents (120 s timeout)
+├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, upserts Master Job Log rows on export (`upsertLogRows`, one row per sheet keyed by Sheet Key; `appendLogRows` kept for un-refreshed shop tabs); uploadDoc/getDoc for print-queue documents (120 s timeout); `logWriteOutcome(reply, hasDatabase)` is the ONE rule for "did a Master Job Log write work?" — Export (ExportFinish) and Billing (InvoiceStore) both read it
 ├── js/app.js                    — all UI logic: dark mode, file upload, projects directory, master-detail sheet workspace, modals, CSV export, Firebase init
 ├── package.json                 — `npm run serve` → `npx serve .` (no build step needed)
 ├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root (not in samples/)
