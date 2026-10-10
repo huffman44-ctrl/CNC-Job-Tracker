@@ -82,7 +82,29 @@ async function main() {
   assert(await page.isHidden('#owner-panel'), 'Collin: no owner panel on the job card');
   assert((await page.$$('.jc-row-tags')).length === 0, 'Collin: sidebar rows carry no tags');
   const headerButtons = await page.$$eval('#content-screen .header-right button', bs => bs.map(b => b.id));
-  assert(JSON.stringify(headerButtons) === JSON.stringify(['dark-mode-btn', 'vanlab-print-btn', 'export-btn', 'reset-btn']), 'Collin: job header buttons exactly as today');
+  assert(JSON.stringify(headerButtons) === JSON.stringify(['dark-mode-btn', 'vanlab-print-btn', 'print-ticket-btn', 'export-btn', 'reset-btn']), 'Collin: job header buttons — Print Ticket sits just left of Export CSV');
+  // Print Ticket = print only: no CSV, no log write, no ticket-history record, job stays on the board
+  await page.evaluate(() => {
+    window.__calls = { print: 0, log: 0, ticket: 0 };
+    window.print = () => { window.__calls.print++; };
+    const up = Endpoint.upsertLogRows; Endpoint.upsertLogRows = (...a) => { window.__calls.log++; return up(...a); };
+    const st = Storage.saveTicketRecord; Storage.saveTicketRecord = (...a) => { window.__calls.ticket++; return st(...a); };
+  });
+  let printDownload = false;
+  const onDl = () => { printDownload = true; };
+  page.on('download', onDl);
+  const boardBefore = await page.evaluate(() => sheets.length);
+  await page.click('#print-ticket-btn');
+  await page.waitForTimeout(500);
+  page.off('download', onDl);
+  const calls = await page.evaluate(() => window.__calls);
+  assert(calls.print === 1, 'Print Ticket: window.print called once');
+  assert(!printDownload, 'Print Ticket: no CSV download');
+  assert(calls.log === 0, 'Print Ticket: no Master Job Log write');
+  assert(calls.ticket === 0, 'Print Ticket: no Ticket History record');
+  assert(await page.evaluate(() => sheets.length) === boardBefore && boardBefore > 0, 'Print Ticket: job stays on the board');
+  assert(await page.isVisible('#content-screen'), 'Print Ticket: still on the job screen');
+  assert(await page.evaluate(() => document.getElementById('job-ticket').hidden), 'Print Ticket: ticket element hidden again after printing');
   // Export = finish: picker opens, then no delete prompt
   dialogs = [];
   const dl = page.waitForEvent('download');

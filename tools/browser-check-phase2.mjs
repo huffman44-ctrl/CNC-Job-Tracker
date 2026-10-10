@@ -179,7 +179,7 @@ async function main() {
   assert(await page.isHidden('#owner-panel'), '1 Collin: no owner panel on the job card');
   assert((await page.$$('.jc-row-tags')).length === 0, '1 Collin: sidebar rows carry no tags');
   const headerButtons = await page.$$eval('#content-screen .header-right button', bs => bs.map(b => b.id));
-  assert(JSON.stringify(headerButtons) === JSON.stringify(['dark-mode-btn', 'vanlab-print-btn', 'export-btn', 'reset-btn']), '1 Collin: job header buttons exactly as today');
+  assert(JSON.stringify(headerButtons) === JSON.stringify(['dark-mode-btn', 'vanlab-print-btn', 'print-ticket-btn', 'export-btn', 'reset-btn']), '1 Collin: job header buttons Print Ticket just left of Export CSV');
   dialogs = [];
   const collinDl = page.waitForEvent('download');
   await page.click('#export-btn');

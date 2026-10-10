@@ -143,6 +143,7 @@ document.body.addEventListener('drop', e => {
 fileInput.addEventListener('change', e => { handleFiles(e.target.files, true);  fileInput.value = ''; });
 addFileInput.addEventListener('change', e => { handleFiles(e.target.files, false); addFileInput.value = ''; });
 
+document.getElementById('print-ticket-btn').addEventListener('click', () => printJobTicket(currentProject, getDisplaySheets()));
 document.getElementById('export-btn').addEventListener('click', doExport);
 document.getElementById('reset-btn').addEventListener('click', doResetAll);
 document.getElementById('modal-cancel').addEventListener('click', closeModal);
