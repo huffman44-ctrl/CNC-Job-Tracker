@@ -236,11 +236,12 @@ async function handleFiles(fileList, isFirstLoad) {
     archive: (name, jobName, text) => Endpoint.archiveSheet(name, jobName, text),
     setArchiveUrl: (k, url) => Storage.setArchiveUrl(k, url),
   });
-  // The sheets listener drops a sheet that failed to save on its next snapshot — say why.
-  for (const f of result.saveFailed) showSaveBanner(`Couldn't save "${f.name}" — ${f.message}. The file was still archived to Drive.`);
+  // One banner line, last message wins: oversize first so a save failure is never hidden behind it.
   for (const s of result.saved) {
     if (s.mode === 'oversize') showSaveBanner(`"${s.sheet.fileName}" was saved, but its layout drawing is too large to store. Everything else tracks normally — use the archive link to view the drawing.`);
   }
+  // The sheets listener drops a sheet that failed to save on its next snapshot — say why.
+  for (const f of result.saveFailed) showSaveBanner(`Couldn't save "${f.name}" — ${f.message}. The file was still archived to Drive.`);
   try { await finishUploadBatch(isFirstLoad, result); }
   catch (err) { console.warn('finishUploadBatch failed:', err); }
 }

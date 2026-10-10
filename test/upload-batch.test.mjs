@@ -98,6 +98,24 @@ test('in the database unfinished but not on this board yet: already loaded, neve
   assert.equal(UploadBatch.notice(res, String), '"NL Sheet 6.html" is already loaded — it\'s on the board, so nothing was changed.');
 });
 
+test('an old doc with no finished field is on no board: re-dropping it saves over it (repairs it, as before)', async () => {
+  const k = Keys.sheet('NL Sheet 12.html');
+  const w = world({ docs: { [k]: { fileKey: k, jobName: 'NL_Bridge_Wall_Panels' } } });
+  const res = await UploadBatch.run([file('NL Sheet 12.html')], w.deps);
+  assert.deepEqual(res.alreadyLoaded, []);
+  assert.deepEqual(w.saved, [k]);
+});
+
+test('an archive call that throws straight away never turns a saved sheet into "couldn\'t check"', async () => {
+  const w = world();
+  w.deps.archive = () => { throw new Error('boom'); };
+  const warn = console.warn; console.warn = () => {};
+  let res;
+  try { res = await UploadBatch.run([file('NL Sheet 13.html')], w.deps); await settle(); } finally { console.warn = warn; }
+  assert.equal(res.saved.length, 1);
+  assert.deepEqual(res.unchecked, []);
+});
+
 test('the database read fails: blocked as could-not-check, not saved', async () => {
   const w = world({ getSheetDoc: async () => { throw new Error('offline'); } });
   const warn = console.warn; console.warn = () => {};

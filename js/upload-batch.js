@@ -26,7 +26,7 @@ const UploadBatch = (() => {
   async function run(files, deps) {
     const res = { saved: [], alreadyLoaded: [], finishedBefore: [], unchecked: [], unreadable: [], notSheets: [], saveFailed: [], savedByJob: new Map() };
 
-    async function one(f) {
+    async function processFile(f) {
       let text;
       try { text = await f.read(); }
       catch (err) { console.warn('Reading', f.name, 'failed:', err); res.unreadable.push(f.name); return; }
@@ -46,23 +46,25 @@ const UploadBatch = (() => {
         try { existing = await deps.getSheetDoc(key); }
         catch (err) { console.warn('getSheetDoc failed:', err); res.unchecked.push(f.name); return; }
         if (existing && existing.finished === true) { res.finishedBefore.push({ name: f.name, doc: existing }); return; }
-        if (existing) { res.alreadyLoaded.push(f.name); return; }   // on the board, this computer hasn't caught up
+        // On the board, this computer hasn't caught up. A doc with no finished field is on no board
+        // (the board query reads finished == false), so it is saved over and repaired, as before.
+        if (existing && existing.finished === false) { res.alreadyLoaded.push(f.name); return; }
 
         const sheet = { fileKey: key, fileName: f.name, ...parsed };
         deps.addToBoard(sheet);
-        const result = await deps.saveSheet(sheet);
-        if (!result.ok) {
+        const saveResult = await deps.saveSheet(sheet);
+        if (!saveResult.ok) {
           deps.removeFromBoard(key);
-          res.saveFailed.push({ name: f.name, message: (result.error && result.error.message) || 'unknown error' });
+          res.saveFailed.push({ name: f.name, message: (saveResult.error && saveResult.error.message) || 'unknown error' });
         } else {
-          res.saved.push({ sheet, mode: result.mode });
+          res.saved.push({ sheet, mode: saveResult.mode });
           const jn = K.jobOf(sheet);
           if (!res.savedByJob.has(jn)) res.savedByJob.set(jn, []);
           res.savedByJob.get(jn).push(key);
         }
         // Archive after the save resolves (whatever it said), so setArchiveUrl's update() has a
         // document to attach to.
-        deps.archive(f.name, sheet.jobName || '', text)
+        Promise.resolve().then(() => deps.archive(f.name, sheet.jobName || '', text))
           .then(url => { if (url) deps.setArchiveUrl(key, url); })
           .catch(err => console.warn('Archive upload failed:', err));
       } catch (err) {
@@ -73,7 +75,7 @@ const UploadBatch = (() => {
       }
     }
 
-    await Promise.all(files.map(one));
+    await Promise.all(files.map(processFile));
     return res;
   }
 
