@@ -9,11 +9,11 @@
 const Storage = (() => {
   let db = null;
   const completionsCache = {}; // { [fileKey]: { completedAt, operator, notes } }
-  const notesCache = {};       // { [noteKey]: string }
+  const notesCache = {};       // { [jobKey]: string }
   const sheetNotesCache = {};  // { [fileKey]: string }
   const annotationsCache = {}; // { [fileKey]: Array<{type,x,y,w,h,color}> }
   const customersCache = {};        // { [key]: name }
-  const projectCustomerCache = {};  // { [noteKey]: name }
+  const projectCustomerCache = {};  // { [jobKey]: name }
   const printQueueCache = {};       // { [id]: Item } — see getPrintQueue for the Item shape
   let localPrintId = 0;             // ids when Firebase is off (PASTE config / tests)
 
@@ -72,23 +72,23 @@ const Storage = (() => {
 
   /* ── Project Notes ── */
 
-  function getNote(noteKey) {
-    return notesCache[noteKey] || null;
+  function getNote(jobKey) {
+    return notesCache[jobKey] || null;
   }
 
-  async function setNote(noteKey, text) {
+  async function setNote(jobKey, text) {
     const trimmed = (text || '').trim();
     if (trimmed) {
-      notesCache[noteKey] = trimmed;
+      notesCache[jobKey] = trimmed;
     } else {
-      delete notesCache[noteKey];
+      delete notesCache[jobKey];
     }
     if (!db) return;
     try {
       if (trimmed) {
-        await db.collection('projectNotes').doc(noteKey).set({ text: trimmed });
+        await db.collection('projectNotes').doc(jobKey).set({ text: trimmed });
       } else {
-        await db.collection('projectNotes').doc(noteKey).delete();
+        await db.collection('projectNotes').doc(jobKey).delete();
       }
     } catch (e) {
       console.warn('Firestore setNote failed:', e);
@@ -262,23 +262,23 @@ const Storage = (() => {
 
   /* ── Project Customer (which customer a job is tagged with) ── */
 
-  function getProjectCustomer(noteKey) {
-    return projectCustomerCache[noteKey] || null;
+  function getProjectCustomer(jobKey) {
+    return projectCustomerCache[jobKey] || null;
   }
 
-  async function setProjectCustomer(noteKey, name) {
+  async function setProjectCustomer(jobKey, name) {
     const trimmed = (name || '').trim();
     if (trimmed) {
-      projectCustomerCache[noteKey] = trimmed;
+      projectCustomerCache[jobKey] = trimmed;
     } else {
-      delete projectCustomerCache[noteKey];
+      delete projectCustomerCache[jobKey];
     }
     if (!db) return;
     try {
       if (trimmed) {
-        await db.collection('projectCustomer').doc(noteKey).set({ name: trimmed });
+        await db.collection('projectCustomer').doc(jobKey).set({ name: trimmed });
       } else {
-        await db.collection('projectCustomer').doc(noteKey).delete();
+        await db.collection('projectCustomer').doc(jobKey).delete();
       }
     } catch (e) {
       console.warn('Firestore setProjectCustomer failed:', e);

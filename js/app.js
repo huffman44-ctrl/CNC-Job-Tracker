@@ -230,7 +230,7 @@ function handleFiles(fileList, isFirstLoad) {
       let claimedKey = null;
       try {
         const parsed = parseJobSheet(e.target.result);
-        const key    = simpleHash(file.name);
+        const key    = Keys.sheet(file.name);
         if (sheets.find(s => s.fileKey === key) || uploadsInFlight.has(key)) {
           // A sheet with this exact filename is already loaded. Record it so we can tell the
           // operator, instead of silently doing nothing (which reads as "the import is broken").
@@ -260,7 +260,7 @@ function handleFiles(fileList, isFirstLoad) {
               if (idx !== -1) sheets.splice(idx, 1);
               showSaveBanner(`Couldn't save "${file.name}" — ${result.error?.message || 'unknown error'}. The file was still archived to Drive.`);
             } else {
-              const jn = projectKey(sheet);
+              const jn = Keys.jobOf(sheet);
               if (!savedByJob.has(jn)) savedByJob.set(jn, []);
               savedByJob.get(jn).push(key);
               if (result.mode === 'oversize') {
@@ -313,7 +313,7 @@ async function finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, u
   // Every new job gets its jobs/ doc (createdAt/createdBy only if missing) whatever the owner
   // switches say — operator-writable, spec §5.3.
   const jobNames = [...savedByJob.keys()];
-  for (const jobName of jobNames) await Storage.upsertJobForUpload(noteKey(jobName), jobName, currentUserEmail());
+  for (const jobName of jobNames) await Storage.upsertJobForUpload(Keys.job(jobName), jobName, currentUserEmail());
 
   // Owners with the switch on: job details for every NEW job in this drop, one form at a time.
   // Jobs that already have details (adding more sheets) get no step (spec §7.1).
@@ -322,7 +322,7 @@ async function finishUploadBatch({ isFirstLoad, alreadyLoaded, finishedBefore, u
   if (jobNames.length && Features.on('jobDetails') && OwnerStore.loaded('jobBilling')) {
     await JobDetails.promptForNewJobs(
       jobNames,
-      jobName => sheets.filter(s => projectKey(s) === jobName).sort(compareSheets),
+      jobName => sheets.filter(s => Keys.jobOf(s) === jobName).sort(compareSheets),
       jobName => cancelDroppedJob(jobName, savedByJob.get(jobName) || []));
     if (!projectsScreen.hidden) renderProjects();
   }
@@ -449,7 +449,7 @@ function drawOwnerPanel(displaySheets) {
 
 function updateJobNoteBanner() {
   const banner = document.getElementById('job-note-banner');
-  const note   = currentProject ? Storage.getNote(noteKey(currentProject)) : null;
+  const note   = currentProject ? Storage.getNote(Keys.job(currentProject)) : null;
   banner.hidden = !note;
   if (note) document.getElementById('job-note-banner-text').textContent = note;
 }
@@ -556,7 +556,7 @@ function renderCustomersList() {
       const oldKey = row.dataset.key;
       const newName = row.querySelector('.customers-rename-input').value.trim();
       if (!newName) return;
-      Storage.renameCustomer(oldKey, customerKey(newName), newName);
+      Storage.renameCustomer(oldKey, Keys.customer(newName), newName);
       renderCustomersList();
     });
   });
@@ -576,7 +576,7 @@ document.getElementById('customers-add-btn').addEventListener('click', () => {
   const input = document.getElementById('customers-add-input');
   const name = input.value.trim();
   if (!name) return;
-  Storage.addCustomer(customerKey(name), name);
+  Storage.addCustomer(Keys.customer(name), name);
   input.value = '';
   renderCustomersList();
 });
@@ -584,14 +584,6 @@ document.getElementById('customers-add-btn').addEventListener('click', () => {
 /* ══════════════════════════════════════════
    Projects Directory
 ══════════════════════════════════════════ */
-function projectKey(sheet) {
-  return sheet.jobName || sheet.fileName || 'Unknown Job';
-}
-
-function noteKey(jobName) {
-  return 'proj_' + simpleHash(jobName);
-}
-
 function sheetNumber(fileName) {
   const m = fileName.match(/sheet\s*0*(\d+)/i) || fileName.match(/\[\s*0*(\d+)\s*\]/);
   if (m) return parseInt(m[1], 10);
@@ -620,7 +612,7 @@ function compareSheets(a, b) {
 
 function getDisplaySheets() {
   const result = currentProject
-    ? visibleSheets().filter(s => projectKey(s) === currentProject)
+    ? visibleSheets().filter(s => Keys.jobOf(s) === currentProject)
     : [...visibleSheets()];
   return result.sort(compareSheets);
 }
@@ -628,7 +620,7 @@ function getDisplaySheets() {
 function getProjectGroups() {
   const map = {};
   for (const sheet of visibleSheets()) {
-    const key = projectKey(sheet);
+    const key = Keys.jobOf(sheet);
     if (!map[key]) map[key] = [];
     map[key].push(sheet);
   }
@@ -710,7 +702,7 @@ function applySheetsSnapshot(newSheets) {
   BillingScreen.boardChanged();   // owners' Billing: reload the finished list if a job just left the board
   if (!contentScreen.hidden) {
     const remaining = currentProject
-      ? visibleSheets().filter(s => projectKey(s) === currentProject)
+      ? visibleSheets().filter(s => Keys.jobOf(s) === currentProject)
       : visibleSheets();
     if (!remaining.length) {
       showProjectsScreen();
@@ -753,7 +745,7 @@ async function deleteSheetsAndReport(fileKeys) {
 }
 
 async function deleteProject(jobName) {
-  await deleteSheetsAndReport(sheets.filter(s => projectKey(s) === jobName).map(s => s.fileKey));
+  await deleteSheetsAndReport(sheets.filter(s => Keys.jobOf(s) === jobName).map(s => s.fileKey));
   if (!sheets.length) {
     showBoardOrUpload();
   } else {
@@ -767,7 +759,7 @@ async function deleteSheetFromProject(sheet) {
 
   const gone = await deleteSheetsAndReport([sheet.fileKey]);
 
-  const remaining = currentProject ? sheets.filter(s => projectKey(s) === currentProject) : sheets;
+  const remaining = currentProject ? sheets.filter(s => Keys.jobOf(s) === currentProject) : sheets;
   if (!remaining.length) {
     showProjectsScreen();
     return;
@@ -865,7 +857,7 @@ function buildProjectCard(jobName, projectSheets) {
   const noteBtn = document.createElement('button');
   noteBtn.type = 'button';
   noteBtn.className = 'btn btn-muted btn-sm';
-  noteBtn.textContent = Storage.getNote(noteKey(jobName)) ? 'Edit Note' : 'Add Note';
+  noteBtn.textContent = Storage.getNote(Keys.job(jobName)) ? 'Edit Note' : 'Add Note';
   noteBtn.addEventListener('click', e => {
     e.stopPropagation();
     openNotesModal(jobName);
@@ -890,7 +882,7 @@ function buildProjectCard(jobName, projectSheets) {
 
   body.appendChild(barWrap);
 
-  const existingNote = Storage.getNote(noteKey(jobName));
+  const existingNote = Storage.getNote(Keys.job(jobName));
   if (existingNote) {
     const notePreview = document.createElement('div');
     notePreview.className = 'project-note-preview';
@@ -1409,12 +1401,12 @@ let notesCtx = null;
 function openNotesModal(jobName) {
   notesCtx = { jobName };
   document.getElementById('notes-modal-subtitle').textContent = jobName;
-  document.getElementById('notes-modal-text').value = Storage.getNote(noteKey(jobName)) || '';
+  document.getElementById('notes-modal-text').value = Storage.getNote(Keys.job(jobName)) || '';
 
   const sheetsWrap = document.getElementById('notes-modal-sheets');
   sheetsWrap.innerHTML = '';
   const projectSheets = sheets
-    .filter(s => projectKey(s) === jobName)
+    .filter(s => Keys.jobOf(s) === jobName)
     .sort(compareSheets);
   if (projectSheets.length) {
     const heading = document.createElement('div');
@@ -1473,10 +1465,6 @@ async function saveSheetNote() {
 /* ══════════════════════════════════════════
    Customer Picker (prompted at export)
 ══════════════════════════════════════════ */
-function customerKey(name) {
-  return 'cust_' + simpleHash(name.trim());
-}
-
 let customerPickerCtx = null; // { jobName, resolve }
 
 // Fills a customer <select> (known customers + "+ New customer…") and pre-selects the job's prior
@@ -1513,7 +1501,7 @@ function openCustomerPicker(jobName) {
   return new Promise(resolve => {
     customerPickerCtx = { jobName, resolve };
     customerPickerSubtitle.textContent = jobName;
-    customerPickerCtx.staleName = fillCustomerSelect(customerPickerSelect, customerPickerOtherGrp, customerPickerOther, noteKey(jobName));
+    customerPickerCtx.staleName = fillCustomerSelect(customerPickerSelect, customerPickerOtherGrp, customerPickerOther, Keys.job(jobName));
 
     updateCustomerPickerConfirmState();
     customerPickerOverlay.classList.remove('hidden');
@@ -1551,21 +1539,21 @@ customerPickerConfirm.addEventListener('click', () => {
     name = customerPickerOther.value.trim();
     if (!name) return;
     if (name !== ctx.staleName) {
-      Storage.addCustomer(customerKey(name), name);
+      Storage.addCustomer(Keys.customer(name), name);
     }
   } else {
     const match = Storage.getCustomers().find(c => c.key === customerPickerSelect.value);
     if (!match) return;
     name = match.name;
   }
-  Storage.setProjectCustomer(noteKey(ctx.jobName), name);
+  Storage.setProjectCustomer(Keys.job(ctx.jobName), name);
   closeCustomerPicker(name);
 });
 
 async function saveNote() {
   if (!notesCtx) return;
   const text = document.getElementById('notes-modal-text').value;
-  const writes = [Storage.setNote(noteKey(notesCtx.jobName), text)];
+  const writes = [Storage.setNote(Keys.job(notesCtx.jobName), text)];
   document.querySelectorAll('#notes-modal-sheets textarea').forEach(ta => {
     const existing = Storage.getSheetNote(ta.dataset.fileKey) || '';
     if (ta.value.trim() !== existing) {
@@ -1659,7 +1647,7 @@ function printJobTicket(jobName, displaySheets) {
 // Known from upload/job details or an earlier export -> no question. Missing (legacy job) ->
 // today's picker, which saves its answer to projectCustomer itself.
 function customerForExport(jobName) {
-  const known = jobName ? Storage.getProjectCustomer(noteKey(jobName)) : null;
+  const known = jobName ? Storage.getProjectCustomer(Keys.job(jobName)) : null;
   return known ? Promise.resolve(known) : openCustomerPicker(jobName);
 }
 
@@ -1699,7 +1687,7 @@ async function exportJob(jobName, jobSheets, customerName) {
     upsertLogRows: (rows, token) => Endpoint.upsertLogRows(rows, token),
     completionOf,
     hasDatabase,
-    finishJob:     (name, by) => Storage.finishJob(noteKey(name), name, by),
+    finishJob:     (name, by) => Storage.finishJob(Keys.job(name), name, by),
     finishSheets:  (list, by) => Storage.finishSheets(list, by),
   });
   if (!outcome.finished) { alert(outcome.message); return; }
@@ -1804,7 +1792,7 @@ async function vanlabOpenPanel() {
   vanlabManualCustomer.value = '';
   vanlabManualAssembly.value = '';
 
-  const fileNames = sheets.filter(s => projectKey(s) === currentProject).map(s => s.fileName);
+  const fileNames = sheets.filter(s => Keys.jobOf(s) === currentProject).map(s => s.fileName);
   const { orderNum, conflict } = VanlabPrint.extractOrderNumber(fileNames);
 
   if (conflict) {
@@ -2515,9 +2503,9 @@ function invoiceScreenOpen() {
 }
 
 SettingsScreen.init({ hideOthers: hideAllScreens, onBack: showProjectsScreen, currentEmail: currentUserEmail });
-JobDetails.init({ noteKey, customerKey, currentEmail: currentUserEmail, fillCustomerSelect });
+JobDetails.init({ currentEmail: currentUserEmail, fillCustomerSelect });
 JobCard.init({
-  noteKey, currentEmail: currentUserEmail,
+  currentEmail: currentUserEmail,
   openEdit: (jobName, jobSheets) => JobDetails.openEdit(jobName, jobSheets),
   onChanged: rerenderCurrent,
   onPutBack: async () => {
@@ -2529,7 +2517,7 @@ JobCard.setSheetsProvider(() => getDisplaySheets());
 BillingScreen.init({
   hideOthers: hideAllScreens, onBack: showProjectsScreen, activeSheets: () => sheets,
   loadFinishedSheets: () => Storage.loadFinishedSheets({ strict: true }),
-  noteKey, customerKey, compareSheets, openJob: openJobFromBilling, currentEmail: currentUserEmail,
+  compareSheets, openJob: openJobFromBilling, currentEmail: currentUserEmail,
   openInvoice: d => { if (typeof InvoiceScreen !== 'undefined') InvoiceScreen.show(d); },
   invoiceOpen: invoiceScreenOpen,
   onFinishedLoaded: () => { if (invoiceScreenOpen()) InvoiceScreen.render(); },

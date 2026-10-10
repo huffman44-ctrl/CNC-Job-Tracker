@@ -100,7 +100,6 @@ test('billingState: not billed / partly / billed (numbers joined with "and"); ex
 
 test('jobState: Needs job details wins over the billing status', () => {
   globalThis.OwnerStore.hasJobDetails = () => false;
-  JobCard.init({ noteKey: n => 'proj_' + n });
   assert.deepEqual(JobCard.jobState('J', [{ fileKey: 'a' }]), { key: 'needs', text: 'Needs job details' });
   globalThis.OwnerStore.hasJobDetails = () => true;
   sheetBilling.a = { status: 'billed', invoiceNumber: 7 };
@@ -112,7 +111,6 @@ test('missing jobSheets (app.js before Task 7) is treated as []', () => {
   assert.deepEqual(JobCard.billingState(), { key: 'not-billed', text: 'Not billed yet' });
   assert.deepEqual(JobCard.billingState(undefined), { key: 'not-billed', text: 'Not billed yet' });
   globalThis.OwnerStore.hasJobDetails = () => true;
-  JobCard.init({ noteKey: n => 'proj_' + n });
   assert.deepEqual(JobCard.jobState('J'), { key: 'not-billed', text: 'Not billed yet' });
   delete globalThis.OwnerStore.hasJobDetails;
 });

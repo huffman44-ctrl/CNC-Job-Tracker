@@ -9,6 +9,7 @@
 const BillingModel = (() => {
   const P = typeof Pricing !== 'undefined' ? Pricing : require('./pricing.js');
   const L = typeof LogRows !== 'undefined' ? LogRows : require('./log-rows.js');
+  const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');
 
   const nz = v => (v === undefined ? null : v);
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -39,7 +40,7 @@ const BillingModel = (() => {
   }
 
   function build(input) {
-    const { completionOf, sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, noteKey, compare } = input;
+    const { completionOf, sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, jobKeyOf, compare } = input;
     const throughDate = input.throughDate || null;
     const billingStart = input.billingStart || null;
     const startMs = billingStart && parseYmd(billingStart) ? parseYmd(billingStart).getTime() : null;
@@ -54,8 +55,8 @@ const BillingModel = (() => {
     (input.sheets || []).forEach(s => {
       if (!s || seen.has(s.fileKey)) return;
       seen.add(s.fileKey);
-      const name = s.jobName || s.fileName;
-      const jk = noteKey(name);
+      const name = K.jobOf(s);
+      const jk = jobKeyOf(name);
       if (!groups.has(jk)) groups.set(jk, { jobKey: jk, jobName: name, sheets: [] });
       groups.get(jk).sheets.push(s);
     });
@@ -340,16 +341,16 @@ const BillingModel = (() => {
   // and whose latest finishedAt is within `days` of nowMs; newest first; customers billed outside this
   // app left out. Built from the finished list Billing already holds — no new reads.
   function recentJobs(input) {
-    const { sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, noteKey } = input;
+    const { sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, jobKeyOf } = input;
     const cutoff = input.nowMs - (input.days || 30) * 86400000;
-    const onBoard = new Set((input.activeSheets || []).map(s => noteKey(s.jobName || s.fileName)));
+    const onBoard = new Set((input.activeSheets || []).map(s => jobKeyOf(K.jobOf(s))));
     const groups = new Map();
     const seen = new Set();
     (input.finishedSheets || []).forEach(s => {
       if (!s || seen.has(s.fileKey)) return;
       seen.add(s.fileKey);
-      const name = s.jobName || s.fileName;
-      const jk = noteKey(name);
+      const name = K.jobOf(s);
+      const jk = jobKeyOf(name);
       if (!groups.has(jk)) groups.set(jk, { jobKey: jk, jobName: name, sheets: [] });
       groups.get(jk).sheets.push(s);
     });

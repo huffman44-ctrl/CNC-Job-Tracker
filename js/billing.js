@@ -11,9 +11,10 @@
  * Pricing, BillingModel; BillingDone / InvoiceScreen are optional (later tasks).
  */
 const BillingScreen = (() => {
+  const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');
   let opts = {
     hideOthers() {}, onBack() {}, activeSheets: () => [], loadFinishedSheets: async () => [],
-    noteKey: s => s, customerKey: s => s, compareSheets: () => 0, openJob() {}, currentEmail: () => '', openInvoice() {},
+    compareSheets: () => 0, openJob() {}, currentEmail: () => '', openInvoice() {},
   };
   const NOT_LOADED = "Owner data didn't load — reload the page.";
 
@@ -146,7 +147,7 @@ const BillingScreen = (() => {
       jobBillingOf: k => OwnerStore.getJobBilling(k),
       customerBillingOf: k => OwnerStore.getCustomerBilling(k),
       projectCustomerOf: jk => Storage.getProjectCustomer(jk),
-      customerKeyOf: opts.customerKey, noteKey: opts.noteKey, compare: opts.compareSheets,
+      customerKeyOf: K.customer, jobKeyOf: K.job, compare: opts.compareSheets,
       laborTypes: OwnerStore.laborTypes(), throughDate: through_, billingStart: inv.billingStartDate || null,
       inProgressInvoices: InvoiceStore.inProgress(),
       priceListFor: ck => OwnerStore.priceListFor(ck),
@@ -198,7 +199,7 @@ const BillingScreen = (() => {
       finishedSheets: finished || [], activeSheets: opts.activeSheets() || [], nowMs: Date.now(),
       sheetBillingOf: k => OwnerStore.getSheetBilling(k), jobBillingOf: k => OwnerStore.getJobBilling(k),
       customerBillingOf: k => OwnerStore.getCustomerBilling(k), projectCustomerOf: jk => Storage.getProjectCustomer(jk),
-      customerKeyOf: opts.customerKey, noteKey: opts.noteKey,
+      customerKeyOf: K.customer, jobKeyOf: K.job,
     }));
   }
 

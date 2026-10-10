@@ -135,9 +135,9 @@ async function main() {
   await page.check('input[name="jd-turnaround"][value="rush48"]');
   await page.click('#job-details-confirm');
   await page.waitForSelector('#job-details-overlay', { state: 'hidden' });
-  const jb = await page.evaluate(() => OwnerStore.getJobBilling(noteKey(sheets[0].jobName)));
+  const jb = await page.evaluate(() => OwnerStore.getJobBilling(Keys.job(sheets[0].jobName)));
   assert(jb && jb.customerName === 'Northlight Studios' && jb.turnaround === 'rush48' && jb.material.kind === 'customer', 'owner: jobBilling written from the form');
-  assert(await page.evaluate(() => Storage.getProjectCustomer(noteKey(sheets[0].jobName)) === 'Northlight Studios'), "owner: projectCustomer written (Collin's export reads it)");
+  assert(await page.evaluate(() => Storage.getProjectCustomer(Keys.job(sheets[0].jobName)) === 'Northlight Studios'), "owner: projectCustomer written (Collin's export reads it)");
   await refresh(page);
   assert(await page.isVisible('#settings-btn'), 'owner: Settings button visible');
   // the chip only exists once the jobCard switch is on
@@ -185,7 +185,7 @@ async function main() {
   page = await fresh();
   await page.evaluate((finishedName) => {
     window.__saved = [];
-    window.__finishedKey = simpleHash(finishedName);
+    window.__finishedKey = Keys.sheet(finishedName);
     Storage.getSheetDoc = async (k) => k === window.__finishedKey ? { finished: true, finishedAt: Date.now(), jobName: 'Old Job' } : null;
     const realSave = Storage.saveSheet;
     Storage.saveSheet = async (sh) => { window.__saved.push(sh.fileKey); return realSave(sh); };

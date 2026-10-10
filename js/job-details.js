@@ -7,6 +7,7 @@
  * Uses app.js globals at runtime only: escHtml.
  */
 const JobDetails = (() => {
+  const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');
   const num = s => { const m = /(-?\d+(?:\.\d+)?)/.exec(String(s || '')); return m ? Number(m[1]) : null; };
 
   // VCarve: "Material Block: X: 48"  Y: 96"  Z: 0.47"" — Z is the thickness. A line labelled
@@ -51,7 +52,7 @@ const JobDetails = (() => {
   }
 
   let els = null;
-  let hooks = { noteKey: null, customerKey: null, currentEmail: () => '', onCancelJob: async () => {}, fillCustomerSelect: null };
+  let hooks = { currentEmail: () => '', onCancelJob: async () => {}, fillCustomerSelect: null };
   let ctx = null;   // { mode:'new'|'edit', jobName, jobKey, jobSheets, thicknessIn, resolve }
 
   function init(h) {
@@ -76,7 +77,7 @@ const JobDetails = (() => {
 
   function open(mode, jobName, jobSheets) {
     return new Promise(resolve => {
-      const jobKey = hooks.noteKey(jobName);
+      const jobKey = K.job(jobName);
       const existing = OwnerStore.getJobBilling(jobKey);
       const thicknessIn = thicknessFromMaterialInfo(jobSheets[0] && jobSheets[0].materialInfo);
       ctx = { mode, jobName, jobKey, jobSheets, thicknessIn, resolve };
@@ -146,7 +147,7 @@ const JobDetails = (() => {
     if (els.customer.value === '__other__') {
       customerName = els.other.value.trim();
       if (!customerName) { showError('Type the customer name exactly as QuickBooks spells it.'); return; }
-      customerKey = hooks.customerKey(customerName);
+      customerKey = K.customer(customerName);
     } else {
       const match = Storage.getCustomers().find(c => c.key === els.customer.value);
       if (!match) { showError('Pick a customer.'); return; }
@@ -207,7 +208,7 @@ const JobDetails = (() => {
   async function promptForNewJobs(jobNames, sheetsForJob, onCancel) {
     const cancel = onCancel || hooks.onCancelJob;
     for (const jobName of jobNames) {
-      const jobKey = hooks.noteKey(jobName);
+      const jobKey = K.job(jobName);
       if (OwnerStore.hasJobDetails(jobKey)) continue;
       const ok = await open('new', jobName, sheetsForJob(jobName));
       if (!ok) await cancel(jobName);

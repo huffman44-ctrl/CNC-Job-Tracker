@@ -24,7 +24,7 @@ const NL = 'Northlight Studios', NLK = 'cust_Northlight Studios';
 // A tiny world. jobs: { name: { customer, ready, material, turnaround, labor, details:false } }
 // sheets: [{ job, n, sec, cut: iso|null, status, cutAtBilled, override }]
 function world({ jobs, sheets, customers = {}, laborTypes = LABOR, throughDate = '2026-10-03', billingStart = null, invoices = [], priceList = STANDARD, projectCustomer = {} }) {
-  const noteKey = n => 'proj_' + n;
+  const jobKeyOf = n => 'proj_' + n;
   const customerKeyOf = n => 'cust_' + n;
   const sheetDocs = [], comps = {}, sbs = {};
   sheets.forEach(s => {
@@ -36,7 +36,7 @@ function world({ jobs, sheets, customers = {}, laborTypes = LABOR, throughDate =
   const jobDocs = {};
   Object.entries(jobs).forEach(([name, j]) => {
     if (j.details === false) return;
-    jobDocs[noteKey(name)] = {
+    jobDocs[jobKeyOf(name)] = {
       jobName: name, customerKey: customerKeyOf(j.customer), customerName: j.customer,
       material: j.material || CUST_MAT, turnaround: j.turnaround || 'standard', readyForBilling: !!j.ready,
       laborLines: j.labor || [],
@@ -47,7 +47,7 @@ function world({ jobs, sheets, customers = {}, laborTypes = LABOR, throughDate =
     completionOf: fk => comps[fk] || null, sheetBillingOf: fk => sbs[fk] || null,
     jobBillingOf: jk => jobDocs[jk] || null, customerBillingOf: ck => customers[ck] || null,
     projectCustomerOf: jk => projectCustomer[jk] || null,
-    customerKeyOf, noteKey, compare: (a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
+    customerKeyOf, jobKeyOf, compare: (a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
     laborTypes, priceListFor: () => priceList, throughDate, billingStart, inProgressInvoices: invoices,
   };
   return { input, comps, sbs, jobDocs, sheetDocs, model: BillingModel.build(input) };
@@ -398,14 +398,14 @@ test('every row is included by default in every state', () => {
 const DAY = 86400000;
 const NOW = new Date(2026, 9, 6, 9).getTime();   // Tue Oct 6
 function recentWorld({ finished, active = [], jobs = {}, sb = {}, customers = {}, projectCustomer = {} }) {
-  const noteKey = n => 'proj_' + n;
+  const jobKeyOf = n => 'proj_' + n;
   const jobDocs = {};
-  Object.entries(jobs).forEach(([name, j]) => { jobDocs[noteKey(name)] = { jobName: name, customerKey: 'cust_' + j.customer, customerName: j.customer, laborLines: j.labor || [] }; });
+  Object.entries(jobs).forEach(([name, j]) => { jobDocs[jobKeyOf(name)] = { jobName: name, customerKey: 'cust_' + j.customer, customerName: j.customer, laborLines: j.labor || [] }; });
   const fin = finished.map(s => ({ fileKey: s.fk, fileName: `${s.job} Sheet ${s.n}.html`, jobName: s.job, finished: true, finishedAt: s.at }));
   const act = active.map(s => ({ fileKey: s.fk, fileName: `${s.job} Sheet ${s.n}.html`, jobName: s.job }));
   return BillingModel.recentJobs({ finishedSheets: fin, activeSheets: act, nowMs: NOW,
     sheetBillingOf: fk => sb[fk] || null, jobBillingOf: jk => jobDocs[jk] || null, customerBillingOf: ck => customers[ck] || null,
-    projectCustomerOf: jk => projectCustomer[jk] || null, customerKeyOf: n => 'cust_' + n, noteKey });
+    projectCustomerOf: jk => projectCustomer[jk] || null, customerKeyOf: n => 'cust_' + n, jobKeyOf });
 }
 
 test('recentJobs: 30-day window on max(finishedAt), newest first, all sheets finished', () => {

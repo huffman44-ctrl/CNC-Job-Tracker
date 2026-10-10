@@ -7,7 +7,8 @@
  * Globals used at runtime: escHtml, formatDT (app.js), OwnerStore, Storage, Pricing.
  */
 const JobCard = (() => {
-  let hooks = { noteKey: null, currentEmail: () => '', openEdit: async () => false, onChanged() {}, onPutBack: async () => {} };
+  const K = typeof Keys !== 'undefined' ? Keys : require('./keys.js');
+  let hooks = { currentEmail: () => '', openEdit: async () => false, onChanged() {}, onPutBack: async () => {} };
   let editingCutDateKey = null;   // fileKey whose cut-date editor is open
   let statusText = '';
   let statusJob = null;   // the job statusText belongs to; a different job's panel starts clean
@@ -75,7 +76,7 @@ const JobCard = (() => {
     return { key: 'not-billed', text: 'Not billed yet' };
   }
   function jobState(jobName, jobSheets) {
-    if (!OwnerStore.hasJobDetails(hooks.noteKey(jobName))) return { key: 'needs', text: 'Needs job details' };
+    if (!OwnerStore.hasJobDetails(K.job(jobName))) return { key: 'needs', text: 'Needs job details' };
     return billingState(jobSheets);
   }
   function chip(state) {
@@ -157,7 +158,7 @@ const JobCard = (() => {
     const prevCutKey = container.dataset.cutKey || '';
     if (!container.dataset.jcBound) { container.addEventListener('click', onClick); container.dataset.jcBound = '1'; }
     const e = escHtml;
-    const jobKey = hooks.noteKey(jobName);
+    const jobKey = K.job(jobName);
     const jb = OwnerStore.getJobBilling(jobKey);
     const hasDetails = OwnerStore.hasJobDetails(jobKey);
     const groups = Pricing.repeatGroups(orderedSheets);
@@ -260,7 +261,7 @@ const JobCard = (() => {
     if (!btn || btn.tagName !== 'BUTTON' || btn.disabled) return;
     const container = ev.currentTarget;
     const jobName = container.dataset.jobName;
-    const jobKey = hooks.noteKey(jobName);
+    const jobKey = K.job(jobName);
     const by = hooks.currentEmail();
     const action = btn.dataset.action;
     // P24: every write that rebuilds jobBilling / sheetBilling from the cache needs a real load.
