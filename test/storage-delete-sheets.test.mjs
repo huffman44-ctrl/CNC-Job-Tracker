@@ -94,3 +94,42 @@ test('an empty list deletes nothing', async () => {
   await seeded([]);
   assert.deepEqual(await Storage.deleteSheets([]), { deleted: [], blocked: [], failed: [] });
 });
+
+test('refused because the sheet is already gone (deleted elsewhere): deleted, and its leftovers removed', async () => {
+  const db = await seeded(['f1']);
+  delete db._data.sheets.f1;   // another device got there first; the rules refuse a delete of a missing doc
+  db._hooks.failWrites = (col) => col === 'sheets';
+  const res = await Storage.deleteSheets(['f1']);
+  assert.deepEqual(res, { deleted: ['f1'], blocked: [], failed: [] });
+  for (const col of RECORD) assert.equal(has(db, col, 'f1'), false, `${col}/f1 left behind`);
+  assert.deepEqual(cached('f1'), noneCached);
+});
+
+test('refused and the sheet cannot be read either (signed out): failed, never "on an invoice"; record untouched', async () => {
+  const db = await seeded(['g1']);
+  db._hooks.failWrites = (col) => col === 'sheets';
+  const realCollection = db.collection;
+  db.collection = (col) => {
+    const q = realCollection(col);
+    if (col !== 'sheets') return q;
+    return { ...q, doc: (id) => ({ ...q.doc(id), async get() { throw Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' }); } }) };
+  };
+  const res = await Storage.deleteSheets(['g1']);
+  assert.deepEqual(res, { deleted: [], blocked: [], failed: [{ fileKey: 'g1', message: 'Missing or insufficient permissions.' }] });
+  for (const col of ['sheets', ...RECORD]) assert.equal(has(db, col, 'g1'), true, `${col}/g1 was removed`);
+  assert.deepEqual(cached('g1'), allCached);
+});
+
+test('browser offline: failed straight away (the delete would only hang), nothing touched', async () => {
+  const db = await seeded(['h1', 'h2']);
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { onLine: false }, configurable: true });
+  let res;
+  try { res = await Storage.deleteSheets(['h1', 'h2']); }
+  finally { if (had) Object.defineProperty(globalThis, 'navigator', had); else delete globalThis.navigator; }
+  assert.deepEqual(res.deleted, []);
+  assert.deepEqual(res.blocked, []);
+  assert.deepEqual(res.failed.map(f => f.fileKey), ['h1', 'h2']);
+  for (const col of ['sheets', ...RECORD]) assert.equal(has(db, col, 'h1'), true, `${col}/h1 was removed`);
+  assert.deepEqual(cached('h1'), allCached);
+});

@@ -521,7 +521,7 @@ const Storage = (() => {
   }
 
   // The per-sheet documents that make up a sheet's record besides sheets/{fileKey} itself (the sheet
-  // record table in CLAUDE.md). deleteSheets removes these; a fifth per-sheet doc is added here.
+  // record table in CLAUDE.md). deleteSheets removes these; a new per-sheet doc type goes in this list.
   const SHEET_RECORD_PARTS = [
     { collection: 'completions', cache: completionsCache },
     { collection: 'sheetNotes', cache: sheetNotesCache },
@@ -531,16 +531,25 @@ const Storage = (() => {
   // Deletes each sheet's whole record (spec .scratch/complete-sheet-delete). The sheet doc goes
   // FIRST; its completion, note and markup (docs and caches) only once that worked, so a refused
   // delete never wipes a billed sheet's cut record. The rules refuse an on-board sheet's delete only
-  // when its billing record is in-progress/billed, so permission-denied = blocked (on an invoice);
-  // any other error = failed. Never throws per sheet, never shows anything; results in input order.
+  // when its billing record is in-progress/billed — or when the doc is already gone (resource is
+  // null) — so a permission-denied is checked with one read: still there = blocked (on an invoice),
+  // gone = deleted, unreadable (signed out) = failed. Any other error = failed. Offline, the SDK's
+  // delete() never settles, so a browser that says it is offline fails straight away.
+  // Never throws per sheet, never shows anything; results in input order.
   async function deleteSheets(fileKeys) {
+    const offline = db && typeof navigator !== 'undefined' && navigator.onLine === false;
+    const failed = (fileKey, e) => ({ fileKey, kind: 'failed', message: (e && e.message) || String(e) });
     const outcomes = await Promise.all(fileKeys.map(async fileKey => {
+      if (offline) return failed(fileKey, 'offline');
       if (db) {
         try {
           await db.collection('sheets').doc(fileKey).delete();
         } catch (e) {
-          if (e && e.code === 'permission-denied') return { fileKey, kind: 'blocked' };
-          return { fileKey, kind: 'failed', message: (e && e.message) || String(e) };
+          if (!e || e.code !== 'permission-denied') return failed(fileKey, e);
+          let stillThere;
+          try { stillThere = (await getSheetDoc(fileKey)) !== null; }
+          catch (readErr) { return failed(fileKey, readErr); }
+          if (stillThere) return { fileKey, kind: 'blocked' };
         }
       }
       SHEET_RECORD_PARTS.forEach(p => { delete p.cache[fileKey]; });

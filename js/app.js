@@ -698,13 +698,43 @@ function renderProjects() {
   }
 }
 
+const deletesInFlight = new Map();   // fileKey -> sheet, while deleteSheetsAndReport waits on the database
+
+// The live sheets listener. A sheet whose delete is still waiting on the database stays on the
+// board: Firestore's local write drops it from the snapshot at once, and a refused delete would
+// otherwise vanish, move the screen, then come back.
+function applySheetsSnapshot(newSheets) {
+  const have = new Set(newSheets.map(s => s.fileKey));
+  sheets = newSheets.concat([...deletesInFlight.values()].filter(s => !have.has(s.fileKey)));
+  if (!projectsScreen.hidden) renderProjects();
+  BillingScreen.boardChanged();   // owners' Billing: reload the finished list if a job just left the board
+  if (!contentScreen.hidden) {
+    const remaining = currentProject
+      ? visibleSheets().filter(s => projectKey(s) === currentProject)
+      : visibleSheets();
+    if (!remaining.length) {
+      showProjectsScreen();
+      return;
+    }
+    if (selectedSheetKey && !remaining.some(s => s.fileKey === selectedSheetKey)) {
+      selectedSheetKey = null;
+    }
+    showContentScreen();
+  }
+}
+
 // The one delete action behind the trash icon, Delete Sheet and job-details Cancel (spec
 // .scratch/complete-sheet-delete). Waits for Storage.deleteSheets, takes ONLY the sheets it reports
 // deleted off the board, and shows one notice for any it couldn't delete. Callers navigate.
 async function deleteSheetsAndReport(fileKeys) {
   // Labels first: the live sheets listener may redraw `sheets` while the deletes are in flight.
-  const labels = new Map(sheets.filter(s => fileKeys.includes(s.fileKey)).map(s => [s.fileKey, s.sheetTitle || s.fileName]));
-  const result = await Storage.deleteSheets(fileKeys);
+  const keys = new Set(fileKeys);
+  const targets = sheets.filter(s => keys.has(s.fileKey));
+  const labels = new Map(targets.map(s => [s.fileKey, s.sheetTitle || s.fileName]));
+  targets.forEach(s => deletesInFlight.set(s.fileKey, s));
+  let result;
+  try { result = await Storage.deleteSheets(fileKeys); }
+  finally { fileKeys.forEach(k => deletesInFlight.delete(k)); }
   const gone = new Set(result.deleted);
   sheets = sheets.filter(s => !gone.has(s.fileKey));
   const notices = [];
@@ -2554,24 +2584,7 @@ async function loadDataAndShowApp() {
   sheets = storedSheets;
   if (sheets.length > 0 || ownerHomeOnEmpty()) showProjectsScreen();
 
-  Storage.onSheetsChange(newSheets => {
-    sheets = newSheets;
-    if (!projectsScreen.hidden) renderProjects();
-    BillingScreen.boardChanged();   // owners' Billing: reload the finished list if a job just left the board
-    if (!contentScreen.hidden) {
-      const remaining = currentProject
-        ? visibleSheets().filter(s => projectKey(s) === currentProject)
-        : visibleSheets();
-      if (!remaining.length) {
-        showProjectsScreen();
-        return;
-      }
-      if (selectedSheetKey && !remaining.some(s => s.fileKey === selectedSheetKey)) {
-        selectedSheetKey = null;
-      }
-      showContentScreen();
-    }
-  });
+  Storage.onSheetsChange(applySheetsSnapshot);
 
   Storage.onCompletionChange(() => {
     BillingScreen.render();   // no-op unless Billing is open

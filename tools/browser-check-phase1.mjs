@@ -339,6 +339,31 @@ async function main() {
   assert(await page.evaluate(() => sheets.length === 1), 'delete failed: the sheet stays on the board');
   await page.close();
 
+  // Live listener mid-delete: Firestore's local write drops the sheet from the snapshot before the
+  // database answers. A refused delete must not vanish or move the screen (PASTE has no listener,
+  // so the snapshot is fed to applySheetsSnapshot by hand).
+  page = await fresh();
+  await upload(page);
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.evaluate(() => {
+    Storage.deleteSheets = async (keys) => {
+      applySheetsSnapshot(sheets.filter(s => !keys.includes(s.fileKey)));   // the local write
+      window.__midDelete = { onBoard: keys.every(k => sheets.some(s => s.fileKey === k)), onJob: !document.getElementById('content-screen').hidden };
+      return { deleted: [], blocked: keys, failed: [] };
+    };
+  });
+  await page.click('.detail-delete-btn');
+  await page.waitForSelector('#notice-overlay:not(.hidden)', { timeout: 5000 });
+  const mid = await page.evaluate(() => window.__midDelete);
+  assert(mid && mid.onBoard, 'mid-delete: the listener snapshot does not drop a sheet whose delete is still in flight');
+  assert(mid && mid.onJob, 'mid-delete: the screen does not move while the database has not answered');
+  assert(await page.evaluate(() => sheets.length === 1) && await page.isVisible('#content-screen'), 'mid-delete, refused: sheet still on the board and still on the job screen');
+  await page.click('#notice-ok');
+  await page.evaluate(() => applySheetsSnapshot([]));   // a later snapshot without it: nothing held any more
+  assert(await page.evaluate(() => sheets.length === 0), 'mid-delete: nothing is held once the delete has answered');
+  await page.close();
+
   // Owner job-details Cancel: removes only the sheets that drop saved, whole record; earlier sheets stay
   page = await fresh();
   await upload(page);
