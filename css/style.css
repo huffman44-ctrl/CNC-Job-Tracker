@@ -1122,6 +1122,20 @@ body {
   font-size: 13px;
 }
 
+/* Empty board: "No jobs loaded." + the line of the day */
+.empty-board {
+  grid-column: 1 / -1;   /* the projects container is a card grid - span all of it */
+}
+.empty-board-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.empty-board-line {
+  font-size: 15px;
+  font-style: italic;
+}
+
 .section-divider {
   height: 1px;
   background: var(--gray-100);

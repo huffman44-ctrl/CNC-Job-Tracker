@@ -120,7 +120,11 @@ async function main() {
   await page.waitForTimeout(500);
   assert(!dialogs.some(d => d.startsWith('confirm:')), 'export: NO "Delete …?" confirm after a successful log write');
   assert(await page.evaluate(() => sheets.length === 0), 'export: finished sheets left the in-memory board');
-  assert(await page.isVisible('#upload-screen'), 'Collin: empty board after finishing lands on Upload');
+  assert(await page.isVisible('#projects-screen') && await page.isHidden('#upload-screen'), 'Collin: empty board after finishing lands on Projects');
+  assert(await page.isVisible('#print-queue-btn'), 'Collin: To Print reachable on the empty board');
+  const emptyText = await page.textContent('#projects-container');
+  assert(emptyText.includes('No jobs loaded.') && await page.evaluate(t => EMPTY_BOARD_LINES.some(l => t.includes(l)), emptyText), 'Collin: empty board shows "No jobs loaded." + a line from the list');
+  assert(await page.evaluate(() => emptyBoardLine(new Date(2026, 9, 13, 1)) === emptyBoardLine(new Date(2026, 9, 13, 23)) && emptyBoardLine(new Date(2026, 9, 13)) !== emptyBoardLine(new Date(2026, 9, 14))), 'empty board: same line all day, a different one tomorrow');
   await page.close();
 
   // ── Owner (job card OFF): job details step, then export with no picker ──
@@ -273,7 +277,7 @@ async function main() {
   // ── Owner with Settings on, job card OFF, empty board → Projects (not the Upload dead end) ──
   page = await fresh();
   await setOwner(page);
-  await page.evaluate(() => showBoardOrUpload());
+  await page.evaluate(() => showProjectsScreen());
   assert(await page.isVisible('#projects-screen') && await page.isHidden('#upload-screen'), 'owner (settings on, jobCard off): empty board lands on Projects');
   assert(await page.isVisible('#settings-btn'), 'owner (settings on, jobCard off): Settings button visible on the empty board');
   await page.close();
@@ -325,14 +329,14 @@ async function main() {
   assert(await page.isVisible('#projects-screen'), 'delete sheet: deleting the last sheet lands on Projects (as today)');
   await page.close();
 
-  // Trash icon on the project card: whole job gone; Collin's empty board → Upload
+  // Trash icon on the project card: whole job gone; Collin's empty board → Projects (To Print stays reachable)
   page = await fresh();
   await uploadTwo(page);
   dialogs = [];
   await page.click('.project-delete-btn');
   await page.waitForFunction(() => sheets.length === 0);
   assert(dialogs.some(d => d.startsWith('confirm:Delete "')), 'delete job: the same confirm prompt as before');
-  assert(await page.isVisible('#upload-screen'), 'delete job: Collin lands on Upload when the board is empty');
+  assert(await page.isVisible('#projects-screen') && await page.isHidden('#upload-screen'), 'delete job: Collin lands on Projects when the board is empty');
   await page.close();
 
   // A sheet on an invoice stays on the board and gets ONE notice; others in the job still go

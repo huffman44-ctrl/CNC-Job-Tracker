@@ -276,17 +276,9 @@ async function finishUploadBatch(isFirstLoad, result) {
 // are unfinished and unbilled, so the rules allow it). Pre-existing sheets of the job are never touched.
 async function cancelDroppedJob(jobName, fileKeys) {
   await deleteSheetsAndReport(fileKeys);
-  if (!sheets.length) showBoardOrUpload();
+  if (!sheets.length) showProjectsScreen();
   else if (!projectsScreen.hidden) renderProjects();
   else if (!contentScreen.hidden) renderAllSheets();
-}
-
-// An empty board sends Collin to Upload as always; owners with the job card or Settings on go to
-// the Projects screen so Settings / "Show finished jobs" / Put back stay reachable (the Upload
-// screen has no way to either).
-function ownerHomeOnEmpty() { return Features.on('jobCard') || Features.on('settings') || Features.on('billing'); }
-function showBoardOrUpload() {
-  if (sheets.length || ownerHomeOnEmpty()) showProjectsScreen(); else goToUpload();
 }
 
 function goToUpload() {
@@ -581,6 +573,59 @@ function projectProgressPct(projectSheets) {
   return complete / total;
 }
 
+// The empty board's line under "No jobs loaded." One per calendar day, not per render: the
+// board redraws on every live update, and a random pick would change under Collin's eyes.
+const EMPTY_BOARD_LINES = [
+  'I guess you get to go home. NOT!!!',
+  'Measure twice, cut once, nap never.',
+  'The spindle is resting. You are not.',
+  'Sweep like someone\'s watching. Someone is.',
+  'Today\'s forecast: 100% chance of sawdust.',
+  'Great shops aren\'t built on empty queues. Go find something to sharpen.',
+  'A clean shop is a fast shop.',
+  'Somewhere, a dull bit is waiting for you to notice it.',
+  'The CNC doesn\'t take breaks. Neither do brooms.',
+  'Every master was once a beginner who cleaned up after himself.',
+  'No jobs? Perfect time to organize the tool rack you keep saying you\'ll organize.',
+  'Why did the router bit break up with the MDF? Too much baggage. Dust everywhere.',
+  'Patience is a virtue. So is vacuuming the spoilboard.',
+  'Quality is what happens when nobody\'s checking.',
+  'You miss 100% of the cuts you don\'t zero.',
+  'Rome wasn\'t built in a day, but it probably had a CNC queue.',
+  'Idle hands make great broom handlers.',
+  'Take a deep breath. Now go check the collets.',
+  'The best time to clean the dust collector was yesterday. The second best time is now.',
+  'Hard work beats talent when talent doesn\'t sweep.',
+  'Fun fact: the floor does not sweep itself. We checked.',
+  'Sharp tools, sharp mind.',
+  'Today is a great day to restock the screws.',
+  'Be the reason the next job runs smooth.',
+  'Knock knock. Who\'s there? Not a job. Grab the broom.',
+  'Small progress is still progress. So is wiping down the machine.',
+  'If you can read this, the shop vac is lonely.',
+  'Do it right, or do it twice.',
+  'Champions are made when the queue is empty.',
+  'Stay sharp. Stay dusty. Stay awesome.',
+];
+
+function emptyBoardLine(date = new Date()) {
+  const day = Math.floor(new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86400000);
+  return EMPTY_BOARD_LINES[((day % EMPTY_BOARD_LINES.length) + EMPTY_BOARD_LINES.length) % EMPTY_BOARD_LINES.length];
+}
+
+function emptyBoardMessage() {
+  const box = document.createElement('div');
+  box.className = 'empty-state empty-board';
+  const title = document.createElement('div');
+  title.className = 'empty-board-title';
+  title.textContent = 'No jobs loaded.';
+  const line = document.createElement('div');
+  line.className = 'empty-board-line';
+  line.textContent = emptyBoardLine();
+  box.append(title, line);
+  return box;
+}
+
 function renderProjects() {
   const container = document.getElementById('projects-container');
   container.innerHTML = '';
@@ -607,9 +652,8 @@ function renderProjects() {
     <div class="stat-tile stat-tile--green"><div class="stat-tile-value">${completeCount}</div><div class="stat-tile-label">Complete</div></div>`;
 
   if (!names.length) {
-    container.innerHTML = showFinished
-      ? '<div class="empty-state">No finished jobs found. If you expected some and none show, reload the page.</div>'
-      : '<div class="empty-state">No projects loaded.</div>';
+    if (showFinished) container.innerHTML = '<div class="empty-state">No finished jobs found. If you expected some and none show, reload the page.</div>';
+    else container.appendChild(emptyBoardMessage());
     return;
   }
 
@@ -691,7 +735,7 @@ async function deleteSheetsAndReport(fileKeys) {
 async function deleteProject(jobName) {
   await deleteSheetsAndReport(sheets.filter(s => Keys.jobOf(s) === jobName).map(s => s.fileKey));
   if (!sheets.length) {
-    showBoardOrUpload();
+    showProjectsScreen();
   } else {
     renderProjects();
   }
@@ -1639,7 +1683,7 @@ async function exportJob(jobName, jobSheets, customerName) {
   const finishedKeys = new Set(jobSheets.map(s => s.fileKey));
   sheets = sheets.filter(s => !finishedKeys.has(s.fileKey));
   currentProject = null;
-  showBoardOrUpload();
+  showProjectsScreen();
 }
 
 async function doExport() {
@@ -2514,7 +2558,9 @@ async function loadDataAndShowApp() {
   ]);
 
   sheets = storedSheets;
-  if (sheets.length > 0 || ownerHomeOnEmpty()) showProjectsScreen();
+  // Everyone lands on Projects, empty board or not: its header holds To Print, so a sticker
+  // queued for Collin is reachable with no jobs loaded (+ Upload Job is one click away).
+  showProjectsScreen();
 
   Storage.onSheetsChange(applySheetsSnapshot);
 

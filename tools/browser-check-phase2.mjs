@@ -192,7 +192,7 @@ async function main() {
   await page.waitForTimeout(500);
   assert(!dialogs.some(d => d.startsWith('confirm:')), '1 Collin: NO "Delete …?" confirm after a successful log write');
   assert(await page.evaluate(() => sheets.length === 0), '1 Collin: finished sheets left the in-memory board');
-  assert(await page.isVisible('#upload-screen'), '1 Collin: empty board after finishing lands on Upload');
+  assert(await page.isVisible('#projects-screen') && await page.isHidden('#upload-screen'), '1 Collin: empty board after finishing lands on Projects');
   await page.close();
 
   // ── 2. Owner, billing off ──
