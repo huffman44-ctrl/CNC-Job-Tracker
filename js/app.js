@@ -336,6 +336,7 @@ function showProjectsScreen() {
   resetFinishedView();
   hideAllScreens();
   projectsScreen.hidden      = false;
+  jobStickersPanel.hidden    = true;
   renderProjects();
   renderPrintQueue();
 }
@@ -365,6 +366,10 @@ function showContentScreen() {
   headerJobName.textContent    = displaySheets[0]?.jobName || currentProject || 'Job';
   headerSheetCount.textContent = `${displaySheets.length} sheet${displaySheets.length !== 1 ? 's' : ''}`;
   document.getElementById('back-to-projects-btn').hidden = false;
+
+  // The Stickers panel belongs to the job it was opened on; a rerender of the same job keeps it open.
+  if (jsPanelJob !== currentProject) jobStickersPanel.hidden = true;
+  renderJobStickers();
 
   updateJobNoteBanner();
   contentScreen.classList.toggle('content-screen--finished', viewingFinished);
@@ -1987,7 +1992,7 @@ const printQueueList        = document.getElementById('print-queue-list');
 const printQueueShowPrinted = document.getElementById('print-queue-show-printed');
 const printQueueUndo     = document.getElementById('print-queue-undo');
 const printQueueClearOld = document.getElementById('print-queue-clear-old');
-const pqMainPanel = { statusEl: printQueueStatus, undoBtn: printQueueUndo, undoId: null, render: () => renderPrintQueue() };   // undoId: item the head-row Undo reverts; any other status change clears it
+const pqMainPanel = { statusEl: printQueueStatus, undoBtn: printQueueUndo, undoId: null, render: () => renderPrintLists() };   // undoId: item the head-row Undo reverts; any other status change clears it
 let pqLastBlobUrl = null;   // last queue-PDF object URL, revoked before a new one
 
 // Page size / font ceiling / printer name per sticker size (spec § PDF rendering).
@@ -2037,6 +2042,8 @@ function pqTitle(item) {
   return `${label} · ${item.size} · ${count} sticker${count !== 1 ? 's' : ''}`;
 }
 
+function renderPrintLists() { renderPrintQueue(); renderJobStickers(); }
+
 function renderPrintQueue() {
   const open = Storage.getPrintQueue();
   printQueueBtn.textContent = open.length ? `To Print (${open.length})` : 'To Print';
@@ -2051,7 +2058,12 @@ function renderPrintQueue() {
     printQueueList.innerHTML = `<div class="print-queue-empty">${showPrinted ? `Nothing printed in the last ${Storage.PRINT_RETENTION_DAYS} days.` : 'Nothing waiting to print.'}</div>`;
     return;
   }
-  printQueueList.innerHTML = items.map(item => {
+  printQueueList.innerHTML = pqRowsHtml(items);
+}
+
+// One row template for every sticker list (To Print and the job panel).
+function pqRowsHtml(items) {
+  return items.map(item => {
     const spec = PQ_SIZES[item.size];
     const isDoc = item.kind === 'document';
     const count = isDoc ? (item.pages || 0) : item.lines.length;
@@ -2196,7 +2208,7 @@ async function pqClearOld() {
     }
     const deleted = await Storage.clearPrintedBefore(cutoff);
     pqSetStatus(pqMainPanel, `Deleted ${deleted} printed item${deleted !== 1 ? 's' : ''}.`);
-    renderPrintQueue();
+    renderPrintLists();
   } catch (err) {
     pqSetStatus(pqMainPanel, `Couldn't clear — ${err.message}. Try again.`, true);
   } finally {
@@ -2204,16 +2216,17 @@ async function pqClearOld() {
   }
 }
 
-printQueueList.addEventListener('click', e => {
+function pqOnRowClick(panel, e) {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const id = btn.closest('.pq-row').dataset.id;
   const item = [...Storage.getPrintQueue(), ...Storage.getPrintedItems()].find(i => i.id === id);
   if (!item) return;
-  if (btn.dataset.action === 'print') pqPrint(pqMainPanel, item, btn);
-  if (btn.dataset.action === 'unprint') pqUnmarkPrinted(pqMainPanel, item.id, btn);
-  if (btn.dataset.action === 'delete')  pqDelete(pqMainPanel, item, btn);
-});
+  if (btn.dataset.action === 'print') pqPrint(panel, item, btn);
+  if (btn.dataset.action === 'unprint') pqUnmarkPrinted(panel, item.id, btn);
+  if (btn.dataset.action === 'delete')  pqDelete(panel, item, btn);
+}
+printQueueList.addEventListener('click', e => pqOnRowClick(pqMainPanel, e));
 
 printQueueBtn.addEventListener('click', () => {
   printQueuePanel.hidden = !printQueuePanel.hidden;
@@ -2240,42 +2253,53 @@ function pqShowError(msg) {
   pqError.hidden = !msg;
 }
 
-function pqFill() {
+// Shared by To Print and the job panel: append a generated range to a textarea.
+function pqFillInto(textarea, prefixEl, startEl, endEl, showError) {
   try {
-    const lines = Sequence.generateSequence(pqPrefix.value, pqStart.value, pqEnd.value);
-    const existing = pqLines.value.replace(/\s+$/, '');
-    pqLines.value = (existing ? existing + '\n' : '') + lines.join('\n');
-    pqShowError('');
-    pqLines.scrollTop = pqLines.scrollHeight;
+    const lines = Sequence.generateSequence(prefixEl.value, startEl.value, endEl.value);
+    const existing = textarea.value.replace(/\s+$/, '');
+    textarea.value = (existing ? existing + '\n' : '') + lines.join('\n');
+    showError('');
+    textarea.scrollTop = textarea.scrollHeight;
   } catch (err) {
-    pqShowError(err.message);
+    showError(err.message);
   }
 }
 
-async function pqSend() {
-  const lines = Sequence.parseLines(pqLines.value);
-  if (!lines.length) { pqShowError('Type at least one sticker line, or fill a range first.'); return; }
-  if (lines.length > Sequence.MAX_ITEMS) {
-    pqShowError(`That's ${lines.length} stickers — the limit is ${Sequence.MAX_ITEMS} per batch.`);
-    return;
-  }
-  const size = document.querySelector('input[name="pq-size"]:checked').value;
+function pqFill() { pqFillInto(pqLines, pqPrefix, pqStart, pqEnd, pqShowError); }
+
+// The message for a bad batch (empty or over the limit), or '' when it is fine.
+function pqLinesError(lines) {
+  if (!lines.length) return 'Type at least one sticker line, or fill a range first.';
+  if (lines.length > Sequence.MAX_ITEMS) return `That's ${lines.length} stickers — the limit is ${Sequence.MAX_ITEMS} per batch.`;
+  return '';
+}
+
+function pqCurrentEmail() {
   // Only trust firebase.auth() once an app has actually been initialized —
   // in PASTE mode the compat SDK loads from the CDN (so firebase.auth is a
   // real function) but initApp() never calls firebase.initializeApp(), and
   // calling firebase.auth() with no app throws synchronously.
   const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
+  const user = app ? app.auth().currentUser : null;
+  return user ? user.email : '';
+}
+
+async function pqSend() {
+  const lines = Sequence.parseLines(pqLines.value);
+  const bad = pqLinesError(lines);
+  if (bad) { pqShowError(bad); return; }
+  const size = document.querySelector('input[name="pq-size"]:checked').value;
   pqSendBtn.disabled = true;
   try {
-    const user = app ? app.auth().currentUser : null;
     // Nothing is written until here — the textarea is the only draft state,
     // so Collin never sees a batch appear one line at a time.
-    await Storage.addPrintItem({ kind: 'stickers', lines, size, jobName: null, createdBy: user ? user.email : '' });
+    await Storage.addPrintItem({ kind: 'stickers', lines, size, jobName: null, createdBy: pqCurrentEmail() });
     pqLines.value = '';
     pqShowError('');
     pqBuilder.open = false;
     pqSetStatus(pqMainPanel, `${lines.length} sticker${lines.length !== 1 ? 's' : ''} sent to the print list.`);
-    renderPrintQueue();
+    renderPrintLists();
   } catch (err) {
     // Firestore rejected (rules missing, offline…): nothing was cached, so
     // the list is untouched. Say why.
@@ -2289,6 +2313,78 @@ pqFillBtn.addEventListener('click', pqFill);
 pqSendBtn.addEventListener('click', pqSend);
 [pqPrefix, pqStart, pqEnd].forEach(el => el.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); pqFill(); }
+}));
+
+/* ── Job screen: Stickers button + panel (this job's batches) ── */
+const jobStickersBtn     = document.getElementById('job-stickers-btn');
+const jobStickersPanel   = document.getElementById('job-stickers-panel');
+const jobStickersList    = document.getElementById('job-stickers-list');
+const jobStickersPrinted = document.getElementById('job-stickers-printed-list');
+const jsPanel = { statusEl: document.getElementById('job-stickers-status'), undoBtn: document.getElementById('job-stickers-undo'), undoId: null, render: () => renderPrintLists() };
+let jsPanelJob = null;   // the job the panel was opened for; showContentScreen closes it when another job shows
+
+function renderJobStickers() {
+  if (!currentProject) return;
+  const all = [...Storage.getPrintQueue(), ...Storage.getPrintedItems()];
+  const n = JobStickers.waitingCount(all, currentProject);
+  jobStickersBtn.textContent = n ? `Stickers (${n})` : 'Stickers';
+  jobStickersBtn.classList.toggle('print-queue-btn--pending', n > 0);
+  if (jobStickersPanel.hidden) return;
+  const mine = JobStickers.ordered(JobStickers.forJob(all, currentProject));
+  const waiting = mine.filter(i => i.printedAt == null);
+  const printed = mine.filter(i => i.printedAt != null);
+  jobStickersList.innerHTML = waiting.length
+    ? pqRowsHtml(waiting) : '<div class="print-queue-empty">No stickers waiting for this job.</div>';
+  jobStickersPrinted.innerHTML = printed.length
+    ? pqRowsHtml(printed) : '<div class="print-queue-empty">Nothing printed for this job in the last 30 days.</div>';
+}
+
+jobStickersBtn.addEventListener('click', () => {
+  jobStickersPanel.hidden = !jobStickersPanel.hidden;
+  jsPanelJob = currentProject;
+  pqSetStatus(jsPanel, '');
+  renderJobStickers();
+});
+jobStickersList.addEventListener('click', e => pqOnRowClick(jsPanel, e));
+jobStickersPrinted.addEventListener('click', e => pqOnRowClick(jsPanel, e));
+jsPanel.undoBtn.addEventListener('click', () => { if (jsPanel.undoId) pqUnmarkPrinted(jsPanel, jsPanel.undoId, jsPanel.undoBtn); });
+
+const jsLines   = document.getElementById('js-lines');
+const jsPrefix  = document.getElementById('js-prefix');
+const jsStart   = document.getElementById('js-start');
+const jsEnd     = document.getElementById('js-end');
+const jsError   = document.getElementById('js-error');
+const jsSaveBtn = document.getElementById('js-save-btn');
+
+function jsShowError(msg) {
+  jsError.textContent = msg;
+  jsError.hidden = !msg;
+}
+
+async function jsSave() {
+  const lines = Sequence.parseLines(jsLines.value);
+  const bad = pqLinesError(lines);
+  if (bad) { jsShowError(bad); return; }
+  const size = document.querySelector('input[name="js-size"]:checked').value;
+  const jobName = currentProject;   // snapshot before the await
+  jsSaveBtn.disabled = true;
+  try {
+    await Storage.addPrintItem({ kind: 'stickers', lines, size, jobName, createdBy: pqCurrentEmail() });
+    jsLines.value = '';
+    jsShowError('');
+    pqSetStatus(jsPanel, `${lines.length} sticker${lines.length !== 1 ? 's' : ''} saved to this job.`);
+    renderPrintLists();
+  } catch (err) {
+    jsShowError(`Couldn't save — ${err.message}`);
+  } finally {
+    jsSaveBtn.disabled = false;
+  }
+}
+
+document.getElementById('js-fill-btn').addEventListener('click', () => pqFillInto(jsLines, jsPrefix, jsStart, jsEnd, jsShowError));
+jsSaveBtn.addEventListener('click', jsSave);
+[jsPrefix, jsStart, jsEnd].forEach(el => el.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); pqFillInto(jsLines, jsPrefix, jsStart, jsEnd, jsShowError); }
 }));
 
 /* ── Builder: + Send a document ── */
@@ -2402,7 +2498,7 @@ async function pqDocSend() {
     pqDocReset();
     pqDocBuilder.open = false;
     pqSetStatus(pqMainPanel, `${name} sent to the print list.`);
-    renderPrintQueue();
+    renderPrintLists();
   } catch (err) {
     pqSetStatus(pqMainPanel, '');
     pqDocShowError(`Couldn't send — ${err.message}`);
@@ -2602,10 +2698,10 @@ async function loadDataAndShowApp() {
   Storage.onPrintQueueChange(() => {
     // Badge count on the To Print button updates everywhere; the list only
     // re-renders while the panel is open (renderPrintQueue checks).
-    renderPrintQueue();
+    renderPrintLists();
   });
 
-  renderPrintQueue();   // initial badge from the loaded cache
+  renderPrintLists();   // initial badge from the loaded cache
 
   loadingScreen.classList.add('hidden');
 }

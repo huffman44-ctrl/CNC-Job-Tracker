@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=27">
+  <link rel="stylesheet" href="css/style.css?v=28">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -466,6 +466,7 @@
       <div class="header-right">
         <button class="dark-toggle header-dark-toggle" id="dark-mode-btn" aria-label="Toggle dark mode"></button>
         <button class="btn btn-ghost btn-sm" id="vanlab-print-btn">VanLab Stickers</button>
+        <button class="btn btn-ghost btn-sm" id="job-stickers-btn">Stickers</button>
         <button class="btn btn-ghost btn-sm" id="print-ticket-btn">Print Ticket</button>
         <button class="btn btn-ghost btn-sm" id="export-btn">Export CSV</button>
         <button class="btn btn-danger btn-sm" id="reset-btn">Reset All</button>
@@ -502,6 +503,35 @@
           <label class="form-label" for="vanlab-manual-assembly">Assembly #</label>
           <input id="vanlab-manual-assembly" class="form-input vanlab-van-select" placeholder="blank if none">
         </span>
+      </div>
+    </div>
+
+    <div id="job-stickers-panel" class="print-queue-panel job-stickers-panel" hidden>
+      <div class="print-queue-head">
+        <span id="job-stickers-status" class="vanlab-status"></span>
+        <button class="btn btn-outline btn-sm" id="job-stickers-undo" type="button" hidden>Undo</button>
+      </div>
+      <div id="job-stickers-list" class="print-queue-list"></div>
+      <div class="job-stickers-heading">Printed (last 30 days)</div>
+      <div id="job-stickers-printed-list" class="print-queue-list"></div>
+      <div class="print-queue-builder">
+        <div class="print-queue-builder-body">
+          <label class="form-label" for="js-lines">New batch for this job — one sticker per line</label>
+          <textarea id="js-lines" class="form-input form-textarea form-textarea--tall" placeholder="ED1&#10;ED2&#10;ED3 …" spellcheck="false"></textarea>
+          <div class="print-queue-range">
+            <span class="form-label">Fill a range:</span>
+            <input id="js-prefix" class="form-input" placeholder="prefix (ED)" autocapitalize="off">
+            <input id="js-start" class="form-input" placeholder="start (1 or A)">
+            <input id="js-end" class="form-input" placeholder="end (45 or Z)">
+            <button class="btn btn-outline btn-sm" id="js-fill-btn" type="button">Fill</button>
+          </div>
+          <div class="print-queue-size">
+            <label><input type="radio" name="js-size" value="3x1" checked> 3x1 thermal</label>
+            <label><input type="radio" name="js-size" value="4x6"> 4x6 thermal</label>
+          </div>
+          <div id="js-error" class="vanlab-status vanlab-status-error" hidden></div>
+          <div><button class="btn btn-primary btn-sm" id="js-save-btn" type="button">Save to this job</button></div>
+        </div>
       </div>
     </div>
 
@@ -751,6 +781,6 @@
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=42"></script>
+  <script src="js/app.js?v=43"></script>
 </body>
 </html>

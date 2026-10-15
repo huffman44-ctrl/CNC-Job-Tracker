@@ -24,6 +24,9 @@ cpSync(join(ROOT, sample), join(dst, sample));
 const sample2 = sample.replace(/Sheet 9\.html$/, 'Sheet 10.html');
 cpSync(join(ROOT, sample), join(dst, sample2));
 // An HTML file that is not an Aspire setup sheet (a saved web page) for the not-a-sheet case.
+// The same sheet filed under another (fake) job name, for the job-stickers "another job" case.
+const sampleOther = 'Other_Job_Sheet 1.html';
+writeFileSync(join(dst, sampleOther), readFileSync(join(ROOT, sample), 'utf8').replace(/(<div id="jobtitle">)[^<]*(<\/div>)/, '$1Fake_Other_Job_0001$2'));
 writeFileSync(join(dst, 'saved-web-page.html'), '<!doctype html><html><head><title>Recipe</title></head><body><h1>Banana bread</h1></body></html>\n');
 // PASTE mode: BOTH configs are overwritten in the COPY, fully written before the server listens.
 writeFileSync(join(dst, 'js/firebase-config.js'), "const FIREBASE_CONFIG = { apiKey: 'x', authDomain: 'x', projectId: 'PASTE_DISABLED', appId: 'x' };\n");
@@ -84,7 +87,7 @@ async function main() {
   assert(await page.isHidden('#owner-panel'), 'Collin: no owner panel on the job card');
   assert((await page.$$('.jc-row-tags')).length === 0, 'Collin: sidebar rows carry no tags');
   const headerButtons = await page.$$eval('#content-screen .header-right button', bs => bs.map(b => b.id));
-  assert(JSON.stringify(headerButtons) === JSON.stringify(['dark-mode-btn', 'vanlab-print-btn', 'print-ticket-btn', 'export-btn', 'reset-btn']), 'Collin: job header buttons — Print Ticket sits just left of Export CSV');
+  assert(JSON.stringify(headerButtons) === JSON.stringify(['dark-mode-btn', 'vanlab-print-btn', 'job-stickers-btn', 'print-ticket-btn', 'export-btn', 'reset-btn']), 'Collin: job header buttons — Print Ticket sits just left of Export CSV');
   // Print Ticket = print only: no CSV, no log write, no ticket-history record, job stays on the board
   await page.evaluate(() => {
     window.__calls = { print: 0, log: 0, ticket: 0 };
@@ -433,6 +436,63 @@ async function main() {
   await page.waitForFunction(() => /Popup blocked/.test(document.getElementById('print-queue-status').textContent), null, { timeout: 15000 });
   assert(await page.evaluate(() => Storage.getPrintQueue().length === 1 && Storage.getPrintedItems().length === 0), 'to print: popup blocked marks nothing');
   assert(await page.isHidden('#print-queue-undo'), 'to print: no Undo after a blocked popup');
+  await page.close();
+
+  // ── Job stickers: Stickers button + job panel (spec .scratch/job-stickers, ticket 03) — Collin, no owner stub ──
+  page = await fresh();
+  await upload(page);
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  const jsJob = await page.evaluate(() => currentProject);
+  assert((await page.textContent('#job-stickers-btn')).trim() === 'Stickers', 'job stickers: button says Stickers when nothing is waiting');
+  assert(await page.isHidden('#job-stickers-panel'), 'job stickers: panel starts closed');
+  await page.click('#job-stickers-btn');
+  assert(await page.isVisible('#job-stickers-panel'), 'job stickers: button opens the panel (Collin sees it)');
+  await page.click('#js-save-btn');
+  assert(await page.isVisible('#js-error') && /Type at least one sticker line/.test(await page.textContent('#js-error')), 'job stickers: saving an empty box shows the empty message');
+  await page.fill('#js-lines', ['ED1', 'ED2', 'ED3'].join(String.fromCharCode(10)));
+  await page.click('#js-save-btn');
+  await page.waitForFunction(() => document.getElementById('job-stickers-btn').textContent.trim() === 'Stickers (1)');
+  assert(await page.$eval('#job-stickers-btn', b => b.classList.contains('print-queue-btn--pending')), 'job stickers: button turns pending after a save');
+  assert(await page.locator('#job-stickers-list .pq-row').count() === 1, 'job stickers: one row in the job panel');
+  assert(/3 stickers saved to this job\./.test(await page.textContent('#job-stickers-status')), 'job stickers: status says the batch was saved');
+  assert(await page.inputValue('#js-lines') === '' && await page.isHidden('#js-error'), 'job stickers: save clears the box and the error');
+  const stored = await page.evaluate(() => Storage.getPrintQueue().map(i => i.jobName));
+  assert(stored.length === 1 && stored[0] === jsJob, 'job stickers: the stored batch carries the job name');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.click('#print-queue-btn');
+  await page.waitForSelector('#print-queue-list .pq-row');
+  assert((await page.textContent('#print-queue-list .pq-row-meta')).includes(jsJob), 'job stickers: the To Print row names the job');
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  assert(await page.isHidden('#job-stickers-panel'), 'job stickers: panel is closed again after leaving the job');
+  assert((await page.textContent('#job-stickers-btn')).trim() === 'Stickers (1)', 'job stickers: button still counts the waiting batch');
+  await page.click('#job-stickers-btn');
+  await page.evaluate(() => { window.open = () => ({}); });
+  await page.click('#job-stickers-list [data-action="print"]');
+  await page.waitForFunction(() => /Marked printed\.$/.test(document.getElementById('job-stickers-status').textContent), null, { timeout: 15000 });
+  assert(await page.locator('#job-stickers-printed-list .pq-row').count() === 1 && await page.locator('#job-stickers-list .pq-row').count() === 0, 'job stickers: printed row moves to the Printed group');
+  assert((await page.textContent('#job-stickers-btn')).trim() === 'Stickers', 'job stickers: button back to Stickers after printing');
+  assert(await page.isVisible('#job-stickers-undo'), 'job stickers: Undo is offered after Print');
+  await page.click('#job-stickers-undo');
+  await page.waitForFunction(() => document.getElementById('job-stickers-btn').textContent.trim() === 'Stickers (1)');
+  assert(await page.locator('#job-stickers-list .pq-row').count() === 1 && await page.locator('#job-stickers-printed-list .pq-row').count() === 0, 'job stickers: Undo puts it back to waiting');
+  await page.evaluate(() => { window.open = () => null; });
+  await page.click('#job-stickers-list [data-action="print"]');
+  await page.waitForFunction(() => /Popup blocked/.test(document.getElementById('job-stickers-status').textContent), null, { timeout: 15000 });
+  assert(await page.locator('#job-stickers-list .pq-row').count() === 1 && (await page.textContent('#job-stickers-btn')).trim() === 'Stickers (1)', 'job stickers: popup blocked leaves the batch waiting');
+  // Another job does not show this batch
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.setInputFiles('#file-input', join(dst, sampleOther));
+  await page.waitForFunction(() => document.querySelectorAll('.project-card').length === 2, null, { timeout: 15000 });
+  await page.evaluate(() => { const c = [...document.querySelectorAll('.project-card')].find(el => el.textContent.includes('Fake_Other_Job_0001')); c.click(); });
+  await page.waitForSelector('#content-screen:not([hidden])');
+  assert(await page.evaluate(() => currentProject) === 'Fake_Other_Job_0001', 'job stickers: opened the other job');
+  assert((await page.textContent('#job-stickers-btn')).trim() === 'Stickers', 'job stickers: other job button shows no count');
+  await page.click('#job-stickers-btn');
+  assert(await page.locator('#job-stickers-panel .pq-row').count() === 0, 'job stickers: other job panel has no rows');
   await page.close();
 
   // ── Settings screen ──
