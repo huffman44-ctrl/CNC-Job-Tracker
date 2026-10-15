@@ -1864,7 +1864,19 @@ body {
 .print-queue-panel.pq-drop--over .pq-drop { border-color: var(--orange); color: var(--orange); background: var(--orange-light); }
 .print-queue-panel.pq-drop--over { outline: 2px dashed var(--orange); outline-offset: -4px; }
 .pq-doc-staged { display: flex; align-items: center; gap: 10px; }
-.pq-row-delete { color: var(--red); margin-left: 12px; }   /* kept apart from Print / Undo printed — a thumb on the shop floor */
+/* .btn-ghost is styled for the dark header (white text) — on the white panel it vanished in light mode */
+.pq-row-actions .btn-ghost {
+  background: var(--gray-100);
+  color: var(--gray-700);
+  border: 1px solid var(--gray-200);
+}
+.pq-row-actions .btn-ghost:hover { background: var(--gray-200); color: var(--gray-800); }
+[data-theme="dark"] .pq-row-actions .btn-ghost {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.15);
+}
+.pq-row-actions .btn-ghost.pq-row-delete { color: var(--red); margin-left: 12px; }   /* kept apart from Print / Undo printed — a thumb on the shop floor */
 @media (max-width: 480px) {
   .print-queue-panel { padding: 10px 12px 12px; }
   .pq-row-actions { width: 100%; }
