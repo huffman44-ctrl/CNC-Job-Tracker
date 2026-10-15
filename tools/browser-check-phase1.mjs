@@ -408,6 +408,33 @@ async function main() {
   assert(afterCancel.note === null, 'cancel: nothing is left behind for the cancelled sheet');
   await page.close();
 
+  // ── To Print: Print marks printed (spec .scratch/job-stickers, ticket 02) ──
+  page = await fresh();
+  await upload(page);
+  await page.click('#print-queue-btn');
+  await page.evaluate(() => { document.getElementById('pq-builder').open = true; });
+  await page.fill('#pq-lines', ['ED1', 'ED2', 'ED3'].join(String.fromCharCode(10)));
+  await page.click('#pq-send-btn');
+  await page.waitForSelector('#print-queue-list .pq-row');
+  assert(await page.locator('#print-queue-list .pq-row').count() === 1, 'to print: one waiting row');
+  assert(!(await page.$('[data-action="printed"]')), 'to print: no separate Printed button on a waiting row');
+  await page.evaluate(() => { window.open = () => ({}); });
+  await page.click('#print-queue-list [data-action="print"]');
+  await page.waitForFunction(() => /Marked printed\.$|Couldn't|Printed, but/.test(document.getElementById('print-queue-status').textContent), null, { timeout: 15000 });
+  const marked = await page.evaluate(() => ({ status: document.getElementById('print-queue-status').textContent, printed: Storage.getPrintedItems().length, waiting: Storage.getPrintQueue().length }));
+  assert(/3 stickers ready/.test(marked.status) && /Marked printed\.$/.test(marked.status), 'to print: Print says "3 stickers ready … Marked printed." (got: ' + marked.status + ')');
+  assert(marked.printed === 1 && marked.waiting === 0, 'to print: the batch is printed after Print');
+  assert(await page.isVisible('#print-queue-undo'), 'to print: Undo is offered after Print marks it');
+  await page.click('#print-queue-undo');
+  await page.waitForFunction(() => Storage.getPrintQueue().length === 1);
+  assert(await page.evaluate(() => Storage.getPrintedItems().length === 0), 'to print: Undo puts the batch back to waiting');
+  await page.evaluate(() => { window.open = () => null; });
+  await page.click('#print-queue-list [data-action="print"]');
+  await page.waitForFunction(() => /Popup blocked/.test(document.getElementById('print-queue-status').textContent), null, { timeout: 15000 });
+  assert(await page.evaluate(() => Storage.getPrintQueue().length === 1 && Storage.getPrintedItems().length === 0), 'to print: popup blocked marks nothing');
+  assert(await page.isHidden('#print-queue-undo'), 'to print: no Undo after a blocked popup');
+  await page.close();
+
   // ── Settings screen ──
   page = await fresh();
   await upload(page);

@@ -1987,7 +1987,7 @@ const printQueueList        = document.getElementById('print-queue-list');
 const printQueueShowPrinted = document.getElementById('print-queue-show-printed');
 const printQueueUndo     = document.getElementById('print-queue-undo');
 const printQueueClearOld = document.getElementById('print-queue-clear-old');
-let pqUndoId = null;   // item the head-row Undo reverts; any other status change clears it
+const pqMainPanel = { statusEl: printQueueStatus, undoBtn: printQueueUndo, undoId: null, render: () => renderPrintQueue() };   // undoId: item the head-row Undo reverts; any other status change clears it
 let pqLastBlobUrl = null;   // last queue-PDF object URL, revoked before a new one
 
 // Page size / font ceiling / printer name per sticker size (spec § PDF rendering).
@@ -2012,11 +2012,19 @@ function pqDisplayName(email) {
   return PQ_DISPLAY_NAMES[local] || local;
 }
 
-function pqSetStatus(text, isError) {
-  printQueueStatus.textContent = text;
-  printQueueStatus.classList.toggle('vanlab-status-error', !!isError);
-  pqUndoId = null;
-  printQueueUndo.hidden = true;
+// A panel is one status line + head-row Undo + a re-render; the To Print panel is
+// pqMainPanel, and the print/mark helpers take the panel so another can reuse them.
+function pqSetStatus(panel, text, isError) {
+  panel.statusEl.textContent = text;
+  panel.statusEl.classList.toggle('vanlab-status-error', !!isError);
+  panel.undoId = null;
+  panel.undoBtn.hidden = true;
+}
+
+function pqShowUndo(panel, id) {
+  panel.undoId = id;
+  panel.undoBtn.disabled = false;   // a previous Undo click leaves it disabled
+  panel.undoBtn.hidden = false;
 }
 
 function pqWhat(item) {
@@ -2065,18 +2073,18 @@ function renderPrintQueue() {
           </div>
           ${item.printedAt
             ? '<button class="btn btn-ghost btn-sm" data-action="unprint">Undo printed</button><button class="btn btn-ghost btn-sm pq-row-delete" data-action="delete">Delete</button>'
-            : '<button class="btn btn-ghost btn-sm" data-action="printed">Printed</button>'}
+            : ''}
         </div>
       </div>`;
   }).join('');
 }
 
-async function pqPrint(item, button) {
-  if (item.kind === 'document') return pqPrintDocument(item, button);
+async function pqPrint(panel, item, button) {
+  if (item.kind === 'document') return pqPrintDocument(panel, item, button);
   const spec = PQ_SIZES[item.size];
-  if (!spec) { pqSetStatus(`Can't print: unknown size ${item.size}.`, true); return; }
+  if (!spec) { pqSetStatus(panel, `Can't print: unknown size ${item.size}.`, true); return; }
   button.disabled = true;
-  pqSetStatus('Building the sticker PDF…');
+  pqSetStatus(panel, 'Building the sticker PDF…');
   try {
     const texts = {};
     const items = item.lines.map((line, i) => { texts[i] = line; return [i, 1]; });
@@ -2085,22 +2093,22 @@ async function pqPrint(item, button) {
     if (pqLastBlobUrl) URL.revokeObjectURL(pqLastBlobUrl);
     pqLastBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     if (!window.open(pqLastBlobUrl, '_blank')) {
-      pqSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      pqSetStatus(panel, 'Popup blocked — allow popups for this site, then click Print again.', true);
       return;
     }
-    pqSetStatus(`${item.lines.length} stickers ready — print the opened PDF on the ${spec.printer} printer at 100% scale.`);
+    await pqAfterOpen(panel, item, `${item.lines.length} stickers ready — print the opened PDF on the ${spec.printer} printer at 100% scale.`);
   } catch (err) {
-    pqSetStatus(`Couldn't build the sticker PDF — ${err.message}`, true);
+    pqSetStatus(panel, `Couldn't build the sticker PDF — ${err.message}`, true);
   } finally {
     button.disabled = false;
   }
 }
 
-async function pqPrintDocument(item, button) {
+async function pqPrintDocument(panel, item, button) {
   const spec = PQ_SIZES[item.size];
   const name = item.fileName || 'document';
   button.disabled = true;
-  pqSetStatus(`Fetching ${name}…`);
+  pqSetStatus(panel, `Fetching ${name}…`);
   try {
     if (!Endpoint.enabled()) throw new Error('endpoint not configured');
     const idToken = await Auth.getIdToken();
@@ -2117,49 +2125,47 @@ async function pqPrintDocument(item, button) {
     if (pqLastBlobUrl) URL.revokeObjectURL(pqLastBlobUrl);
     pqLastBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     if (!window.open(pqLastBlobUrl, '_blank')) {
-      pqSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      pqSetStatus(panel, 'Popup blocked — allow popups for this site, then click Print again.', true);
       return;
     }
-    pqSetStatus(`${name} ready — print the opened PDF on the ${spec ? spec.printer : item.size} at 100% scale.`);
+    await pqAfterOpen(panel, item, `${name} ready — print the opened PDF on the ${spec ? spec.printer : item.size} at 100% scale.`);
   } catch (err) {
     // Row stays in the list; the real reason is the message.
-    pqSetStatus(`Couldn't fetch ${name} — ${err.message}. Try again.`, true);
+    pqSetStatus(panel, `Couldn't fetch ${name} — ${err.message}. Try again.`, true);
   } finally {
     button.disabled = false;
   }
 }
 
-async function pqMarkPrinted(item, button) {
-  button.disabled = true;
+// After the PDF window opened: a waiting item is marked printed (Undo offered);
+// an already-printed one (Print again) is left alone.
+async function pqAfterOpen(panel, item, readyText) {
+  if (item.printedAt != null) { pqSetStatus(panel, readyText); return; }
   try {
     await Storage.markPrinted(item.id);
-    const what = pqWhat(item);
-    pqSetStatus(`${what} marked printed.`);
-    pqUndoId = item.id;
-    printQueueUndo.disabled = false;   // a previous Undo click leaves it disabled
-    printQueueUndo.hidden = false;
-    renderPrintQueue();
+    pqSetStatus(panel, `${readyText} Marked printed.`);
+    pqShowUndo(panel, item.id);
+    panel.render();
   } catch (err) {
-    // Row stays in the list; the real reason is the message.
-    pqSetStatus(`Couldn't mark it printed — ${err.message}. Try again.`, true);
-    button.disabled = false;
+    // Row stays waiting; the PDF did open.
+    pqSetStatus(panel, `Printed, but couldn't mark it printed — ${err.message}.`, true);
   }
 }
 
-async function pqUnmarkPrinted(id, button) {
+async function pqUnmarkPrinted(panel, id, button) {
   button.disabled = true;
   const item = [...Storage.getPrintQueue(), ...Storage.getPrintedItems()].find(i => i.id === id);
   try {
     await Storage.unmarkPrinted(id);
-    pqSetStatus(`${item ? pqWhat(item) : 'Item'} is back in the queue.`);
-    renderPrintQueue();
+    pqSetStatus(panel, `${item ? pqWhat(item) : 'Item'} is back in the queue.`);
+    panel.render();
   } catch (err) {
-    pqSetStatus(`Couldn't undo — ${err.message}. Try again.`, true);
+    pqSetStatus(panel, `Couldn't undo — ${err.message}. Try again.`, true);
     button.disabled = false;
   }
 }
 
-async function pqDelete(item, button) {
+async function pqDelete(panel, item, button) {
   // Irreversible. confirm() is the repo's destructive-action pattern; if Chrome
   // has suppressed dialogs for the site it returns false and nothing happens.
   const printed = item.printedAt ? `, printed ${formatDT(new Date(item.printedAt))}` : '';
@@ -2168,10 +2174,10 @@ async function pqDelete(item, button) {
   button.disabled = true;
   try {
     await Storage.deletePrintItem(item.id);
-    pqSetStatus(`${pqWhat(item)} deleted.`);
-    renderPrintQueue();
+    pqSetStatus(panel, `${pqWhat(item)} deleted.`);
+    panel.render();
   } catch (err) {
-    pqSetStatus(`Couldn't delete — ${err.message}. Try again.`, true);
+    pqSetStatus(panel, `Couldn't delete — ${err.message}. Try again.`, true);
     button.disabled = false;
   }
 }
@@ -2181,18 +2187,18 @@ async function pqClearOld() {
   const cutoff = Storage.printRetentionCutoff();
   printQueueClearOld.disabled = true;
   try {
-    pqSetStatus('Counting…');
+    pqSetStatus(pqMainPanel, 'Counting…');
     const n = await Storage.countPrintedBefore(cutoff);
-    if (!n) { pqSetStatus(`Nothing printed more than ${days} days ago.`); return; }
+    if (!n) { pqSetStatus(pqMainPanel, `Nothing printed more than ${days} days ago.`); return; }
     if (!confirm(`Permanently delete ${n} printed item${n !== 1 ? 's' : ''} older than ${days} days? They aren't shown in this list and can't be recovered.`)) {
-      pqSetStatus('');
+      pqSetStatus(pqMainPanel, '');
       return;
     }
     const deleted = await Storage.clearPrintedBefore(cutoff);
-    pqSetStatus(`Deleted ${deleted} printed item${deleted !== 1 ? 's' : ''}.`);
+    pqSetStatus(pqMainPanel, `Deleted ${deleted} printed item${deleted !== 1 ? 's' : ''}.`);
     renderPrintQueue();
   } catch (err) {
-    pqSetStatus(`Couldn't clear — ${err.message}. Try again.`, true);
+    pqSetStatus(pqMainPanel, `Couldn't clear — ${err.message}. Try again.`, true);
   } finally {
     printQueueClearOld.disabled = false;
   }
@@ -2204,20 +2210,19 @@ printQueueList.addEventListener('click', e => {
   const id = btn.closest('.pq-row').dataset.id;
   const item = [...Storage.getPrintQueue(), ...Storage.getPrintedItems()].find(i => i.id === id);
   if (!item) return;
-  if (btn.dataset.action === 'print') pqPrint(item, btn);
-  if (btn.dataset.action === 'printed') pqMarkPrinted(item, btn);
-  if (btn.dataset.action === 'unprint') pqUnmarkPrinted(item.id, btn);
-  if (btn.dataset.action === 'delete')  pqDelete(item, btn);
+  if (btn.dataset.action === 'print') pqPrint(pqMainPanel, item, btn);
+  if (btn.dataset.action === 'unprint') pqUnmarkPrinted(pqMainPanel, item.id, btn);
+  if (btn.dataset.action === 'delete')  pqDelete(pqMainPanel, item, btn);
 });
 
 printQueueBtn.addEventListener('click', () => {
   printQueuePanel.hidden = !printQueuePanel.hidden;
-  pqSetStatus('');
+  pqSetStatus(pqMainPanel, '');
   renderPrintQueue();
 });
 
 printQueueShowPrinted.addEventListener('change', renderPrintQueue);
-printQueueUndo.addEventListener('click', () => { if (pqUndoId) pqUnmarkPrinted(pqUndoId, printQueueUndo); });
+printQueueUndo.addEventListener('click', () => { if (pqMainPanel.undoId) pqUnmarkPrinted(pqMainPanel, pqMainPanel.undoId, printQueueUndo); });
 printQueueClearOld.addEventListener('click', pqClearOld);
 
 /* ── Builder: + New batch ── */
@@ -2269,7 +2274,7 @@ async function pqSend() {
     pqLines.value = '';
     pqShowError('');
     pqBuilder.open = false;
-    pqSetStatus(`${lines.length} sticker${lines.length !== 1 ? 's' : ''} sent to the print list.`);
+    pqSetStatus(pqMainPanel, `${lines.length} sticker${lines.length !== 1 ? 's' : ''} sent to the print list.`);
     renderPrintQueue();
   } catch (err) {
     // Firestore rejected (rules missing, offline…): nothing was cached, so
@@ -2384,7 +2389,7 @@ async function pqDocSend() {
   pqDocSending = true;
   pqDocSendBtn.disabled = true;
   pqDocShowError('');
-  pqSetStatus(`Uploading ${name}…`);
+  pqSetStatus(pqMainPanel, `Uploading ${name}…`);
   try {
     if (!Endpoint.enabled()) throw new Error('endpoint not configured');
     const user = app ? app.auth().currentUser : null;
@@ -2396,10 +2401,10 @@ async function pqDocSend() {
     await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages, size, lines: [], jobName: null, createdBy: user ? user.email : '' });
     pqDocReset();
     pqDocBuilder.open = false;
-    pqSetStatus(`${name} sent to the print list.`);
+    pqSetStatus(pqMainPanel, `${name} sent to the print list.`);
     renderPrintQueue();
   } catch (err) {
-    pqSetStatus('');
+    pqSetStatus(pqMainPanel, '');
     pqDocShowError(`Couldn't send — ${err.message}`);
     pqDocSendBtn.disabled = false;
   } finally {
