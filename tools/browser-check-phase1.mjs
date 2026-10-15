@@ -436,6 +436,22 @@ async function main() {
   await page.waitForFunction(() => /Popup blocked/.test(document.getElementById('print-queue-status').textContent), null, { timeout: 15000 });
   assert(await page.evaluate(() => Storage.getPrintQueue().length === 1 && Storage.getPrintedItems().length === 0), 'to print: popup blocked marks nothing');
   assert(await page.isHidden('#print-queue-undo'), 'to print: no Undo after a blocked popup');
+  // Marking fails: the PDF opened, so say so — the row stays waiting, no Undo
+  await page.evaluate(() => { window.open = () => ({}); window.__mp = Storage.markPrinted; Storage.markPrinted = async () => { throw new Error('offline'); }; });
+  await page.click('#print-queue-list [data-action="print"]');
+  await page.waitForFunction(() => /Printed, but/.test(document.getElementById('print-queue-status').textContent), null, { timeout: 15000 });
+  assert(await page.textContent('#print-queue-status') === "Printed, but couldn't mark it printed — offline.", 'to print: a failed mark says "Printed, but couldn\'t mark it printed — <reason>."');
+  assert(await page.evaluate(() => Storage.getPrintQueue().length === 1), 'to print: a failed mark leaves the row waiting');
+  assert(await page.isHidden('#print-queue-undo'), 'to print: no Undo after a failed mark');
+  // Print again from the printed list: opens the PDF, marks nothing, offers no Undo
+  await page.evaluate(async () => { Storage.markPrinted = window.__mp; await Storage.markPrinted(Storage.getPrintQueue()[0].id); window.__printedAt = Storage.getPrintedItems()[0].printedAt; });
+  await page.check('#print-queue-show-printed');
+  await page.waitForSelector('#print-queue-list .pq-row');
+  await page.click('#print-queue-list [data-action="print"]');
+  await page.waitForFunction(() => /stickers ready/.test(document.getElementById('print-queue-status').textContent), null, { timeout: 15000 });
+  const again = await page.evaluate(() => ({ status: document.getElementById('print-queue-status').textContent, same: Storage.getPrintedItems()[0].printedAt === window.__printedAt }));
+  assert(!/Marked printed/.test(again.status) && again.same, 'to print: Print again on a printed row marks nothing (got: ' + again.status + ')');
+  assert(await page.isHidden('#print-queue-undo'), 'to print: no Undo after Print again');
   await page.close();
 
   // ── Job stickers: Stickers button + job panel (spec .scratch/job-stickers, ticket 03) — Collin, no owner stub ──

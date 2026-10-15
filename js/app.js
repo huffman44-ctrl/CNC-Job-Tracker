@@ -2152,16 +2152,20 @@ async function pqPrintDocument(panel, item, button) {
 // After the PDF window opened: a waiting item is marked printed (Undo offered);
 // an already-printed one (Print again) is left alone.
 async function pqAfterOpen(panel, item, readyText) {
-  if (item.printedAt != null) { pqSetStatus(panel, readyText); return; }
+  // The printer hint shows now — not only once the database answers (slow shop Wi-Fi).
+  pqSetStatus(panel, readyText);
+  // Re-read the cache: another PC may have marked or deleted it while the PDF was built.
+  if (!Storage.getPrintQueue().some(i => i.id === item.id)) return;
   try {
     await Storage.markPrinted(item.id);
-    pqSetStatus(panel, `${readyText} Marked printed.`);
-    pqShowUndo(panel, item.id);
-    panel.render();
   } catch (err) {
     // Row stays waiting; the PDF did open.
     pqSetStatus(panel, `Printed, but couldn't mark it printed — ${err.message}.`, true);
+    return;
   }
+  pqSetStatus(panel, `${readyText} Marked printed.`);
+  pqShowUndo(panel, item.id);
+  panel.render();
 }
 
 async function pqUnmarkPrinted(panel, id, button) {
