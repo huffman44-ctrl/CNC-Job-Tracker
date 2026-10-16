@@ -498,7 +498,8 @@ async function main() {
   await page.click('#job-stickers-list [data-action="print"]');
   await page.waitForFunction(() => /Popup blocked/.test(document.getElementById('job-stickers-status').textContent), null, { timeout: 15000 });
   assert(await page.locator('#job-stickers-list .pq-row').count() === 1 && (await page.textContent('#job-stickers-btn')).trim() === 'Stickers (1)', 'job stickers: popup blocked leaves the batch waiting');
-  // Another job does not show this batch
+  // Another job does not show this batch, and a draft typed in this job doesn't follow you there
+  await page.fill('#js-lines', 'DRAFT1');
   await page.click('#back-to-projects-btn');
   await page.waitForSelector('#projects-screen:not([hidden])');
   await page.setInputFiles('#file-input', join(dst, sampleOther));
@@ -508,7 +509,9 @@ async function main() {
   assert(await page.evaluate(() => currentProject) === 'Fake_Other_Job_0001', 'job stickers: opened the other job');
   assert((await page.textContent('#job-stickers-btn')).trim() === 'Stickers', 'job stickers: other job button shows no count');
   await page.click('#job-stickers-btn');
+  assert(await page.isVisible('#job-stickers-panel'), 'job stickers: other job panel opens');
   assert(await page.locator('#job-stickers-panel .pq-row').count() === 0, 'job stickers: other job panel has no rows');
+  assert(await page.inputValue('#js-lines') === '', "job stickers: the first job's unsaved draft is not carried over");
   await page.close();
 
   // ── Settings screen ──

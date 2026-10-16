@@ -315,6 +315,7 @@ function hideAllScreens() {
   settingsScreen.hidden      = true;
   projectsScreen.hidden      = true;
   billingScreens().forEach(el => { el.hidden = true; });
+  jobStickersPanel.hidden    = true;   // leaving the job screen (Projects, Billing, Settings) closes it
 }
 
 // The finished view never survives a trip back to the Projects screen (P6): whatever sent us
@@ -336,7 +337,6 @@ function showProjectsScreen() {
   resetFinishedView();
   hideAllScreens();
   projectsScreen.hidden      = false;
-  jobStickersPanel.hidden    = true;
   renderProjects();
   renderPrintQueue();
 }
@@ -2325,7 +2325,7 @@ const jobStickersPanel   = document.getElementById('job-stickers-panel');
 const jobStickersList    = document.getElementById('job-stickers-list');
 const jobStickersPrinted = document.getElementById('job-stickers-printed-list');
 const jsPanel = { statusEl: document.getElementById('job-stickers-status'), undoBtn: document.getElementById('job-stickers-undo'), undoId: null, render: () => renderPrintLists() };
-let jsPanelJob = null;   // the job the panel was opened for; showContentScreen closes it when another job shows
+let jsPanelJob = null;   // the job the panel (and its unsaved draft) belongs to; showContentScreen closes it when another job shows
 
 function renderJobStickers() {
   if (!currentProject) return;
@@ -2345,6 +2345,11 @@ function renderJobStickers() {
 
 jobStickersBtn.addEventListener('click', () => {
   jobStickersPanel.hidden = !jobStickersPanel.hidden;
+  // A draft typed for another job must never be one click from saving under this one.
+  if (jsPanelJob !== currentProject) {
+    [jsLines, jsPrefix, jsStart, jsEnd].forEach(el => { el.value = ''; });
+    jsShowError('');
+  }
   jsPanelJob = currentProject;
   pqSetStatus(jsPanel, '');
   renderJobStickers();
@@ -2374,10 +2379,11 @@ async function jsSave() {
   jsSaveBtn.disabled = true;
   try {
     await Storage.addPrintItem({ kind: 'stickers', lines, size, jobName, createdBy: pqCurrentEmail() });
+    renderPrintLists();
+    if (currentProject !== jobName) return;   // moved to another job meanwhile — its box and status aren't ours
     jsLines.value = '';
     jsShowError('');
     pqSetStatus(jsPanel, `${lines.length} sticker${lines.length !== 1 ? 's' : ''} saved to this job.`);
-    renderPrintLists();
   } catch (err) {
     jsShowError(`Couldn't save — ${err.message}`);
   } finally {

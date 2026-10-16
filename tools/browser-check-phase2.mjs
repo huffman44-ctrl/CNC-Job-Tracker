@@ -242,8 +242,11 @@ async function main() {
   assert(/Order_1195/.test(await page.textContent('#header-job-name')) && /Billing/.test(await page.textContent('#back-to-projects-btn')), '3 the job-name link opens the card; Back reads "← Billing"');
   await addHours(page, 'Design', '1.5', 'Layout');
   assert(/Goes on the next bill/.test(await page.textContent('#owner-panel')), '3 the new line says "Goes on the next bill"');
+  await page.click('#job-stickers-btn');
+  assert(await page.isVisible('#job-stickers-panel'), '3 the Stickers panel opens on a Billing-opened card');
   await page.click('#back-to-projects-btn');
   await page.waitForSelector('#billing-screen:not([hidden])');
+  assert(await page.isHidden('#job-stickers-panel'), '3 Back to Billing closes the Stickers panel');
   assert(/· 1\.5 h Design$/.test((await page.textContent('.billing-row-detail')).trim()), '3 Back landed on Billing; the row detail ends "1.5 h Design"');
   await openCard(page, 1195);
   assert(/Projects/.test(await page.textContent('#back-to-projects-btn')), '3 opened from Projects: Back reads "← Projects" again');
