@@ -1,6 +1,6 @@
 # 02 — Print marks the batch printed; the separate Printed button goes
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01
 
 Spec: `.scratch/job-stickers/spec.md` § "Print marks printed" and "The separate Printed button is removed".

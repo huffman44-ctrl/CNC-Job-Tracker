@@ -1,6 +1,6 @@
 # 03 — Stickers button and job panel on the job screen
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01, 02
 
 Spec: `.scratch/job-stickers/spec.md` § Job screen header, Job panel, One row builder, Testing Decisions (PASTE browser check).

@@ -1,6 +1,6 @@
 # Job stickers — sticker batches attached to a job
 
-Status: ready-for-agent
+Status: done
 
 Date: 2026-10-15. From a design talk with Travis. This is Phase 2 ("job tagging") of the print queue spec (`docs/superpowers/specs/2026-09-10-print-queue-design.md`), reshaped: the stickers are made and printed from the job screen, not tagged from the To Print panel. Build on branch `job-stickers` off `master`.
 

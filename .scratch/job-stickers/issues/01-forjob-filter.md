@@ -1,6 +1,6 @@
 # 01 — Pure job-sticker helpers: forJob, waiting count, order
 
-Status: ready-for-agent
+Status: done
 
 Spec: `.scratch/job-stickers/spec.md` (Implementation Decisions: data, one row builder; Testing Decisions: node tests).
 
