@@ -150,7 +150,7 @@ async function main() {
     await page.click('#billing-btn');
     await page.waitForSelector('#billing-screen:not([hidden])');
     await page.waitForFunction(() => !/Loading/.test(document.getElementById('billing-customers').textContent));
-    if (everything) { await page.click('#billing-everything-btn'); await page.waitForTimeout(100); }
+    if (everything) { await page.click('#billing-pick-btn'); await page.click('#billing-everything-btn'); await page.waitForTimeout(100); }   // weekly-billing 05: the date box lives behind "Pick a date yourself"
   };
   const priceOf = (page, customerName) => page.evaluate(name => {
     const m = BillingScreen.buildModel(null);
@@ -337,7 +337,7 @@ async function main() {
   // ── 7. Cancel, then bill again with 3605 → Imported OK → Done ──
   await page.click('.billing-reminder button[data-act="cancel"]');
   await page.waitForFunction(() => !document.querySelector('.billing-reminder'));
-  await page.click('#billing-everything-btn');
+  await page.click('#billing-pick-btn'); await page.click('#billing-everything-btn');   // fresh visit = rhythm mode; the date box is behind "Pick a date yourself"
   assert((await page.$$('button[data-act="bill"]')).length === 1 && (await page.$$('.billing-card')).length === 1, '7 Cancel: the Northlight card and its Bill button are back');
   await openCard(page, 1195);
   const tags = await page.$$eval('.jc-row-tags', els => els.map(e => e.textContent));
@@ -465,6 +465,7 @@ async function main() {
   const setThrough = (p, which) => p.evaluate(which => {
     const d = new Date(); const p2 = n => String(n).padStart(2, '0');
     const ymd = x => `${x.getFullYear()}-${p2(x.getMonth() + 1)}-${p2(x.getDate())}`;
+    if (document.getElementById('billing-through-date').hidden) document.getElementById('billing-pick-btn').click();   // the date box lives behind "Pick a date yourself"
     const el = document.getElementById('billing-through-date');
     el.value = ymd(which === 'tomorrow' ? new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1) : d);
     el.dispatchEvent(new Event('change', { bubbles: true }));

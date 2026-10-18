@@ -318,3 +318,23 @@ test('weekEndingFor: weekly + the week-ending day -> that date; else null; never
   assert.equal(f({ cadence: 'weekly', throughDate: '2026-02-31', weekEndingDay: 6 }), null);
   assert.equal(f(), null);
 });
+
+// A week is finished only once its last day is BEFORE today.
+test('lastFinishedWeekEnd: today is the week-ending day -> the Saturday a week earlier', () => {
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-10-17', 6), '2026-10-10');   // Sat: this week is not over
+});
+test('lastFinishedWeekEnd: Sunday -> yesterday; mid-week -> last Saturday', () => {
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-10-18', 6), '2026-10-17');   // Sun
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-10-14', 6), '2026-10-10');   // Wed
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-10-16', 6), '2026-10-10');   // Fri
+});
+test('lastFinishedWeekEnd: other week-ending days and a month boundary', () => {
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-10-18', 0), '2026-10-11');   // Sun today, Sunday weeks
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-03-02', 6), '2026-02-28');
+  assert.equal(BillingModel.lastFinishedWeekEnd('2026-03-07', 6), '2026-02-28');   // Sat Mar 7 -> Feb 28
+});
+test('lastFinishedWeekEnd: bad input throws like defaultThroughDate', () => {
+  assert.throws(() => BillingModel.lastFinishedWeekEnd('nope', 6));
+  assert.throws(() => BillingModel.lastFinishedWeekEnd('2026-10-14', 7));
+  assert.throws(() => BillingModel.lastFinishedWeekEnd('2026-10-14', '6'));
+});

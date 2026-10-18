@@ -25,8 +25,11 @@ const BillingScreen = (() => {
   let loadToken = 0;
   let boardKeys = null;         // the board's fileKeys at the last change (see boardChanged)
   let reloadAgain = false;      // a sheet left/returned to the board while a load was running
-  let through = null;           // 'YYYY-MM-DD' or null (= everything to date)
-  let selection = {};           // { [customerKey]: { [jobKey]: { sheets: bool } } }
+  // null = rhythm mode (the default): a Weekly customer is billed a finished week at a time, an Everything-to-date
+  // customer through today. 'YYYY-MM-DD' or 'all' = hand mode ("Pick a date yourself"): one date for every customer.
+  let handDate = null;
+  let selection = {};           // hand mode / Everything-to-date cards: { [customerKey]: { [jobKey]: { sheets: bool } } }
+  let weekSelection = {};       // Weekly cards: { [customerKey]: { [weekEnding]: { [jobKey]: { sheets: bool } } } } - a job in two weeks never shares a choice
   let statusText = '';
   let statusIsError = false;
   let busy = false;             // an Imported OK / Cancel is running
@@ -62,11 +65,19 @@ const BillingScreen = (() => {
       screen: byId('billing-screen'), status: byId('billing-status'), reminders: byId('billing-reminders'),
       needs: byId('billing-needs'), date: byId('billing-through-date'), caption: byId('billing-through-caption'),
       everything: byId('billing-everything-btn'), refresh: byId('billing-refresh-btn'),
+      pick: byId('billing-pick-btn'), weekly: byId('billing-weekly-btn'), throughTitle: byId('billing-through-title'),
       customers: byId('billing-customers'), recentJobs: byId('billing-recent-jobs'), recent: byId('billing-recent'),
     };
     byId('billing-back-btn').addEventListener('click', () => opts.onBack());
-    els.date.addEventListener('change', () => { through = els.date.value || null; render(); });
-    els.everything.addEventListener('click', () => { through = null; els.date.value = ''; render(); });
+    els.date.addEventListener('change', () => { handDate = els.date.value || 'all'; render(); });
+    els.everything.addEventListener('click', () => { handDate = 'all'; els.date.value = ''; render(); });
+    els.pick.addEventListener('click', () => {
+      handDate = pickPrefill() || 'all';
+      selection = {}; weekSelection = {};
+      els.date.value = handDate === 'all' ? '' : handDate;
+      render();
+    });
+    els.weekly.addEventListener('click', () => { handDate = null; selection = {}; weekSelection = {}; render(); });
     els.refresh.addEventListener('click', () => loadFinished());
     els.screen.addEventListener('click', onClick);
     els.recent.addEventListener('input', e => { if (poEdit && e.target.matches('input[data-po]')) poEdit.text = e.target.value; });
@@ -76,6 +87,11 @@ const BillingScreen = (() => {
       else if (e.key === 'Escape') { poEdit = null; render(); }
     });
   }
+
+  // The last FINISHED week-ending day (a week is finished once its last day is before today). Throws when
+  // Settings > Invoicing > week-ending day isn't usable.
+  function lastWeekEnd() { return BillingModel.lastFinishedWeekEnd(localYmd(new Date()), OwnerStore.invoicing().weekEndingDay); }
+  function pickPrefill() { try { return lastWeekEnd(); } catch (e) { return null; } }
 
   function ownerDataOk() {
     return OwnerStore.loaded('jobBilling') && OwnerStore.loaded('sheetBilling') && OwnerStore.loaded('customerBilling') && OwnerStore.loaded('settings') && InvoiceStore.loaded();
@@ -121,12 +137,12 @@ const BillingScreen = (() => {
     opts.hideOthers();
     els.screen.hidden = false;
     if (o && o.resume && loadState === 'ok') { boardKeys = activeKeys(); render(); loadFinished(true); return; }
-    selection = {};
+    selection = {}; weekSelection = {};
     setStatus('');
-    const inv = OwnerStore.invoicing();
-    try { through = BillingModel.defaultThroughDate(localYmd(new Date()), inv.weekEndingDay); }
-    catch (e) { through = null; setStatus(`Week-ending day in Settings › Invoicing isn't valid (${e.message}); showing everything to date.`, true); }
-    els.date.value = through || '';
+    handDate = null;   // every fresh visit starts in rhythm mode
+    els.date.value = '';
+    try { lastWeekEnd(); }
+    catch (e) { handDate = 'all'; setStatus(`Week-ending day in Settings › Invoicing isn't valid (${e.message}); showing everything to date.`, true); }
     if (o && o.status) setStatus(o.status);
     boardKeys = activeKeys();
     loadFinished();
@@ -135,8 +151,17 @@ const BillingScreen = (() => {
   /* ── The model ── */
   // `throughDate` (optional) overrides the screen's own date: the Invoice screen rebuilds the model
   // for the date it was opened with, from the very same inputs this screen uses.
+  // Rhythm mode (no explicit date, no hand date): a Weekly customer gets the last finished week-ending day, an
+  // Everything-to-date customer gets null (everything cut). Hand mode / an explicit date: one date for everyone.
   function model(throughDate) {
-    const through_ = throughDate === undefined ? through : throughDate;
+    let through_, throughDateOf;
+    if (throughDate !== undefined) through_ = throughDate;
+    else if (handDate !== null) through_ = handDate === 'all' ? null : handDate;
+    else {
+      const lw = lastWeekEnd();
+      through_ = lw;
+      throughDateOf = ck => (BillingModel.cadenceOf(OwnerStore.getCustomerBilling(ck)) === 'toDate' ? null : lw);
+    }
     const inv = OwnerStore.invoicing();
     const active = opts.activeSheets() || [];
     const sheets = active.concat(finished || []);
@@ -148,21 +173,29 @@ const BillingScreen = (() => {
       customerBillingOf: k => OwnerStore.getCustomerBilling(k),
       projectCustomerOf: jk => Storage.getProjectCustomer(jk),
       customerKeyOf: K.customer, jobKeyOf: K.job, compare: opts.compareSheets,
-      laborTypes: OwnerStore.laborTypes(), throughDate: through_, billingStart: inv.billingStartDate || null,
+      laborTypes: OwnerStore.laborTypes(), throughDate: through_, throughDateOf, billingStart: inv.billingStartDate || null,
       inProgressInvoices: InvoiceStore.inProgress(),
       priceListFor: ck => OwnerStore.priceListFor(ck),
       priceListNameOf: ck => { const cb = OwnerStore.getCustomerBilling(ck); return (cb && cb.priceList) || OwnerStore.pricing().defaultList; },
     });
   }
 
-  const isOn = (customer, row) => {
-    const sel = selection[customer.customerKey] && selection[customer.customerKey][row.jobKey];
-    return sel && typeof sel.sheets === 'boolean' ? sel.sheets : row.defaultIncluded;
+  // The choices for one list of rows: a customer's whole card (we == null) or one week section of a Weekly card.
+  const selOf = (ck, we) => (we ? (weekSelection[ck] || {})[we] : selection[ck]) || {};
+  const isOnIn = (sel, row) => {
+    const s = sel && sel[row.jobKey];
+    return s && typeof s.sheets === 'boolean' ? s.sheets : row.defaultIncluded;
   };
-  function resolvedSelection(customer) {
+  function resolvedSelection(rows, sel) {
     const out = {};
-    customer.rows.forEach(r => { out[r.jobKey] = { sheets: isOn(customer, r) }; });
+    rows.forEach(r => { out[r.jobKey] = { sheets: isOnIn(sel, r) }; });
     return out;
+  }
+  const isYmd = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const rhythmMode = () => handDate === null;
+  const isWeekly = ck => BillingModel.cadenceOf(OwnerStore.getCustomerBilling(ck)) === 'weekly';
+  function weekSectionsOf(c, laborTypes) {
+    return BillingModel.weekSections(c, { weekEndingDay: OwnerStore.invoicing().weekEndingDay, priceList: c.priceList, laborTypes });
   }
 
   /* ── Rendering ── */
@@ -215,7 +248,12 @@ const BillingScreen = (() => {
   }
 
   function renderCaption() {
-    if (!through) { els.caption.textContent = 'Everything cut so far.'; return; }
+    const rhythm = rhythmMode();
+    els.date.hidden = rhythm; els.everything.hidden = rhythm; els.weekly.hidden = rhythm; els.pick.hidden = !rhythm;
+    els.throughTitle.textContent = rhythm ? 'Weekly bills' : 'Bill work cut through';
+    if (rhythm) { els.caption.textContent = 'Weekly customers: one bill per finished week. Others: everything cut to date.'; return; }
+    if (handDate === 'all') { els.caption.textContent = 'Everything cut so far.'; return; }
+    const through = handDate;
     const d = longDate(through);
     let weekEnd = false;
     try { weekEnd = BillingModel.defaultThroughDate(through, OwnerStore.invoicing().weekEndingDay) === through; } catch (e) { /* not a valid setting */ }
@@ -312,9 +350,9 @@ const BillingScreen = (() => {
   }
 
   // The Bill button's state for one card: { total } | { note } | { none: true }
-  function billState(customer, ctx) {
+  function billState(customer, ctx, sel) {
     if (customer.busyInvoice != null) return { note: `Finish invoice ${customer.busyInvoice} first (Imported OK or Cancel).` };
-    const input = BillingModel.pricingInput(customer, selection[customer.customerKey], ctx);
+    const input = BillingModel.pricingInput(customer, sel, ctx);
     if (!Object.keys(input.jobs).length) return { none: true };
     let priced;
     try { priced = Pricing.priceInvoice(input); } catch (e) { return { error: e.message || String(e) }; }
@@ -323,8 +361,12 @@ const BillingScreen = (() => {
     return { total: priced.total };
   }
 
-  function rowHtml(customer, row, ctx, dataOk) {
-    const on = isOn(customer, row);
+  // `o`: { sel } the choices for these rows; toggle: false = no Remove button (a later week); hideAmount: true = no
+  // dollars (an invoice is in progress, so a repeat of its sheets would be priced as a first copy); we: the week section.
+  function rowHtml(customer, row, ctx, dataOk, o) {
+    o = o || {};
+    const canToggle = o.toggle !== false;
+    const on = canToggle ? isOnIn(o.sel, row) : true;
     const rp = BillingModel.rowPricing(row, ctx);
     const detail = BillingModel.rowDetail(row, rp.priced);
     const n = row.sheetKeys.length;
@@ -334,24 +376,76 @@ const BillingScreen = (() => {
     else state = `${plural(n, 'cut sheet', 'cut sheets')}, ${row.uncutCount} still to cut`;
     const label = on ? 'Remove' : 'Add back';
     const later = row.laterCount ? ` · ${plural(row.laterCount, 'sheet', 'sheets')} cut later wait` : '';
-    const amount = rp.error ? `<span class="billing-row-error">${esc(rp.error)}</span>` : `<span class="billing-row-amt">${esc(fmtMoney(rp.amount))}</span>`;
+    const amount = o.hideAmount ? '<span class="billing-row-amt">—</span>'
+      : (rp.error ? `<span class="billing-row-error">${esc(rp.error)}</span>` : `<span class="billing-row-amt">${esc(fmtMoney(rp.amount))}</span>`);
+    const button = canToggle
+      ? `<button type="button" class="btn btn-outline btn-sm" data-act="toggle" data-ck="${esc(customer.customerKey)}" data-jk="${esc(row.jobKey)}"${o.we ? ` data-we="${esc(o.we)}"` : ''}${dataOk && !rp.error && !o.hideAmount ? '' : ' disabled'}>${esc(label)}</button>` : '';
     return `<div class="billing-row billing-row--${esc(row.state)}${on ? '' : ' is-off'}">
       <div class="billing-row-main">
         <div><button type="button" class="billing-job-link" data-act="open-job" data-job="${esc(row.jobName)}">${esc(row.jobName)}</button> <span class="billing-row-state">${esc(state)}${esc(later)}</span></div>
         <div class="billing-row-detail">${esc(detail)}</div>
       </div>
       ${amount}
-      <button type="button" class="btn btn-outline btn-sm" data-act="toggle" data-ck="${esc(customer.customerKey)}" data-jk="${esc(row.jobKey)}"${dataOk && !rp.error ? '' : ' disabled'}>${esc(label)}</button>
+      ${button}
     </div>`;
   }
 
+  // A Weekly customer's card in rhythm mode: one block per finished unbilled week, oldest first. Only the oldest
+  // has Remove / Add back and a Bill button; a later week shows its total and "Bill after week ending ...".
+  function weeklyCardHtml(c, laborTypes, dataOk) {
+    const ctx = { priceList: c.priceList, laborTypes };
+    const invBusy = c.busyInvoice != null;
+    let sections = [], failure = '';
+    try { sections = weekSectionsOf(c, laborTypes); } catch (e) { failure = e.message || String(e); }
+    // An invoice in progress means sheets are locked, not billed: later weeks' repeats would be priced as first
+    // copies, so NO dollars are shown on this card until it is finished.
+    const wait = `Total shown after invoice ${c.busyInvoice} is finished`;
+    const body = sections.map((sec, i) => {
+      const we = sec.weekEnding;
+      const title = we ? `Week ending ${longDate(we)}` : 'Design hours only';
+      const billable = !!sec.billable && isYmd(we);
+      const sel = selOf(c.customerKey, we);
+      let rows;
+      try {
+        rows = sec.rows.map(r => rowHtml({ customerKey: c.customerKey }, r, ctx, dataOk, { sel, toggle: billable && !invBusy, hideAmount: invBusy, we })).join('');
+      } catch (e) { rows = `<p class="billing-note billing-note--error">${esc(e.message || String(e))}</p>`; }
+      let side = '';
+      if (invBusy) {
+        if (billable) side = `<button type="button" class="btn btn-primary" disabled>Bill week ending ${esc(longDate(we))}</button>`;
+        side += `<span class="billing-week-wait">${esc(wait)}</span>`;
+      } else if (billable) {
+        const pc = { customerKey: c.customerKey, rows: sec.rows, busyInvoice: null };
+        let st;
+        try { st = billState(pc, ctx, sel); } catch (e) { st = { error: e.message || String(e) }; }
+        if (st.total != null) side = `<button type="button" class="btn btn-primary" data-act="bill" data-ck="${esc(c.customerKey)}" data-we="${esc(we)}"${dataOk && !busy ? '' : ' disabled'}>Bill week ending ${esc(longDate(we))} · ${esc(fmtMoney(st.total))}</button>`;
+        else if (st.note) side = `<span class="billing-card-note">${esc(st.note)}</span>`;
+        else if (st.error) side = `<span class="billing-row-error">${esc(st.error)}</span>`;
+      } else {
+        const prev = i > 0 ? sections[i - 1].weekEnding : null;
+        if (sec.total != null) side += `<span class="billing-week-total">${esc(fmtMoney(sec.total))}</span>`;
+        if (sec.error) side += `<span class="billing-row-error">${esc(sec.error)}</span>`;
+        if (prev) side += `<span class="billing-week-wait">Bill after week ending ${esc(longDate(prev))}</span>`;
+      }
+      return `<div class="billing-week" data-week="${esc(we || '')}"><div class="billing-week-head"><h3 class="billing-week-title">${esc(title)}</h3><div class="billing-week-side">${side}</div></div>${rows}</div>`;
+    }).join('');
+    let note = '';
+    if (invBusy) note = `<span class="billing-card-note">${esc(`Finish invoice ${c.busyInvoice} first (Imported OK or Cancel).`)}</span>`;
+    else if (failure) note = `<span class="billing-row-error">${esc(failure)}</span>`;
+    return `<section class="settings-card billing-card${c.rows.length ? '' : ' billing-card--empty'}" data-cadence="weekly">
+      <div class="billing-card-head">
+        <div><h2 class="settings-card-title">${esc(c.customerName)}</h2><p class="settings-card-hint billing-card-summary">${esc(c.summary)}</p></div>
+        <div class="billing-card-action">${note}</div>
+      </div>${body}</section>`;
+  }
+
   function customerHtml(c, laborTypes, dataOk) {
+    if (rhythmMode() && isWeekly(c.customerKey)) return weeklyCardHtml(c, laborTypes, dataOk);
     const empty = !c.rows.length;
     const ctx = { priceList: c.priceList, laborTypes };
     let action = '';
     if (!empty || c.busyInvoice != null) {
       let st;
-      try { st = billState(c, ctx); } catch (e) { st = { error: e.message || String(e) }; }
+      try { st = billState(c, ctx, selection[c.customerKey]); } catch (e) { st = { error: e.message || String(e) }; }
       if (st.total != null) {
         action = `<button type="button" class="btn btn-primary" data-act="bill" data-ck="${esc(c.customerKey)}"${dataOk && !busy ? '' : ' disabled'}>Bill ${esc(c.customerName)} · ${esc(fmtMoney(st.total))}</button>`;
       } else if (st.note) action = `<span class="billing-card-note">${esc(st.note)}</span>`;
@@ -359,7 +453,7 @@ const BillingScreen = (() => {
     }
     let rows = '';
     if (!empty) {
-      try { rows = c.rows.map(r => rowHtml(c, r, ctx, dataOk)).join(''); }
+      try { rows = c.rows.map(r => rowHtml(c, r, ctx, dataOk, { sel: selection[c.customerKey] })).join(''); }
       catch (e) { rows = `<p class="billing-note billing-note--error">${esc(e.message || String(e))}</p>`; }
     }
     return `<section class="settings-card billing-card${empty ? ' billing-card--empty' : ''}">
@@ -374,8 +468,8 @@ const BillingScreen = (() => {
     const b = e.target.closest('button[data-act]');
     if (!b || b.disabled) return;
     const act = b.dataset.act;
-    if (act === 'toggle') return toggle(b.dataset.ck, b.dataset.jk);
-    if (act === 'bill') return bill(b.dataset.ck);
+    if (act === 'toggle') return toggle(b.dataset.ck, b.dataset.jk, b.dataset.we);
+    if (act === 'bill') return bill(b.dataset.ck, b.dataset.we);
     if (act === 'open-job') return opts.openJob(b.dataset.job, finished || []);
     if (act === 'imported') return imported(Number(b.dataset.number));
     if (act === 'cancel') return cancelInvoice(Number(b.dataset.number));
@@ -386,24 +480,46 @@ const BillingScreen = (() => {
     if (act === 'retry-log') return retryLog(Number(b.dataset.number));
   }
 
-  function toggle(ck, jk) {
+  function toggle(ck, jk, we) {
     let m;
     try { m = model(); } catch (e) { return; }
     const c = m.customers.find(x => x.customerKey === ck);
-    const row = c && c.rows.find(r => r.jobKey === jk);
+    if (!c) return;
+    if (we) {   // a Weekly card's oldest week: the choice belongs to that week only
+      if (!rhythmMode() || c.busyInvoice != null) return;
+      let sec;
+      try { sec = weekSectionsOf(c, OwnerStore.laborTypes()).find(x => x.weekEnding === we); } catch (e) { return; }
+      const row = sec && sec.billable && sec.rows.find(r => r.jobKey === jk);
+      if (!row) return;
+      const cur = selOf(ck, we);
+      weekSelection[ck] = { ...(weekSelection[ck] || {}), [we]: { ...cur, [jk]: { sheets: !isOnIn(cur, row) } } };
+      render();
+      return;
+    }
+    const row = c.rows.find(r => r.jobKey === jk);
     if (!row) return;
-    selection[ck] = { ...(selection[ck] || {}), [jk]: { sheets: !isOn(c, row) } };
+    selection[ck] = { ...(selection[ck] || {}), [jk]: { sheets: !isOnIn(selection[ck], row) } };
     render();
   }
 
-  function bill(ck) {
+  // Bill: a Weekly card's oldest week passes exactly that week's Saturday; an Everything-to-date customer passes null
+  // (everything cut); hand mode passes the one date. A weekly bill is never sent without a valid week-ending date.
+  function bill(ck, we) {
     if (!ownerDataOk()) { setStatus(NOT_LOADED, true); return; }
     let m;
     try { m = model(); } catch (e) { setStatus(e.message, true); return; }
     const c = m.customers.find(x => x.customerKey === ck);
     if (!c) return;
     setStatus('');
-    opts.openInvoice({ customerKey: ck, selection: resolvedSelection(c), throughDate: through });
+    if (rhythmMode() && isWeekly(ck)) {
+      let sec = null;
+      try { sec = weekSectionsOf(c, OwnerStore.laborTypes()).find(x => x.weekEnding === we); } catch (e) { sec = null; }
+      if (!we || !sec || !sec.billable || !isYmd(sec.weekEnding)) { setStatus("That week can't be billed from here — use Pick a date yourself.", true); return; }
+      opts.openInvoice({ customerKey: ck, selection: resolvedSelection(sec.rows, selOf(ck, sec.weekEnding)), throughDate: sec.weekEnding });
+      return;
+    }
+    const throughDate = rhythmMode() ? null : (handDate === 'all' ? null : handDate);
+    opts.openInvoice({ customerKey: ck, selection: resolvedSelection(c.rows, selection[ck]), throughDate });
   }
 
   async function imported(number) {

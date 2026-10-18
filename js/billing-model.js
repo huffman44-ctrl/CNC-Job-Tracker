@@ -40,6 +40,15 @@ const BillingModel = (() => {
     return fmtYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back));
   }
 
+  // The last FINISHED week-ending day: defaultThroughDate, but a week is finished only once its last day is before
+  // today — on the week-ending day itself, the Saturday a week earlier. Throws like defaultThroughDate.
+  function lastFinishedWeekEnd(todayYmd, weekEndingDay) {
+    const d = defaultThroughDate(todayYmd, weekEndingDay);
+    if (d !== todayYmd) return d;
+    const t = parseYmd(todayYmd);
+    return fmtYmd(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 7));
+  }
+
   // Weekly billing: a customer is billed 'weekly' (through the week-ending date) unless set to 'toDate'.
   const cadenceOf = cb => (cb && cb.cadence === 'toDate' ? 'toDate' : 'weekly');
 
@@ -484,7 +493,7 @@ const BillingModel = (() => {
     return out;
   }
 
-  return { defaultThroughDate, weekEndingOf, weekEndingFor, weekSections, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
+  return { defaultThroughDate, lastFinishedWeekEnd, weekEndingOf, weekEndingFor, weekSections, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;

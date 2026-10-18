@@ -1993,6 +1993,12 @@ body {
 .billing-row--partly .billing-row-state { color: var(--gold); }
 .billing-job-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--cyan); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left; }
 .billing-job-link:hover { color: var(--cyan-dark, var(--cyan)); }
+.billing-week { border-top: 2px solid var(--gray-300); margin-top: 12px; padding-top: 8px; }
+.billing-week-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.billing-week-title { font-size: 0.95rem; font-weight: 800; margin: 0; }
+.billing-week-side { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.billing-week-total { font-weight: 800; }
+.billing-week-wait { font-size: 0.82rem; color: var(--gray-500); font-weight: 600; }
 .billing-recent-jobs-card { margin-top: 16px; }
 .billing-recent-job { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; border-top: 1px solid var(--gray-200); font-size: 0.9rem; }
 .billing-recent-job-text { color: var(--gray-500); font-size: 0.85rem; }
