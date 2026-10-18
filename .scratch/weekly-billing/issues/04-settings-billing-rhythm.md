@@ -21,3 +21,8 @@ In `js/settings.js` `renderCustomers()` / `onCustomerChange()`:
 ## Done
 
 `npm test` green; open Settings in a PASTE copy (CLAUDE.md steps 5–6) and change one fake customer's Billing choice — the status line confirms and a reload of the owner store keeps it. Bump `js/settings.js?v=` (and `css/style.css?v=` if any CSS changes).
+
+## Comments
+
+- 2026-10-18 (build): `HQ/firestore.rules` line 73 — `match /customerBilling/{id} { allow read, write: if isJtOwner(); }`. No field allow-list, so owners can write `cadence`; operators can't read or write the collection. No rules change, no deploy.
+- No pure helper was added (the select reuses `BillingModel.cadenceOf`), so no new node test. Manual PASTE check passed: a fake customer showed Weekly, changed to Everything to date, status line confirmed, `cadence: 'toDate'` survived `OwnerStore.loadAll()`. Ticket 06's browser check repeats it.
