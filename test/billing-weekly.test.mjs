@@ -17,7 +17,7 @@ const hms = sec => [Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60]
 const line = (id, typeId, hours) => ({ id, typeId, typeName: typeId, hours, note: '', enteredAt: Date.now() });
 
 // jobs: { name: { customer, labor } }; sheets: [{ job, n, sec, cut: iso|null }]
-function world({ jobs, sheets, throughDate = '2026-10-10', throughDateOf, sheetBilling = {} }) {
+function world({ jobs, sheets, throughDate = '2026-10-10', throughDateOf, sheetBilling = {}, billingStart = null }) {
   const jobKeyOf = n => 'proj_' + n;
   const customerKeyOf = n => 'cust_' + n;
   const sheetDocs = [], comps = {};
@@ -34,7 +34,7 @@ function world({ jobs, sheets, throughDate = '2026-10-10', throughDateOf, sheetB
     sheets: sheetDocs, completionOf: fk => comps[fk] || null, sheetBillingOf: fk => sheetBilling[fk] || null,
     jobBillingOf: jk => jobDocs[jk] || null, customerBillingOf: () => null, projectCustomerOf: () => null,
     customerKeyOf, jobKeyOf, compare: (a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
-    laborTypes: LABOR, priceListFor: () => STANDARD, throughDate, billingStart: null, inProgressInvoices: [],
+    laborTypes: LABOR, priceListFor: () => STANDARD, throughDate, billingStart, inProgressInvoices: [],
   };
   if (throughDateOf) input.throughDateOf = throughDateOf;
   return BillingModel.build(input);
@@ -337,4 +337,40 @@ test('lastFinishedWeekEnd: bad input throws like defaultThroughDate', () => {
   assert.throws(() => BillingModel.lastFinishedWeekEnd('nope', 6));
   assert.throws(() => BillingModel.lastFinishedWeekEnd('2026-10-14', 7));
   assert.throws(() => BillingModel.lastFinishedWeekEnd('2026-10-14', '6'));
+});
+
+test('once-per-job labor minimum across two weekly bills: charged on week 1, week 2 hours covered; preview = bill', () => {
+  // Design: $150/h, 1-h minimum. Week 1 carries 0.5 h → billed as 1 h (0.5 h top-up). After week 1 is billed, 0.25 h is
+  // added for the week-2 sheet: max(1, 0.5 + 0.25) − max(1, 0.5) = 0 → covered by the minimum already charged.
+  const sheets = [{ job: 'Alpha_Job', n: 1, sec: 7200, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 5400, cut: D(14) }];
+  const before = cust(world({ jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 0.5)] } }, sheets, throughDate: '2026-10-17' }), 'Acme Test');
+  const s1 = sections(before);
+  assert.deepEqual(s1.map(x => x.weekEnding), ['2026-10-10', '2026-10-17']);
+  const w1 = Pricing.priceInvoice(BillingModel.pricingInput({ rows: s1[0].rows }, {}, CTX));
+  assert.equal(w1.labor.length, 1); assert.equal(w1.labor[0].billedHours, 1); assert.equal(w1.labor[0].topUpHours, 0.5);
+  assert.equal(s1[1].rows[0].laborLineIds.length, 0);
+
+  const after = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test', labor: [{ ...line('d1', 'design', 0.5), status: 'billed', invoiceNumber: 1001 }, line('d2', 'design', 0.25)] } },
+    sheets, throughDate: '2026-10-17', sheetBilling: { fk_Alpha_Job_1: { status: 'billed', invoiceNumber: 1001 } },
+  }), 'Acme Test');
+  const s2 = sections(after);
+  assert.deepEqual(s2.map(x => x.weekEnding), ['2026-10-17']);
+  assert.deepEqual(s2[0].rows[0].laborLineIds, ['d2']);
+  const w2 = Pricing.priceInvoice(BillingModel.pricingInput({ rows: s2[0].rows }, {}, CTX));
+  assert.equal(w2.labor[0].billedHours, 0); assert.equal(w2.labor[0].coveredHours, 0.25);
+  // the week-2 preview made before week 1 was billed (no hours yet) = the week-2 bill (its 0.25 h are covered) = the rebuilt customer's bill
+  assert.equal(s1[1].total, s2[0].total);
+  assert.equal(s2[0].total, priceOf(after).total);
+});
+
+test('weeks before the billing-start date never appear', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(14) }],
+    throughDate: '2026-10-17', billingStart: '2026-10-11',
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.deepEqual(s.map(x => x.weekEnding), ['2026-10-17']);
+  assert.deepEqual(s[0].rows[0].sheetKeys, ['fk_Alpha_Job_2']);
 });
