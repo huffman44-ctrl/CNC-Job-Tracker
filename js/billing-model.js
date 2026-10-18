@@ -260,15 +260,20 @@ const BillingModel = (() => {
   // with every earlier section's sheets of the same job as priorBilled (same shape and `order` build() uses for billed
   // sheets), so its total equals what Billing will price once the earlier weeks are billed. All dollars come from
   // Pricing.priceInvoice; a refusal gives total null + error, never a throw.
-  // Meant for Weekly customers (customer.throughDate is their last finished week-ending day). If throughDate is null (an
-  // Everything-to-date customer) sheets still section by cut week, but a customer with ONLY labor-only rows has no date
-  // to give the single section, and `null` there would mean "everything to date" on the Invoice screen — so that throws.
+  // Meant for Weekly customers (customer.throughDate is their last finished week-ending day). No rows → no sections.
+  // Never throws while the screen renders: a section that can't safely be billed comes back billable:false with an
+  // error — a customer with ONLY labor-only rows and no throughDate (`null` on the Invoice screen would mean "everything
+  // to date"), or a section whose week ends after customer.throughDate (Bill would sweep in sheets the card never showed).
   function weekSections(customer, ctx) {
+    if (!customer.rows.length) return [];
     const weekOf = s => weekEndingOf(s.cutDate, ctx.weekEndingDay);
     const weekSet = new Set();
     customer.rows.forEach(r => r.sheetInputs.forEach(s => weekSet.add(weekOf(s))));
     if (!weekSet.size) {
-      if (!parseYmd(customer.throughDate)) throw new Error('weekSections: a labor-only customer needs a throughDate for its one section');
+      if (!parseYmd(customer.throughDate)) {
+        return [{ weekEnding: null, rows: customer.rows.map(r => sectionRow(r, [], [], true, ctx)), billable: false, total: null,
+          error: 'No week-ending date for these hours — use Pick a date yourself.' }];
+      }
       weekSet.add(customer.throughDate);
     }
     const weeks = [...weekSet].sort();
@@ -286,6 +291,9 @@ const BillingModel = (() => {
       const rows = bySection.get(w);
       let total = null, error = null;
       try { total = P.priceInvoice(pricingInput({ rows }, {}, ctx)).total; } catch (e) { error = e.message || String(e); }
+      if (parseYmd(customer.throughDate) && w > customer.throughDate) {
+        return { weekEnding: w, rows, billable: false, total, error: error || 'This week ends after the through date — use Pick a date yourself.' };
+      }
       return { weekEnding: w, rows, billable: i === 0, total, error };
     });
   }

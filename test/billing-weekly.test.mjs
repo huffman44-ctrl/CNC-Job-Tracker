@@ -270,7 +270,7 @@ test('a pricing refusal gives total null + error, no throw', () => {
   s.forEach(x => { assert.equal(x.total, null); assert.match(x.error, /hourlyRate/); });
 });
 
-test('an Everything-to-date customer (throughDate null): sheets still section by week; labor-only alone throws', () => {
+test('an Everything-to-date customer (throughDate null): sheets still section by week; labor-only alone is not billable', () => {
   const c = cust(world({
     jobs: { Alpha_Job: { customer: 'Acme Test' } },
     sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(14) }],
@@ -281,5 +281,27 @@ test('an Everything-to-date customer (throughDate null): sheets still section by
     jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] } },
     sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: null }], throughDate: null,
   }), 'Acme Test');
-  assert.throws(() => sections(lo), /throughDate/);
+  const los = sections(lo);
+  assert.equal(los.length, 1); assert.equal(los[0].weekEnding, null);
+  assert.equal(los[0].billable, false); assert.match(los[0].error, /Pick a date yourself/);
+});
+
+test('a customer with no rows (only uncut / locked sheets) has no sections', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: null }], throughDate: '2026-10-17',
+  }), 'Acme Test');
+  assert.equal(c.rows.length, 0);
+  assert.deepEqual(sections(c), []);
+});
+
+test('a section whose week ends after the through date is never billable', () => {
+  // hand-picked Wednesday 10-14: the 10-13 sheet's week ends 10-17, past the through date
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(13) }], throughDate: '2026-10-14',
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.equal(s.length, 1); assert.equal(s[0].weekEnding, '2026-10-17');
+  assert.equal(s[0].billable, false); assert.match(s[0].error, /after the through date/);
 });
