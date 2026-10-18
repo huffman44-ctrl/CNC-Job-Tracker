@@ -1,6 +1,6 @@
 # Weekly billing — each customer billed on its own rhythm, no date to pick
 
-Status: approved 2026-10-18 (Travis: "let's build the tickets")
+Status: built — not yet live
 
 Date: 2026-10-18. From a walkthrough with Travis of the live Billing screen (Orville had two weeks waiting: Oct 6–10 and Oct 11–17). Build on branch `weekly-billing` off `master`. Touches money, so: spec → plan → tickets → per-ticket Opus review → final whole-branch review on Fable before go-live.
 

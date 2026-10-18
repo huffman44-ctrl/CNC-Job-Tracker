@@ -2,7 +2,7 @@
 // against a PASTE-mode copy (Firebase AND endpoint disabled), never the real config. Run from the repo root:
 //   node tools/browser-check-phase2.mjs
 // Prints PASS:/FAIL: lines and SUITE: PASS|FAIL; exits 1 on any FAIL or thrown error.
-// Fake names only (Northlight Studios, Copperline Stage, Ridgeway Vans, Harbor Lane Pictures).
+// Weekly billing (step 15) adds Birchwood Signs and Quarry Road Vans. Fake names only (Northlight Studios, Copperline Stage, Ridgeway Vans, Harbor Lane Pictures).
 import { createRequire } from 'node:module';
 import { mkdtempSync, cpSync, writeFileSync, rmSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -541,6 +541,158 @@ async function main() {
   await openCard(page, 1203);
   assert(/No Design\/CAM types yet/.test(await page.textContent('#owner-panel')), '13 with no types the job card shows "No Design/CAM types yet"');
   await page.evaluate(() => { OwnerStore.laborTypes = window.__realLT; });
+  await page.close();
+
+  // ── 15. Weekly billing (spec .scratch/weekly-billing): sections, week-ending wording, hours placement, rhythm setting ──
+  // Fresh page = fresh in-memory state. Cut dates are seeded relative to the real today from BillingModel.lastFinishedWeekEnd, so
+  // the check works on any weekday (including the week-ending day itself): W2 = last finished week-ending day, W1 = a week before.
+  page = await fresh();
+  await ownerInit(page);
+  const D = await page.evaluate(() => {
+    const p = n => String(n).padStart(2, '0');
+    const ymd = x => `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+    const off = (s, n) => { const [a, b, c] = s.split('-').map(Number); return ymd(new Date(a, b - 1, c + n)); };
+    const lw = BillingModel.lastFinishedWeekEnd(ymd(new Date()), OwnerStore.invoicing().weekEndingDay);
+    return { w2: lw, w1: off(lw, -7), cut1: off(lw, -9), cut2: off(lw, -2) };   // cut dates are mid-week (no weekend uplift)
+  });
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const ymdParts = s => s.split('-').map(Number);
+  const mdy = s => { const [y, m, d] = ymdParts(s); return `${m}/${d}/${y}`; };
+  const shortD = s => { const [, m, d] = ymdParts(s); return `${MON[m - 1]} ${d}`; };
+  const longD = s => { const [y, m, d] = ymdParts(s); return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', ''); };
+  const money = t => parseFloat(String(t).replace(/[^0-9.]/g, ''));
+  console.log(`15 seeded weeks: W1 ${D.w1} (cut ${D.cut1}), W2 ${D.w2} (cut ${D.cut2})`);
+
+  // Birchwood Signs (weekly, no cadence field): job 1195 = a design in sheet 9 (W1) repeated in sheet 10 (W2); job 1201 cut in W2; job 1202 cut today (current week).
+  await uploadJob(page, [join(dst, sample), join(dst, sample10)], 'Birchwood Signs');
+  await uploadJob(page, FILE_B, 'Birchwood Signs');
+  await uploadJob(page, FILE_C, 'Birchwood Signs');
+  await uploadJob(page, FILE_D, 'Quarry Road Vans');
+  await openCard(page, 1195); await cutAll(page, 2);
+  await openCard(page, 1201); await cutAll(page, 1);
+  await openCard(page, 1202); await cutAll(page, 1);
+  await openCard(page, 1203); await cutAll(page, 1);
+  await page.evaluate(async ({ pairs }) => {
+    for (const [re, ymd] of pairs) {
+      const s = sheets.find(x => new RegExp(re).test(x.fileName));
+      const jk = Keys.job(Keys.jobOf(s)); const jb = OwnerStore.getJobBilling(jk);
+      await OwnerStore.setCutDateOverride(s.fileKey, ymd, { jobKey: jk, customerKey: jb && jb.customerKey }, 't@x');
+    }
+  }, { pairs: [['Order_1195.*Sheet 9\\.html', D.cut1], ['Order_1195.*Sheet 10\\.html', D.cut2], ['Order_1201', D.cut2]] });
+
+  const bw = page.locator('section.billing-card[data-cadence="weekly"]', { hasText: 'Birchwood Signs' });
+  const week = we => bw.locator(`.billing-week[data-week="${we}"]`);
+  await openBilling(page, false);
+  assert((await page.textContent('#billing-through-title')).trim() === 'Weekly bills' && await page.isVisible('#billing-pick-btn') && await page.isHidden('#billing-weekly-btn'), '15 a fresh visit is rhythm mode: "Weekly bills", Pick a date yourself shown');
+  assert(await bw.count() === 1 && await bw.locator('.billing-week').count() === 2, '15 weekly customer (no cadence field): one card with two week sections');
+  assert(JSON.stringify(await bw.locator('.billing-week').evaluateAll(els => els.map(e => e.dataset.week))) === JSON.stringify([D.w1, D.w2]), `15 sections are oldest first: ${D.w1}, ${D.w2}`);
+  assert((await bw.locator('.billing-week').first().locator('.billing-week-title').textContent()) === `Week ending ${longD(D.w1)}`, `15 first title reads "Week ending ${longD(D.w1)}"`);
+  assert(await bw.locator('.billing-row', { hasText: 'Order_1202' }).count() === 0, '15 the sheet cut in the current week (Order_1202) is not in any section');
+  const billBtn1 = week(D.w1).locator('button[data-act="bill"]');
+  assert(await billBtn1.count() === 1 && await week(D.w2).locator('button[data-act="bill"]').count() === 0, '15 only the oldest week has a Bill button');
+  const w1Before = money((await billBtn1.textContent()).split('·')[1]);
+  assert(new RegExp(`^Bill week ending ${shortD(D.w1)} · \\$[\\d,.]+$`).test((await billBtn1.textContent()).trim()), `15 oldest button reads "Bill week ending ${shortD(D.w1)} · $X" (got ${(await billBtn1.textContent()).trim()})`);
+  assert((await week(D.w2).textContent()).includes(`Bill after week ending ${shortD(D.w1)}`) && await week(D.w2).locator('.billing-week-total').count() === 1, `15 later week shows its total and "Bill after week ending ${shortD(D.w1)}"`);
+  const t2NoHours = money(await week(D.w2).locator('.billing-week-total').textContent());
+
+  // Hours: 2 h Design on the week-2 job (Order_1201) from its job card, via the job-name link; Back returns to Billing.
+  await week(D.w2).locator('.billing-row', { hasText: 'Order_1201' }).locator('button[data-act="open-job"]').click();
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.waitForSelector('#owner-panel:not([hidden])');
+  await addHours(page, 'Design', '2', 'Weekly fixture layout');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#billing-screen:not([hidden])');
+  assert(/· 2 h Design$/.test((await week(D.w2).locator('.billing-row', { hasText: 'Order_1201' }).locator('.billing-row-detail').textContent()).trim()), '15 the 2 h Design shows on the week-2 row (Order_1201)');
+  assert((await week(D.w1).textContent()).indexOf('Design') === -1, '15 week 1 shows no Design hours');
+  const w1After = money((await billBtn1.textContent()).split('·')[1]);
+  const t2 = money(await week(D.w2).locator('.billing-week-total').textContent());
+  assert(w1After === w1Before, `15 week 1 Bill amount unchanged by the hours (${w1Before} -> ${w1After})`);
+  assert(t2 > t2NoHours, `15 week 2 total rose with the hours (${t2NoHours} -> ${t2})`);
+
+  // Bill week 1: the Invoice screen preview (BEFORE Download) already reads "Week ending M/D/YYYY"; its total = the button.
+  await billBtn1.click();
+  await page.waitForSelector('#invoice-screen:not([hidden])');
+  await page.waitForFunction(() => document.getElementById('invoice-number-check').classList.contains('invoice-check--ok'), null, { timeout: 5000 });
+  const wk1 = `Week ending ${mdy(D.w1)}`;
+  const previewLines = await page.$$eval('.invoice-preview-line', els => els.map(e => e.firstElementChild.textContent));
+  assert(previewLines.includes(wk1), `15 Invoice screen preview (before Download) has the cutting line exactly "${wk1}" (got ${JSON.stringify(previewLines)})`);
+  assert(money(await page.textContent('#invoice-total')) === w1Before, `15 Invoice screen total ${await page.textContent('#invoice-total')} = the week's Bill button amount ${w1Before}`);
+  const wnum = await page.inputValue('#invoice-number');
+  const wdl = await downloadCsv(page);
+  const wrows = parseCsv(readFileSync(await wdl.path()).toString('utf8').replace(/^﻿/, '')).filter(r => r.length > 1 || r[0] !== '').slice(1);
+  assert(wrows.some(r => r[5] === wk1), `15 downloaded CSV has the cutting line "${wk1}"`);
+  assert(Math.round(wrows.reduce((s, r) => s + parseFloat(r[8]), 0) * 100) / 100 === w1Before, '15 downloaded CSV amounts sum to the Bill amount');
+  assert(await page.evaluate(([n, line]) => InvoiceStore.get(Number(n)).csv.includes(line), [wnum, wk1]), '15 the stored invoice CSV has the same line');
+
+  // Invoice in progress: the weekly card shows no dollars for week 2 and no enabled Bill button.
+  await openBilling(page, false);
+  await page.waitForSelector('.billing-reminder');
+  assert((await bw.textContent()).includes(`Total shown after invoice ${wnum} is finished`), `15 in progress: card says "Total shown after invoice ${wnum} is finished"`);
+  assert(await bw.locator('.billing-week-total').count() === 0 && !/\$/.test(await week(D.w2).textContent()), '15 in progress: week 2 shows no dollar amount');
+  assert(await bw.locator('button[data-act="bill"]:not([disabled])').count() === 0, '15 in progress: no enabled Bill button on the weekly card');
+
+  // Imported OK: week 2 is now the oldest, billable, same total as its preview.
+  await page.click('.billing-reminder button[data-act="imported"]');
+  await page.waitForSelector('#billing-done-screen:not([hidden]) .done-headline');
+  await page.click('#billing-done-screen [data-act="next"]');
+  await page.waitForSelector('#billing-screen:not([hidden])');
+  await page.waitForFunction(() => !/Loading/.test(document.getElementById('billing-customers').textContent));
+  await page.waitForSelector(`section.billing-card[data-cadence="weekly"] .billing-week[data-week="${D.w2}"] button[data-act="bill"]`);
+  assert(await bw.locator('.billing-week').count() === 1 && await week(D.w1).count() === 0, '15 after Imported OK: week 1 is gone, week 2 is the only section');
+  const w2Btn = week(D.w2).locator('button[data-act="bill"]');
+  assert(new RegExp(`^Bill week ending ${shortD(D.w2)} · `).test((await w2Btn.textContent()).trim()), '15 week 2 now has the Bill button');
+  const w2Bill = money((await w2Btn.textContent()).split('·')[1]);
+  assert(w2Bill === t2, `15 week 2's total is the same number once it is the oldest (${t2} -> ${w2Bill})`);
+  await w2Btn.click();
+  await page.waitForSelector('#invoice-screen:not([hidden])');
+  await page.waitForFunction(() => document.getElementById('invoice-number-check').classList.contains('invoice-check--ok'), null, { timeout: 5000 });
+  const wk2 = `Week ending ${mdy(D.w2)}`;
+  assert((await page.$$eval('.invoice-preview-line', els => els.map(e => e.firstElementChild.textContent))).includes(wk2), `15 week 2 preview has "${wk2}"`);
+  assert(money(await page.textContent('#invoice-total')) === w2Bill, `15 week 2 Invoice screen total = Bill amount ${w2Bill}`);
+  await page.click('#invoice-back-btn');   // not locked: nothing downloaded
+
+  // Pick a date yourself / Back to weekly bills.
+  await page.waitForSelector('#billing-screen:not([hidden])');
+  await page.click('#billing-pick-btn');
+  assert(await page.isVisible('#billing-through-date') && await page.isVisible('#billing-weekly-btn') && await page.isHidden('#billing-pick-btn'), '15 Pick a date yourself: date box and Back to weekly bills show');
+  assert(await page.locator('section.billing-card[data-cadence="weekly"]').count() === 0 && await page.locator('.billing-week').count() === 0, "15 hand mode: today's single-card layout (no week sections)");
+  await page.click('#billing-weekly-btn');
+  assert(await bw.locator('.billing-week').count() === 1 && await page.isVisible('#billing-pick-btn'), '15 Back to weekly bills: sections are back');
+
+  // Settings > Customers: Billing choice (Weekly by default, writes cadence, Billing follows).
+  const qKey = await page.evaluate(() => Keys.customer('Quarry Road Vans'));
+  const qCard = card(page, 'Quarry Road Vans');
+  assert(await qCard.locator('.billing-row').count() === 0, '15 Quarry Road Vans (weekly by default): the sheet cut today waits - no row yet');
+  await toProjects(page);
+  await page.click('#settings-btn');
+  await page.waitForSelector('#settings-screen:not([hidden])');
+  const sel = page.locator(`select[data-cadence="${qKey}"]`);
+  assert(await sel.inputValue() === 'weekly' && await page.evaluate(k => { const cb = OwnerStore.getCustomerBilling(k); return !(cb && cb.cadence); }, qKey), '15 Settings Billing select shows Weekly with no cadence stored');
+  await sel.selectOption('toDate');
+  await page.waitForFunction(() => /Quarry Road Vans: billed everything to date/.test(document.getElementById('settings-status').textContent));
+  assert(await page.evaluate(k => OwnerStore.getCustomerBilling(k).cadence === 'toDate', qKey), '15 changing the select wrote cadence "toDate"');
+  await openBilling(page, false);
+  assert(await qCard.count() === 1 && await qCard.getAttribute('data-cadence') === null && await qCard.locator('button[data-act="bill"]').count() === 1, '15 Billing follows: Quarry Road Vans is a plain card with one Bill button');
+  assert(await qCard.locator('.billing-row', { hasText: 'Order_1203' }).count() === 1, '15 Everything to date includes the sheet cut today');
+  const qAmt = money((await qCard.locator('button[data-act="bill"]').textContent()).split('·')[1]);
+  await qCard.locator('button[data-act="bill"]').click();
+  await page.waitForSelector('#invoice-screen:not([hidden])');
+  await page.waitForFunction(() => document.getElementById('invoice-number-check').classList.contains('invoice-check--ok'), null, { timeout: 5000 });
+  const qLines = await page.$$eval('.invoice-preview-line', els => els.map(e => e.firstElementChild.textContent));
+  assert(qLines.some(l => l.startsWith('CNC cutting — ')) && !qLines.some(l => l.startsWith('Week ending')), `15 Everything-to-date preview keeps today's wording (${JSON.stringify(qLines)})`);
+  assert(money(await page.textContent('#invoice-total')) === qAmt, `15 Everything-to-date Invoice total = Bill amount ${qAmt}`);
+  const qdl = await downloadCsv(page);
+  const qrows = parseCsv(readFileSync(await qdl.path()).toString('utf8').replace(/^﻿/, '')).filter(r => r.length > 1 || r[0] !== '').slice(1);
+  assert(qrows.some(r => r[5].startsWith('CNC cutting — ')) && !qrows.some(r => r[5].startsWith('Week ending')), '15 Everything-to-date CSV keeps "CNC cutting — …"');
+  console.log(`15 numbers: week1 ${w1Before} (before/after hours ${w1Before}/${w1After}); week2 total ${t2NoHours} without hours, ${t2} with 2 h Design, ${w2Bill} once oldest; invoice ${wnum} total ${w1Before}; Quarry to-date ${qAmt}`);
+  await page.close();
+
+  // Collin (operator): no Billing button, no Billing choice, no rhythm buttons.
+  page = await fresh();
+  await page.setInputFiles('#file-input', join(dst, sample));
+  await page.waitForSelector('#projects-screen:not([hidden])'); await page.waitForTimeout(300);
+  assert(await page.isHidden('#billing-btn') && await page.isHidden('#settings-btn') && await page.isHidden('#billing-screen'), '15 Collin: no Billing button, no Settings button, no Billing screen');
+  assert(await page.locator('select[data-cadence]').count() === 0 && await page.isHidden('#billing-pick-btn') && await page.isHidden('#billing-weekly-btn'), '15 Collin: no Billing choice and no Pick a date / Back to weekly bills');
   await page.close();
 
   // ── 14. No uncaught page errors anywhere ──
