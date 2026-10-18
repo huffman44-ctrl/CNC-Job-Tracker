@@ -223,6 +223,14 @@ const InvoiceScreen = (() => {
     };
   }
 
+  // The context a NEW invoice's lines are worded with (an already-locked invoice keeps its stored lines).
+  function linesCtx({ customerBilling, throughDate, weekEndingDay, qbItems, laborTypes }) {
+    return {
+      qbItems, laborTypes,
+      weekEnding: BillingModel.weekEndingFor({ cadence: BillingModel.cadenceOf(customerBilling), throughDate, weekEndingDay }),
+    };
+  }
+
   // Rebuild the model from the current caches, exactly as Billing does, and price it.
   function computeView() {
     if (st.locked) return fromInvoice(InvoiceStore.get(st.number), st.number);
@@ -239,7 +247,7 @@ const InvoiceScreen = (() => {
     catch (e) { return { error: e.message || String(e) }; }
     const base = { customer, ctx, priced, customerName: customer.customerName, breakdown: priced.breakdown, total: priced.total, sheetCount: Object.keys(priced.perSheet || {}).length };
     if (base.sheetCount > MAX_SHEETS) return { ...base, lines: [] };
-    try { base.lines = InvoiceLines.finalize(priced, { qbItems: OwnerStore.qbItems(), laborTypes }); }
+    try { base.lines = InvoiceLines.finalize(priced, linesCtx({ customerBilling: OwnerStore.getCustomerBilling(st.customerKey), throughDate: st.throughDate, weekEndingDay: (OwnerStore.invoicing() || {}).weekEndingDay, qbItems: OwnerStore.qbItems(), laborTypes })); }
     catch (e) {
       if (e && e.code === 'mixed-taxable') return { ...base, lines: [], note: e.message };
       return { error: (e && e.message) || String(e) };
@@ -451,7 +459,7 @@ const InvoiceScreen = (() => {
     st.busy = false; paint();
   }
 
-  return { show, render, attemptDownload, fmtMoney, dueState, numberMessage, readiness, refusalInfo, lockThenSave, saveCsv, MAX_SHEETS };
+  return { show, render, attemptDownload, fmtMoney, dueState, numberMessage, readiness, refusalInfo, lockThenSave, saveCsv, linesCtx, MAX_SHEETS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = InvoiceScreen;

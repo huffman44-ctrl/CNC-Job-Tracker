@@ -20,7 +20,11 @@ const InvoiceLines = (() => {
   const cncItem = ctx => (ctx && ctx.qbItems && ctx.qbItems.cnc) || '';
 
   register('cutSheets', {
-    describe(line) {
+    describe(line, ctx) {
+      if (ctx && typeof ctx.weekEnding === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ctx.weekEnding)) {
+        const [y, m, d] = ctx.weekEnding.split('-').map(Number);
+        return `Week ending ${m}/${d}/${y}`;
+      }
       const f = line.facts || {};
       let s = `CNC cutting — ${plural(f.sheetCount, 'sheet', 'sheets')} (${(f.perJob || []).map(p => `${p.jobName} ${p.count}`).join(', ')})`;
       (f.rush || []).forEach(r => { s += `, ${r.label} on ${r.jobName}`; });

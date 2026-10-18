@@ -253,6 +253,16 @@ const BillingModel = (() => {
     return fmtYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + forward));
   }
 
+  // The "Week ending" date for a bill's cutting line: the through date when the customer is Weekly and that date falls
+  // on the week-ending day (local date); otherwise null. Never throws.
+  function weekEndingFor({ cadence, throughDate, weekEndingDay } = {}) {
+    if (cadence !== 'weekly') return null;
+    const d = parseYmd(throughDate);
+    if (!d || fmtYmd(d) !== throughDate) return null;
+    if (!Number.isInteger(weekEndingDay) || weekEndingDay < 0 || weekEndingDay > 6) return null;
+    return d.getDay() === weekEndingDay ? throughDate : null;
+  }
+
   // Weekly billing (spec .scratch/weekly-billing): splits ONE customer's rows (from build()) into week sections, oldest
   // first. ctx = { weekEndingDay, priceList, laborTypes }. Each section is { weekEnding, rows, billable, total, error };
   // only the oldest is billable. Rows are copies restricted to the sheets cut in that week; a job's unbilled labor stays on
@@ -474,7 +484,7 @@ const BillingModel = (() => {
     return out;
   }
 
-  return { defaultThroughDate, weekEndingOf, weekSections, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
+  return { defaultThroughDate, weekEndingOf, weekEndingFor, weekSections, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;

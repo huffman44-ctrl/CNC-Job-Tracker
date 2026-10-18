@@ -305,3 +305,16 @@ test('a section whose week ends after the through date is never billable', () =>
   assert.equal(s.length, 1); assert.equal(s[0].weekEnding, '2026-10-17');
   assert.equal(s[0].billable, false); assert.match(s[0].error, /after the through date/);
 });
+
+test('weekEndingFor: weekly + the week-ending day -> that date; else null; never throws', () => {
+  const f = a => BillingModel.weekEndingFor(a);
+  assert.equal(f({ cadence: 'weekly', throughDate: '2026-10-10', weekEndingDay: 6 }), '2026-10-10');
+  assert.equal(f({ cadence: 'weekly', throughDate: '2026-10-14', weekEndingDay: 6 }), null);
+  assert.equal(f({ cadence: 'toDate', throughDate: '2026-10-10', weekEndingDay: 6 }), null);
+  assert.equal(f({ cadence: 'weekly', throughDate: null, weekEndingDay: 6 }), null);
+  assert.equal(f({ cadence: 'weekly', throughDate: 'garbage', weekEndingDay: 6 }), null);
+  assert.equal(f({ cadence: 'weekly', throughDate: '2026-10-11', weekEndingDay: 0 }), '2026-10-11');
+  assert.equal(f({ cadence: 'weekly', throughDate: '2026-10-10', weekEndingDay: undefined }), null);
+  assert.equal(f({ cadence: 'weekly', throughDate: '2026-02-31', weekEndingDay: 6 }), null);
+  assert.equal(f(), null);
+});

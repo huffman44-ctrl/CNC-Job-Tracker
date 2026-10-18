@@ -139,3 +139,16 @@ test('labor wording when an earlier bill already charged the minimum (spec 2026-
   const csv = InvoiceLines.buildQuickBooksCsv({ number: 3700, customerName: 'Northlight Studios', invoiceDate: '2026-10-06', dueDate: '2026-10-06', lines: [zero] });
   assert.match(csv.split('\r\n')[1], /,1,0,0,N,$/);
 });
+
+test('weekEnding: cutting line reads exactly "Week ending M/D/YYYY"; other fields and labor unchanged', () => {
+  const priced = price(merge(exampleA(), exampleB()));
+  const plain = InvoiceLines.finalize(priced, ctx);
+  const weekly = InvoiceLines.finalize(priced, { ...ctx, weekEnding: '2026-10-10' });
+  assert.equal(weekly[0].description, 'Week ending 10/10/2026');
+  for (const k of ['qbItem', 'taxable', 'amount', 'quantity', 'rate', 'serviceDate']) assert.equal(weekly[0][k], plain[0][k]);
+  assert.equal(weekly[1].description, plain[1].description);
+  assert.equal(InvoiceLines.finalize(priced, { ...ctx, weekEnding: '2026-01-05' })[0].description, 'Week ending 1/5/2026');
+  assert.equal(InvoiceLines.finalize(priced, { ...ctx, weekEnding: null })[0].description, plain[0].description);
+  const csv = InvoiceLines.buildQuickBooksCsv({ number: 1, customerName: 'Northlight Studios', invoiceDate: '2026-10-12', dueDate: '2026-10-12', lines: weekly });
+  assert.match(csv.split('\r\n')[1], /,CNC Router Work,Week ending 10\/10\/2026,1,/);
+});

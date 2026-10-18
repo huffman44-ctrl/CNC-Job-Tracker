@@ -4,6 +4,9 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 globalThis.InvoiceLines = require('../js/invoice-lines.js');
+globalThis.Pricing = require('../js/pricing.js');
+globalThis.LogRows = require('../js/log-rows.js');
+globalThis.BillingModel = require('../js/billing-model.js');
 const IS = require('../js/invoice-screen.js');
 
 const err = (code, message = 'x') => Object.assign(new Error(message), { code });
@@ -129,4 +132,13 @@ test('attemptDownload: a rejected lock throws and never saves; view problems nev
   assert.equal((await IS.attemptDownload({ ...base, computeView: () => ({ note: 'mixed', total: 1 }) })).kind, 'note');
   assert.equal((await IS.attemptDownload({ ...base, computeView: () => ({ total: 1, sheetCount: 401 }) })).kind, 'too-big');
   assert.equal(saved + locked, 0);
+});
+
+test('linesCtx: a Weekly customer billed through a Saturday gets the Week ending wording; toDate / non-Saturday do not', () => {
+  const base = { weekEndingDay: 6, qbItems: { cnc: 'x' }, laborTypes: [] };
+  assert.equal(IS.linesCtx({ ...base, customerBilling: null, throughDate: '2026-10-10' }).weekEnding, '2026-10-10');
+  assert.equal(IS.linesCtx({ ...base, customerBilling: { cadence: 'weekly' }, throughDate: '2026-10-10' }).weekEnding, '2026-10-10');
+  assert.equal(IS.linesCtx({ ...base, customerBilling: { cadence: 'toDate' }, throughDate: '2026-10-10' }).weekEnding, null);
+  assert.equal(IS.linesCtx({ ...base, customerBilling: null, throughDate: '2026-10-14' }).weekEnding, null);
+  assert.equal(IS.linesCtx({ ...base, weekEndingDay: undefined, customerBilling: null, throughDate: '2026-10-10' }).weekEnding, null);
 });
