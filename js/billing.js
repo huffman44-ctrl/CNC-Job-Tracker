@@ -54,6 +54,8 @@ const BillingScreen = (() => {
     if (!m) return ymd || '';
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
   }
+  // "Oct 10" — the Bill buttons' wording (the section title keeps the weekday).
+  function shortDate(ymd) { return longDate(ymd).replace(/^[A-Za-z]{3} /, ''); }
   function dayText(ms) {
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
@@ -141,9 +143,12 @@ const BillingScreen = (() => {
     setStatus('');
     handDate = null;   // every fresh visit starts in rhythm mode
     els.date.value = '';
-    try { lastWeekEnd(); }
-    catch (e) { handDate = 'all'; setStatus(`Week-ending day in Settings › Invoicing isn't valid (${e.message}); showing everything to date.`, true); }
-    if (o && o.status) setStatus(o.status);
+    // A bad week-ending day stays in rhythm mode: the model refuses ("Couldn't work out what is billable"), so nothing
+    // silently bills the unfinished week; Pick a date yourself still works.
+    let warn = '';
+    try { lastWeekEnd(); } catch (e) { warn = `Week-ending day in Settings › Invoicing isn't valid (${e.message}) — fix it there, or use Pick a date yourself.`; }
+    if (o && o.status) setStatus(warn ? `${o.status} ${warn}` : o.status, !!warn);
+    else if (warn) setStatus(warn, true);
     boardKeys = activeKeys();
     loadFinished();
   }
@@ -251,6 +256,7 @@ const BillingScreen = (() => {
     const rhythm = rhythmMode();
     els.date.hidden = rhythm; els.everything.hidden = rhythm; els.weekly.hidden = rhythm; els.pick.hidden = !rhythm;
     els.throughTitle.textContent = rhythm ? 'Weekly bills' : 'Bill work cut through';
+    if (rhythm) els.throughTitle.removeAttribute('for'); else els.throughTitle.setAttribute('for', 'billing-through-date');
     if (rhythm) { els.caption.textContent = 'Weekly customers: one bill per finished week. Others: everything cut to date.'; return; }
     if (handDate === 'all') { els.caption.textContent = 'Everything cut so far.'; return; }
     const through = handDate;
@@ -368,7 +374,7 @@ const BillingScreen = (() => {
     const canToggle = o.toggle !== false;
     const on = canToggle ? isOnIn(o.sel, row) : true;
     const rp = BillingModel.rowPricing(row, ctx);
-    const detail = BillingModel.rowDetail(row, rp.priced);
+    const detail = BillingModel.rowDetail(row, o.hideAmount ? null : rp.priced);   // no repeat count while amounts are hidden
     const n = row.sheetKeys.length;
     let state;
     if (row.state === 'ready') state = 'Ready';
@@ -411,20 +417,20 @@ const BillingScreen = (() => {
       } catch (e) { rows = `<p class="billing-note billing-note--error">${esc(e.message || String(e))}</p>`; }
       let side = '';
       if (invBusy) {
-        if (billable) side = `<button type="button" class="btn btn-primary" disabled>Bill week ending ${esc(longDate(we))}</button>`;
+        if (billable) side = `<button type="button" class="btn btn-primary" disabled>Bill week ending ${esc(shortDate(we))}</button>`;
         side += `<span class="billing-week-wait">${esc(wait)}</span>`;
       } else if (billable) {
         const pc = { customerKey: c.customerKey, rows: sec.rows, busyInvoice: null };
         let st;
         try { st = billState(pc, ctx, sel); } catch (e) { st = { error: e.message || String(e) }; }
-        if (st.total != null) side = `<button type="button" class="btn btn-primary" data-act="bill" data-ck="${esc(c.customerKey)}" data-we="${esc(we)}"${dataOk && !busy ? '' : ' disabled'}>Bill week ending ${esc(longDate(we))} · ${esc(fmtMoney(st.total))}</button>`;
+        if (st.total != null) side = `<button type="button" class="btn btn-primary" data-act="bill" data-ck="${esc(c.customerKey)}" data-we="${esc(we)}"${dataOk && !busy ? '' : ' disabled'}>Bill week ending ${esc(shortDate(we))} · ${esc(fmtMoney(st.total))}</button>`;
         else if (st.note) side = `<span class="billing-card-note">${esc(st.note)}</span>`;
         else if (st.error) side = `<span class="billing-row-error">${esc(st.error)}</span>`;
       } else {
         const prev = i > 0 ? sections[i - 1].weekEnding : null;
         if (sec.total != null) side += `<span class="billing-week-total">${esc(fmtMoney(sec.total))}</span>`;
         if (sec.error) side += `<span class="billing-row-error">${esc(sec.error)}</span>`;
-        if (prev) side += `<span class="billing-week-wait">Bill after week ending ${esc(longDate(prev))}</span>`;
+        if (prev) side += `<span class="billing-week-wait">Bill after week ending ${esc(shortDate(prev))}</span>`;
       }
       return `<div class="billing-week" data-week="${esc(we || '')}"><div class="billing-week-head"><h3 class="billing-week-title">${esc(title)}</h3><div class="billing-week-side">${side}</div></div>${rows}</div>`;
     }).join('');
@@ -511,6 +517,9 @@ const BillingScreen = (() => {
     const c = m.customers.find(x => x.customerKey === ck);
     if (!c) return;
     setStatus('');
+    if (we && !(rhythmMode() && isWeekly(ck))) {   // a weekly button clicked after the mode or the customer's rhythm changed
+      setStatus("This customer's billing changed — check the card again.", true); render(); return;
+    }
     if (rhythmMode() && isWeekly(ck)) {
       let sec = null;
       try { sec = weekSectionsOf(c, OwnerStore.laborTypes()).find(x => x.weekEnding === we); } catch (e) { sec = null; }
