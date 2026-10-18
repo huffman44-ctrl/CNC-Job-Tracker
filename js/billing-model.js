@@ -244,6 +244,72 @@ const BillingModel = (() => {
     return { priceList: ctx.priceList, laborTypes: ctx.laborTypes, jobs, sheets, priorBilled, priorLaborHours };
   }
 
+  // The week-ending date on or after ymd (weekEndingDay 0-6, Sunday = 0). Local-date math, like defaultThroughDate.
+  function weekEndingOf(ymd, weekEndingDay) {
+    const d = parseYmd(ymd);
+    if (!d) throw new Error('weekEndingOf: bad date ' + ymd);
+    if (!Number.isInteger(weekEndingDay) || weekEndingDay < 0 || weekEndingDay > 6) throw new Error('weekEndingOf: weekEndingDay must be a whole number 0-6');
+    const forward = (weekEndingDay - d.getDay() + 7) % 7;
+    return fmtYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + forward));
+  }
+
+  // Weekly billing (spec .scratch/weekly-billing): splits ONE customer's rows (from build()) into week sections, oldest
+  // first. ctx = { weekEndingDay, priceList, laborTypes }. Each section is { weekEnding, rows, billable, total, error };
+  // only the oldest is billable. Rows are copies restricted to the sheets cut in that week; a job's unbilled labor stays on
+  // its row in its OLDEST section only (a labor-only row goes in the oldest section overall). A later section is priced
+  // with every earlier section's sheets of the same job as priorBilled (same shape and `order` build() uses for billed
+  // sheets), so its total equals what Billing will price once the earlier weeks are billed. All dollars come from
+  // Pricing.priceInvoice; a refusal gives total null + error, never a throw.
+  // Meant for Weekly customers (customer.throughDate is their last finished week-ending day). If throughDate is null (an
+  // Everything-to-date customer) sheets still section by cut week, but a customer with ONLY labor-only rows has no date
+  // to give the single section, and `null` there would mean "everything to date" on the Invoice screen — so that throws.
+  function weekSections(customer, ctx) {
+    const weekOf = s => weekEndingOf(s.cutDate, ctx.weekEndingDay);
+    const weekSet = new Set();
+    customer.rows.forEach(r => r.sheetInputs.forEach(s => weekSet.add(weekOf(s))));
+    if (!weekSet.size) {
+      if (!parseYmd(customer.throughDate)) throw new Error('weekSections: a labor-only customer needs a throughDate for its one section');
+      weekSet.add(customer.throughDate);
+    }
+    const weeks = [...weekSet].sort();
+    const bySection = new Map(weeks.map(w => [w, []]));
+    customer.rows.forEach(r => {
+      if (!r.sheetInputs.length) { bySection.get(weeks[0]).push(sectionRow(r, [], [], true, ctx)); return; }
+      const rowWeeks = [...new Set(r.sheetInputs.map(weekOf))].sort();
+      rowWeeks.forEach(w => {
+        const mine = r.sheetInputs.filter(s => weekOf(s) === w);
+        const earlier = r.sheetInputs.filter(s => weekOf(s) < w);
+        bySection.get(w).push(sectionRow(r, mine, earlier, w === rowWeeks[0], ctx));
+      });
+    });
+    return weeks.map((w, i) => {
+      const rows = bySection.get(w);
+      let total = null, error = null;
+      try { total = P.priceInvoice(pricingInput({ rows }, {}, ctx)).total; } catch (e) { error = e.message || String(e); }
+      return { weekEnding: w, rows, billable: i === 0, total, error };
+    });
+  }
+
+  // One job's row restricted to `sheets` (its sheetInputs cut in one week). `earlier` = its sheets from earlier weeks, which
+  // count as already billed for repeats. Labor only when `keepLabor`.
+  function sectionRow(r, sheets, earlier, keepLabor, ctx) {
+    const keys = sheets.map(s => s.fileKey);
+    const noLabor = !keepLabor || !r.laborLineIds.length;
+    const row = {
+      ...r,
+      sheetKeys: keys, sheetInputs: sheets.map(s => ({ ...s })),
+      state: !sheets.length ? 'labor-only' : (r.uncutCount ? 'partly' : 'ready'),
+      zeroTimeCount: sheets.filter(s => !(s.totalTimeSec > 0)).length,
+      priorBilled: [...r.priorBilled.map(p => ({ ...p })), ...earlier.map(s => ({ jobKey: s.jobKey, signature: P.signatureOf(s), order: s.order }))],
+      laborLineIds: noLabor ? [] : [...r.laborLineIds],
+      jobInput: noLabor ? { ...r.jobInput, includeLabor: false, laborLines: [] } : { ...r.jobInput, laborLines: r.jobInput.laborLines.map(l => ({ ...l })) },
+      captured: { sheets: Object.fromEntries(keys.map(k => [k, r.captured.sheets[k]])), job: { ...r.captured.job, labor: noLabor ? {} : { ...r.captured.job.labor } } },
+    };
+    const rp = rowPricing(row, ctx);
+    row.amount = rp.amount; row.error = rp.error;
+    return row;
+  }
+
   function summaryText(customer) {
     const rows = customer.rows || [];
     const later = customer.laterSheets || [];
@@ -400,7 +466,7 @@ const BillingModel = (() => {
     return out;
   }
 
-  return { defaultThroughDate, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
+  return { defaultThroughDate, weekEndingOf, weekSections, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;

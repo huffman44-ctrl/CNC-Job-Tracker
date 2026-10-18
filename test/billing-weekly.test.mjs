@@ -144,3 +144,142 @@ test('a removed labor type still warns while the hours wait with later sheets', 
   });
   assert.equal(m.needsAttention.filter(n => n.jobKey === 'proj_Alpha_Job').length, 1);
 });
+
+/* -- ticket 02: week sections -- */
+const CTX = { weekEndingDay: 6, priceList: STANDARD, laborTypes: LABOR };
+const sections = c => BillingModel.weekSections(c, CTX);
+const priceOf = c => Pricing.priceInvoice(BillingModel.pricingInput(c, {}, CTX));
+const D = (d) => iso(2026, 10, d);
+
+test('weekEndingOf: on-or-after boundaries, Sunday, bad input throws', () => {
+  assert.equal(BillingModel.weekEndingOf('2026-10-04', 6), '2026-10-10');
+  assert.equal(BillingModel.weekEndingOf('2026-10-10', 6), '2026-10-10');
+  assert.equal(BillingModel.weekEndingOf('2026-10-11', 6), '2026-10-17');
+  assert.equal(BillingModel.weekEndingOf('2026-12-30', 6), '2027-01-02');
+  assert.throws(() => BillingModel.weekEndingOf('nope', 6));
+  assert.throws(() => BillingModel.weekEndingOf('2026-10-10', 7));
+  assert.throws(() => BillingModel.weekEndingOf('2026-10-10', 1.5));
+});
+
+test('two jobs across two weeks: sections 10-10 and 10-17, rows split, only the first billable', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' }, Beta_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(6) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(13) },
+      { job: 'Beta_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Beta_Job', n: 2, sec: 900, cut: D(15) }],
+    throughDate: '2026-10-17',
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.deepEqual(s.map(x => x.weekEnding), ['2026-10-10', '2026-10-17']);
+  assert.deepEqual(s.map(x => x.billable), [true, false]);
+  assert.deepEqual(s[0].rows.map(r => [r.jobName, r.sheetKeys]), [['Alpha_Job', ['fk_Alpha_Job_1']], ['Beta_Job', ['fk_Beta_Job_1']]]);
+  assert.deepEqual(s[1].rows.map(r => [r.jobName, r.sheetKeys]), [['Alpha_Job', ['fk_Alpha_Job_2']], ['Beta_Job', ['fk_Beta_Job_2']]]);
+  s.forEach(x => { assert.equal(x.error, null); assert.ok(x.total > 0); });
+  s[1].rows.forEach(r => { assert.deepEqual(Object.keys(r.captured.sheets), r.sheetKeys); assert.equal(r.sheetInputs.length, 1); });
+  // the customer's own rows are untouched
+  assert.equal(c.rows[0].sheetKeys.length, 2);
+});
+
+test('hours of a job cut across both weeks ride on its 10-10 row only', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(14) }],
+    throughDate: '2026-10-17',
+  }), 'Acme Test');
+  const [a, b] = sections(c);
+  assert.deepEqual(a.rows[0].laborLineIds, ['d1']); assert.equal(a.rows[0].jobInput.includeLabor, true); assert.equal(a.rows[0].jobInput.laborLines.length, 1);
+  assert.deepEqual(b.rows[0].laborLineIds, []); assert.equal(b.rows[0].jobInput.includeLabor, false); assert.deepEqual(b.rows[0].jobInput.laborLines, []);
+  assert.deepEqual(b.rows[0].captured.job.labor, {});
+  assert.ok(a.total > b.total);   // the labor is in the first bill only
+});
+
+test('a job whose sheets are all in week 10-17 carries its hours on that row', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' }, Beta_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Beta_Job', n: 1, sec: 900, cut: D(14) }],
+    throughDate: '2026-10-17',
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.deepEqual(s.map(x => x.rows.map(r => r.jobName)), [['Alpha_Job'], ['Beta_Job']]);
+  assert.deepEqual(s[1].rows[0].laborLineIds, ['d1']);
+});
+
+test('money equality: week 2 total equals the bill after week 1 is billed; the repeat is priced as a repeat both ways', () => {
+  const jobs = { Alpha_Job: { customer: 'Acme Test' } };
+  const sheets = [{ job: 'Alpha_Job', n: 1, sec: 7200, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 7200, cut: D(14) }];
+  const s = sections(cust(world({ jobs, sheets, throughDate: '2026-10-17' }), 'Acme Test'));
+  assert.equal(s[0].total, 330);   // 60 handling + 2 h x 135
+  assert.equal(s[1].total, 310);   // repeat: 40 handling + 270
+  const billed = cust(world({ jobs, sheets, throughDate: '2026-10-17', sheetBilling: { fk_Alpha_Job_1: { status: 'billed', invoiceNumber: 1001 } } }), 'Acme Test');
+  const after = priceOf(billed);
+  assert.equal(after.total, s[1].total);
+  assert.equal(after.perSheet.fk_Alpha_Job_2.repeatOf, 1);
+  const rowPriced = BillingModel.rowPricing(s[1].rows[0], CTX).priced;
+  assert.equal(rowPriced.perSheet.fk_Alpha_Job_2.repeatOf, 1);   // the row alone knows too
+});
+
+test('section one equals the bill built today with through 10-10', () => {
+  const jobs = { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] }, Beta_Job: { customer: 'Acme Test' } };
+  const sheets = [{ job: 'Alpha_Job', n: 1, sec: 3000, cut: D(6) }, { job: 'Alpha_Job', n: 2, sec: 3000, cut: D(13) },
+    { job: 'Beta_Job', n: 1, sec: 1200, cut: D(10) }, { job: 'Beta_Job', n: 2, sec: 1200, cut: D(16) }];
+  const s = sections(cust(world({ jobs, sheets, throughDate: '2026-10-17' }), 'Acme Test'));
+  const today = cust(world({ jobs, sheets, throughDate: '2026-10-10' }), 'Acme Test');
+  assert.equal(s[0].total, priceOf(today).total);
+});
+
+test('a cutDateOverride moves a sheet into the later week', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(6) }],
+    throughDate: '2026-10-17', sheetBilling: { fk_Alpha_Job_1: { cutDateOverride: '2026-10-13' } },
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.deepEqual(s.map(x => [x.weekEnding, x.rows[0].sheetKeys]), [['2026-10-10', ['fk_Alpha_Job_2']], ['2026-10-17', ['fk_Alpha_Job_1']]]);
+});
+
+test('labor only: one section dated customer.throughDate (never null); current-week sheets are not in it', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] }, Beta_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: null }, { job: 'Beta_Job', n: 1, sec: 900, cut: D(19) }],
+    throughDate: '2026-10-17',
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.equal(s.length, 1); assert.equal(s[0].weekEnding, '2026-10-17'); assert.equal(s[0].billable, true);
+  assert.deepEqual(s[0].rows.map(r => [r.jobName, r.state]), [['Alpha_Job', 'labor-only']]);
+  assert.equal(s[0].error, null); assert.equal(s[0].total, 300);
+});
+
+test('a labor-only job goes in the oldest of several sections', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] }, Beta_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: null }, { job: 'Beta_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Beta_Job', n: 2, sec: 900, cut: D(14) }],
+    throughDate: '2026-10-17',
+  }), 'Acme Test');
+  const s = sections(c);
+  assert.deepEqual(s.map(x => x.rows.map(r => r.jobName)), [['Alpha_Job', 'Beta_Job'], ['Beta_Job']]);
+});
+
+test('a pricing refusal gives total null + error, no throw', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(14) }],
+    throughDate: '2026-10-17',
+  }), 'Acme Test');
+  const { hourlyRate, ...bad } = STANDARD;
+  const s = BillingModel.weekSections(c, { ...CTX, priceList: bad });
+  assert.equal(s.length, 2);
+  s.forEach(x => { assert.equal(x.total, null); assert.match(x.error, /hourlyRate/); });
+});
+
+test('an Everything-to-date customer (throughDate null): sheets still section by week; labor-only alone throws', () => {
+  const c = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: D(8) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: D(14) }],
+    throughDate: null,
+  }), 'Acme Test');
+  assert.deepEqual(sections(c).map(x => x.weekEnding), ['2026-10-10', '2026-10-17']);
+  const lo = cust(world({
+    jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 2)] } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: null }], throughDate: null,
+  }), 'Acme Test');
+  assert.throws(() => sections(lo), /throughDate/);
+});
