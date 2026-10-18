@@ -108,8 +108,13 @@ const InvoiceScreen = (() => {
     return { invoice, saveError };
   }
 
+  // What the owner reads on each line (description, QuickBooks item, Taxable) — a change there with the same total
+  // (e.g. the customer's Billing rhythm flipped, so "Week ending …" wording changes) must not lock unseen.
+  const linesSig = view => JSON.stringify(((view && view.lines) || []).map(l => [l.description, l.qbItem, l.taxable]));
+
   // The decision logic of the Download click, free of the DOM so it can be tested with stubs.
-  // `shown` = the total on screen when the button was clicked (captured BEFORE any repaint).
+  // `shown` = the total on screen when the button was clicked (captured BEFORE any repaint); `shownSig` = linesSig of
+  // that same view (optional — omitted, only the total is compared).
   // Returns { kind: 'view-error'|'note'|'too-big'|'changed'|'locked', ... }; a rejected lock throws.
   async function attemptDownload(d) {
     const view = d.computeView();
@@ -117,6 +122,7 @@ const InvoiceScreen = (() => {
     if (view.note) return { kind: 'note', view };
     if (view.sheetCount > MAX_SHEETS) return { kind: 'too-big', view };
     if (view.total !== d.shown) return { kind: 'changed', view };   // never lock a total the owner has not seen
+    if (d.shownSig !== undefined && linesSig(view) !== d.shownSig) return { kind: 'changed', view };   // nor wording
     const draft = d.buildDraft(view);
     const res = await lockThenSave(draft, d.by, { lock: d.lock, save: d.save });
     return { kind: 'locked', view, draft, ...res };
@@ -283,6 +289,7 @@ const InvoiceScreen = (() => {
     const view = computeView();
     st.view = view;
     st.shownTotal = view.error ? null : view.total;
+    st.shownSig = view.error ? null : linesSig(view);
     const due = st.locked ? { ok: true, dueDate: (view.stored && view.stored.dueDate) || st.lockedDue || st.customYmd || null, message: '' } : dueNow();
 
     // status line
@@ -390,11 +397,12 @@ const InvoiceScreen = (() => {
     const gate = readiness({ ownerOk: ownerOk(), check: st.check, numberText: st.numberText, due, view: st.view, busy: st.busy });
     if (!gate.enabled) return;
     const shown = st.shownTotal;   // what the owner is looking at — captured before paint() refreshes it
+    const shownSig = st.shownSig;
     const number = Number(st.numberText);
     st.busy = true; setMsg(''); paint();
     try {
       const r = await attemptDownload({
-        shown, by: by(),
+        shown, shownSig, by: by(),
         computeView,
         buildDraft: view => buildDraft(view, due, number),
         lock: (d, b) => InvoiceStore.lockAndCreate(d, b),
@@ -459,7 +467,7 @@ const InvoiceScreen = (() => {
     st.busy = false; paint();
   }
 
-  return { show, render, attemptDownload, fmtMoney, dueState, numberMessage, readiness, refusalInfo, lockThenSave, saveCsv, linesCtx, MAX_SHEETS };
+  return { show, render, attemptDownload, linesSig, fmtMoney, dueState, numberMessage, readiness, refusalInfo, lockThenSave, saveCsv, linesCtx, MAX_SHEETS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = InvoiceScreen;

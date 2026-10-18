@@ -19,3 +19,8 @@ Spec: `.scratch/weekly-billing/spec.md` (Implementation Decisions: "Line wording
 ## Done
 
 `npm test` green. Bump `js/billing-model.js?v=`, `js/invoice-lines.js?v=`, `js/invoice-screen.js?v=`.
+
+## Comments
+
+- 2026-10-18 (build): `computeView` needs OwnerStore / BillingScreen / InvoiceStore, so the finalize call itself is not node-testable. The context is built by the pure `InvoiceScreen.linesCtx(...)` (tested); the wiring (right customer key, through date, week-ending day reaching `finalize`) is covered by ticket 06's browser check — it must check the on-screen preview line before lock AND the stored CSV.
+- Review: Download now also refuses (`changed`) when the lines' wording / item / Taxable differ from what was on screen, not only the total.

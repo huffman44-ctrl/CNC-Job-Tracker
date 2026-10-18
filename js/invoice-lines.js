@@ -21,9 +21,9 @@ const InvoiceLines = (() => {
 
   register('cutSheets', {
     describe(line, ctx) {
-      if (ctx && typeof ctx.weekEnding === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(ctx.weekEnding)) {
-        const [y, m, d] = ctx.weekEnding.split('-').map(Number);
-        return `Week ending ${m}/${d}/${y}`;
+      const we = ctx && typeof ctx.weekEnding === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(ctx.weekEnding);
+      if (we && Number(we[2]) >= 1 && Number(we[2]) <= 12 && Number(we[3]) >= 1 && Number(we[3]) <= 31) {
+        return `Week ending ${Number(we[2])}/${Number(we[3])}/${we[1]}`;
       }
       const f = line.facts || {};
       let s = `CNC cutting — ${plural(f.sheetCount, 'sheet', 'sheets')} (${(f.perJob || []).map(p => `${p.jobName} ${p.count}`).join(', ')})`;

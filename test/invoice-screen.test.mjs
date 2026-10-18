@@ -142,3 +142,19 @@ test('linesCtx: a Weekly customer billed through a Saturday gets the Week ending
   assert.equal(IS.linesCtx({ ...base, customerBilling: null, throughDate: '2026-10-14' }).weekEnding, null);
   assert.equal(IS.linesCtx({ ...base, weekEndingDay: undefined, customerBilling: null, throughDate: '2026-10-10' }).weekEnding, null);
 });
+
+test('attemptDownload: same total but different line wording -> changed, no lock', async () => {
+  let locked = 0;
+  const shownView = { total: 230, sheetCount: 1, lines: [{ description: 'Week ending 10/10/2026', qbItem: 'CNC', taxable: 'N' }] };
+  const nowView = { total: 230, sheetCount: 1, lines: [{ description: 'CNC cutting — 1 sheet (Job 1)', qbItem: 'CNC', taxable: 'N' }] };
+  const r = await IS.attemptDownload({
+    shown: 230, shownSig: IS.linesSig(shownView), by: 'a@x', computeView: () => nowView,
+    buildDraft: () => ({}), lock: async () => { locked++; }, save: () => {},
+  });
+  assert.equal(r.kind, 'changed'); assert.equal(locked, 0);
+  const ok = await IS.attemptDownload({
+    shown: 230, shownSig: IS.linesSig(nowView), by: 'a@x', computeView: () => nowView,
+    buildDraft: () => ({}), lock: async () => { locked++; return {}; }, save: () => {},
+  });
+  assert.equal(ok.kind, 'locked'); assert.equal(locked, 1);
+});
