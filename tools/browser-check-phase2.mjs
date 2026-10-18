@@ -587,12 +587,15 @@ async function main() {
   assert(await bw.count() === 1 && await bw.locator('.billing-week').count() === 2, '15 weekly customer (no cadence field): one card with two week sections');
   assert(JSON.stringify(await bw.locator('.billing-week').evaluateAll(els => els.map(e => e.dataset.week))) === JSON.stringify([D.w1, D.w2]), `15 sections are oldest first: ${D.w1}, ${D.w2}`);
   assert((await bw.locator('.billing-week').first().locator('.billing-week-title').textContent()) === `Week ending ${longD(D.w1)}`, `15 first title reads "Week ending ${longD(D.w1)}"`);
+  assert(await page.evaluate(() => { const m = BillingScreen.buildModel(); const c = m.customers.find(x => x.customerName === 'Birchwood Signs'); const f = sheets.find(x => /Order_1202/.test(x.fileName)); return !!c && !!f && c.laterSheets.some(x => x.fileKey === f.fileKey); }), '15 Order_1202 is cut and waiting: it is in the laterSheets of Birchwood Signs');
   assert(await bw.locator('.billing-row', { hasText: 'Order_1202' }).count() === 0, '15 the sheet cut in the current week (Order_1202) is not in any section');
   const billBtn1 = week(D.w1).locator('button[data-act="bill"]');
   assert(await billBtn1.count() === 1 && await week(D.w2).locator('button[data-act="bill"]').count() === 0, '15 only the oldest week has a Bill button');
   const w1Before = money((await billBtn1.textContent()).split('·')[1]);
   assert(new RegExp(`^Bill week ending ${shortD(D.w1)} · \\$[\\d,.]+$`).test((await billBtn1.textContent()).trim()), `15 oldest button reads "Bill week ending ${shortD(D.w1)} · $X" (got ${(await billBtn1.textContent()).trim()})`);
   assert((await week(D.w2).textContent()).includes(`Bill after week ending ${shortD(D.w1)}`) && await week(D.w2).locator('.billing-week-total').count() === 1, `15 later week shows its total and "Bill after week ending ${shortD(D.w1)}"`);
+  // $230 pins repeat pricing: Order_1195 sheet 10 repeats sheet 9 (billed in week 1) and Order_1201 is a first copy; priced as a first copy, sheet 10 would make this $250.
+  assert((await week(D.w2).locator(".billing-week-total").textContent()).trim() === "$230", `15 week 2 total without hours is exactly $230 (repeat priced as a repeat)`);
   const t2NoHours = money(await week(D.w2).locator('.billing-week-total').textContent());
 
   // Hours: 2 h Design on the week-2 job (Order_1201) from its job card, via the job-name link; Back returns to Billing.
@@ -656,13 +659,16 @@ async function main() {
   await page.click('#billing-pick-btn');
   assert(await page.isVisible('#billing-through-date') && await page.isVisible('#billing-weekly-btn') && await page.isHidden('#billing-pick-btn'), '15 Pick a date yourself: date box and Back to weekly bills show');
   assert(await page.locator('section.billing-card[data-cadence="weekly"]').count() === 0 && await page.locator('.billing-week').count() === 0, "15 hand mode: today's single-card layout (no week sections)");
+  const hb = card(page, 'Birchwood Signs');
+  assert(await hb.count() === 1 && await hb.locator('button[data-act="bill"]').count() === 1 && (await hb.locator('button[data-act="bill"]').textContent()).trim().startsWith('Bill Birchwood Signs · '), '15 hand mode: Birchwood Signs is one plain card with one "Bill Birchwood Signs · $X" button');
+  assert(await hb.locator('.billing-row', { hasText: 'Order_1195' }).count() === 1 && await hb.locator('.billing-row', { hasText: 'Order_1201' }).count() === 1 && await hb.locator('.billing-row', { hasText: 'Order_1202' }).count() === 0, '15 hand mode (prefilled with the last finished week-ending day): rows Order_1195 and Order_1201, not Order_1202');
   await page.click('#billing-weekly-btn');
   assert(await bw.locator('.billing-week').count() === 1 && await page.isVisible('#billing-pick-btn'), '15 Back to weekly bills: sections are back');
 
   // Settings > Customers: Billing choice (Weekly by default, writes cadence, Billing follows).
   const qKey = await page.evaluate(() => Keys.customer('Quarry Road Vans'));
   const qCard = card(page, 'Quarry Road Vans');
-  assert(await qCard.locator('.billing-row').count() === 0, '15 Quarry Road Vans (weekly by default): the sheet cut today waits - no row yet');
+  assert(await qCard.count() === 1 && await qCard.locator('.billing-row').count() === 0, '15 Quarry Road Vans (weekly by default): the sheet cut today waits - no row yet');
   await toProjects(page);
   await page.click('#settings-btn');
   await page.waitForSelector('#settings-screen:not([hidden])');
@@ -692,7 +698,7 @@ async function main() {
   await page.setInputFiles('#file-input', join(dst, sample));
   await page.waitForSelector('#projects-screen:not([hidden])'); await page.waitForTimeout(300);
   assert(await page.isHidden('#billing-btn') && await page.isHidden('#settings-btn') && await page.isHidden('#billing-screen'), '15 Collin: no Billing button, no Settings button, no Billing screen');
-  assert(await page.locator('select[data-cadence]').count() === 0 && await page.isHidden('#billing-pick-btn') && await page.isHidden('#billing-weekly-btn'), '15 Collin: no Billing choice and no Pick a date / Back to weekly bills');
+  assert(await page.locator('select[data-cadence]').count() === 0 && await page.isHidden('#billing-pick-btn') && await page.isHidden('#billing-weekly-btn'), '15 Collin: no Billing select in the page and the Pick a date / Back to weekly bills buttons are hidden');
   await page.close();
 
   // ── 14. No uncaught page errors anywhere ──

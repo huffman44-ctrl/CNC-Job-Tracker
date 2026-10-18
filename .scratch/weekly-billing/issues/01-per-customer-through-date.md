@@ -1,6 +1,6 @@
 # 01 — BillingModel: a through date per customer, and hours wait with later sheets
 
-Status: ready-for-agent
+Status: done
 
 Spec: `.scratch/weekly-billing/spec.md` (Implementation Decisions: data, "Weekly card = repeated use of today's machinery", "Design/CAM hours ride with the job's row").
 

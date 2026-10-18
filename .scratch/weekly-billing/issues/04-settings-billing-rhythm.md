@@ -1,6 +1,6 @@
 # 04 — Settings › Customers: a Billing choice (Weekly / Everything to date)
 
-Status: ready-for-agent
+Status: done
 
 Spec: `.scratch/weekly-billing/spec.md` (Implementation Decisions: data, "Settings › Customers").
 

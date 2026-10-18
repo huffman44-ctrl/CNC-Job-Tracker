@@ -1,6 +1,6 @@
 # 02 — BillingModel: split a weekly customer into week sections, oldest first
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01
 
 Spec: `.scratch/weekly-billing/spec.md` (Implementation Decisions: "A week", "Bills go oldest first, enforced", "Remove / Add back", "Design/CAM hours ride with the job's row").

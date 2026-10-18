@@ -1,6 +1,6 @@
 # 06 — Browser check for weekly billing, and the docs
 
-Status: ready-for-agent
+Status: done
 Blocked by: 05
 
 Spec: `.scratch/weekly-billing/spec.md` (Testing Decisions: PASTE browser check).

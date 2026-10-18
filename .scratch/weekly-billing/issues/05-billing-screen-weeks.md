@@ -1,6 +1,6 @@
 # 05 — Billing screen: week sections, Everything-to-date cards, Pick a date yourself
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01, 02, 03, 04
 
 Spec: `.scratch/weekly-billing/spec.md` (Solution 2, 3, 5; Implementation Decisions: "Billing screen layout", "Bills go oldest first", "Remove / Add back").

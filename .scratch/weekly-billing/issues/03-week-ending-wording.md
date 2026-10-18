@@ -1,6 +1,6 @@
 # 03 — "Week ending M/D/YYYY" on a weekly bill's cutting line
 
-Status: ready-for-agent
+Status: done
 
 Spec: `.scratch/weekly-billing/spec.md` (Implementation Decisions: "Line wording").
 
