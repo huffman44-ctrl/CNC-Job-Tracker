@@ -46,11 +46,12 @@ const BillingModel = (() => {
   function build(input) {
     const { completionOf, sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, jobKeyOf, compare } = input;
     const throughDate = input.throughDate || null;
-    // The through date that applies to one customer: throughDateOf(ck) when given (null = everything to date;
-    // undefined = no opinion, use input.throughDate).
+    // The through date that applies to one customer: throughDateOf(ck) when given (exactly null = everything to
+    // date; a valid YYYY-MM-DD = that date; anything else = no opinion, use input.throughDate).
     const throughFor = ck => {
       const v = input.throughDateOf && ck ? input.throughDateOf(ck) : undefined;
-      return v === undefined ? throughDate : (v || null);
+      if (v === null) return null;
+      return parseYmd(v) ? v : throughDate;
     };
     const billingStart = input.billingStart || null;
     const startMs = billingStart && parseYmd(billingStart) ? parseYmd(billingStart).getTime() : null;
@@ -146,7 +147,6 @@ const BillingModel = (() => {
       const priorLabor = P.priorLaborHours(jb.laborLines);
       const hasSheets = buckets.eligible.length > 0;
       if (!hasSheets && !lines.length) return;
-      if (!hasSheets && buckets.later.length) return;   // hours wait with the later sheets
 
       const priceList = priceListOf(ck);
       if (!priceList) { needsAttention.push({ jobKey: jk, jobName: g.jobName, reason: 'Price list not set up' }); return; }
@@ -156,6 +156,7 @@ const BillingModel = (() => {
         needsAttention.push({ jobKey: jk, jobName: g.jobName, reason: `Labor type ${names} was removed from Settings — fix or delete those hours before billing.` });
         return;
       }
+      if (!hasSheets && buckets.later.length) return;   // hours wait with the later sheets (after the warnings, so they still show)
 
       const state = !hasSheets ? 'labor-only' : (buckets.uncut.length ? 'partly' : 'ready');
       const laborLines = lines.map(l => ({ id: l.id, typeId: l.typeId, typeName: l.typeName || (types[l.typeId] || {}).name || '', hours: l.hours, note: l.note || '' }));

@@ -17,7 +17,7 @@ const hms = sec => [Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60]
 const line = (id, typeId, hours) => ({ id, typeId, typeName: typeId, hours, note: '', enteredAt: Date.now() });
 
 // jobs: { name: { customer, labor } }; sheets: [{ job, n, sec, cut: iso|null }]
-function world({ jobs, sheets, throughDate = '2026-10-10', throughDateOf }) {
+function world({ jobs, sheets, throughDate = '2026-10-10', throughDateOf, sheetBilling = {} }) {
   const jobKeyOf = n => 'proj_' + n;
   const customerKeyOf = n => 'cust_' + n;
   const sheetDocs = [], comps = {};
@@ -31,7 +31,7 @@ function world({ jobs, sheets, throughDate = '2026-10-10', throughDateOf }) {
     jobDocs[jobKeyOf(name)] = { jobName: name, customerKey: customerKeyOf(j.customer), customerName: j.customer, material: CUST_MAT, turnaround: 'standard', laborLines: j.labor || [] };
   });
   const input = {
-    sheets: sheetDocs, completionOf: fk => comps[fk] || null, sheetBillingOf: () => null,
+    sheets: sheetDocs, completionOf: fk => comps[fk] || null, sheetBillingOf: fk => sheetBilling[fk] || null,
     jobBillingOf: jk => jobDocs[jk] || null, customerBillingOf: () => null, projectCustomerOf: () => null,
     customerKeyOf, jobKeyOf, compare: (a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
     laborTypes: LABOR, priceListFor: () => STANDARD, throughDate, billingStart: null, inProgressInvoices: [],
@@ -96,4 +96,51 @@ test('labor-only still works: only sheet uncut, with hours, any through date', (
     const r = cust(world({ jobs, sheets, throughDate: t }), 'Acme Test').rows[0];
     assert.equal(r.state, 'labor-only'); assert.deepEqual(r.laborLineIds, ['d1']);
   });
+});
+
+test('throughDateOf: a date later than input.throughDate is used, not just null', () => {
+  const m = world({
+    jobs: { Alpha_Job: { customer: 'Acme Test' } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: WED }],
+    throughDate: '2026-10-10', throughDateOf: () => '2026-10-17',
+  });
+  const a = cust(m, 'Acme Test');
+  assert.equal(a.rows.length, 1); assert.equal(a.laterSheets.length, 0);
+  assert.equal(a.throughDate, '2026-10-17');
+});
+
+test('throughDateOf: anything but exactly null or a valid date falls back to input.throughDate', () => {
+  ['', 0, false, '2026-10-1', 'garbage'].forEach(v => {
+    const a = cust(world({
+      jobs: { Alpha_Job: { customer: 'Acme Test' } },
+      sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: WED }],
+      throughDate: '2026-10-10', throughDateOf: () => v,
+    }), 'Acme Test');
+    assert.equal(a.rows.length, 0, String(v)); assert.equal(a.throughDate, '2026-10-10', String(v));
+  });
+});
+
+test('hours wait with later sheets even beside billed or uncut sheets', () => {
+  const jobs = { Alpha_Job: { customer: 'Acme Test', labor: [line('d1', 'design', 0.5)] } };
+  // billed sheet 1 + later sheet 2
+  const billed = cust(world({
+    jobs, throughDate: '2026-10-10',
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: iso(2026, 10, 1) }, { job: 'Alpha_Job', n: 2, sec: 900, cut: WED }],
+    sheetBilling: { fk_Alpha_Job_1: { status: 'billed', invoiceNumber: 1001 } },
+  }), 'Acme Test');
+  assert.equal(billed.rows.length, 0); assert.equal(billed.laterSheets.length, 1);
+  // uncut sheet 1 + later sheet 2
+  const uncut = cust(world({
+    jobs, throughDate: '2026-10-10',
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: null }, { job: 'Alpha_Job', n: 2, sec: 900, cut: WED }],
+  }), 'Acme Test');
+  assert.equal(uncut.rows.length, 0); assert.equal(uncut.laterSheets.length, 1);
+});
+
+test('a removed labor type still warns while the hours wait with later sheets', () => {
+  const m = world({
+    jobs: { Alpha_Job: { customer: 'Acme Test', labor: [line('g1', 'gone_type', 1)] } },
+    sheets: [{ job: 'Alpha_Job', n: 1, sec: 900, cut: WED }], throughDate: '2026-10-10',
+  });
+  assert.equal(m.needsAttention.filter(n => n.jobKey === 'proj_Alpha_Job').length, 1);
 });
