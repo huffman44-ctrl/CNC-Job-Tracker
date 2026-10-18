@@ -1,7 +1,8 @@
 /**
  * js/billing-model.js — the PURE model behind the Billing screen (Phase 2, Task 11): which sheets and
  * labor are billable now, the row states (ready / partly / labor-only — every row included by default, no Done gate; prior labor hours go to pricing), the through-date and billing-start gates, the invoice
- * draft and its fingerprint. No DOM, no Firestore, no clock (today is passed in), and NO money
+ * draft and its fingerprint. Weekly billing (spec .scratch/weekly-billing): build() may take throughDateOf(customerKey) so each
+ * customer has its own through date, and a job's design/CAM hours wait with its later sheets. No DOM, no Firestore, no clock (today is passed in), and NO money
  * arithmetic — every dollar comes from Pricing.priceInvoice(). All data arrives through build()'s
  * accessors. Local-date math only: YYYY-MM-DD is never parsed as UTC.
  * Browser global `BillingModel`; module.exports for node --test.
@@ -39,9 +40,18 @@ const BillingModel = (() => {
     return fmtYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back));
   }
 
+  // Weekly billing: a customer is billed 'weekly' (through the week-ending date) unless set to 'toDate'.
+  const cadenceOf = cb => (cb && cb.cadence === 'toDate' ? 'toDate' : 'weekly');
+
   function build(input) {
     const { completionOf, sheetBillingOf, jobBillingOf, customerBillingOf, projectCustomerOf, customerKeyOf, jobKeyOf, compare } = input;
     const throughDate = input.throughDate || null;
+    // The through date that applies to one customer: throughDateOf(ck) when given (null = everything to date;
+    // undefined = no opinion, use input.throughDate).
+    const throughFor = ck => {
+      const v = input.throughDateOf && ck ? input.throughDateOf(ck) : undefined;
+      return v === undefined ? throughDate : (v || null);
+    };
     const billingStart = input.billingStart || null;
     const startMs = billingStart && parseYmd(billingStart) ? parseYmd(billingStart).getTime() : null;
     const types = {};
@@ -71,6 +81,9 @@ const BillingModel = (() => {
     groups.forEach(g => {
       const jk = g.jobKey;
       const jb = jobBillingOf(jk) || null;
+      const custName = (jb && jb.customerName) || null;
+      const ck = (jb && (jb.customerKey || (jb.customerName && customerKeyOf(jb.customerName)))) || null;
+      const jobThrough = throughFor(ck);   // worked out first: the sheets are bucketed against it
       g.sheets.sort(compare);
       const buckets = { eligible: [], uncut: [], later: [], locked: [], billed: [], beforeStart: [], external: [] };
       g.sheets.forEach((s, i) => {
@@ -91,13 +104,11 @@ const BillingModel = (() => {
         else if (status === 'in-progress' || !known.includes(status)) buckets.locked.push(entry);   // an unknown status is never billable
         else if (!cutDate) buckets.uncut.push(entry);
         else if (billingStart && cutDate < billingStart) buckets.beforeStart.push({ ...entry, prior: { jobKey: jk, signature: P.signatureOf(sheetInput), order: i + 1 } });   // billed the old way: never listed, still counts for repeats
-        else if (throughDate && cutDate > throughDate) buckets.later.push(entry);
+        else if (jobThrough && cutDate > jobThrough) buckets.later.push(entry);
         else buckets.eligible.push(entry);
       });
 
       // Job details.
-      const custName = (jb && jb.customerName) || null;
-      const ck = (jb && (jb.customerKey || (jb.customerName && customerKeyOf(jb.customerName)))) || null;
       const missing = [];
       if (!ck) missing.push('customer');
       if (!(jb && jb.material && jb.material.kind)) missing.push('material');
@@ -118,7 +129,7 @@ const BillingModel = (() => {
       let cs = customers.get(ck);
       if (!cs) {
         cs = { customerKey: ck, customerName: custName || (cb && cb.name) || '', priceListName: (input.priceListNameOf && input.priceListNameOf(ck)) || (cb && cb.priceList) || 'standard', busyInvoice: null,
-          rows: [], lockedSheets: [], uncutSheets: [], laterSheets: [], laterFirstDate: null, summary: '', _cb: cb };
+          rows: [], lockedSheets: [], uncutSheets: [], laterSheets: [], laterFirstDate: null, throughDate: jobThrough, summary: '', _cb: cb };
         customers.set(ck, cs);
       }
       const strip = e => ({ fileKey: e.fileKey, jobKey: e.jobKey, sheetLabel: e.sheetLabel, cutDate: e.cutDate, invoiceNumber: e.invoiceNumber });
@@ -126,13 +137,16 @@ const BillingModel = (() => {
       buckets.uncut.forEach(e => cs.uncutSheets.push(strip(e)));
       buckets.later.forEach(e => cs.laterSheets.push(strip(e)));
 
-      // Labor — every unbilled line goes on the next bill (no Done step, spec 2026-10-06); never gated
-      // by the through date (§15.4). Lines already billed / in progress are the once-per-job minimum's `prior`.
+      // Labor — every unbilled line goes on the next bill (no Done step, spec 2026-10-06). Weekly billing
+      // (spec .scratch/weekly-billing): hours ride with the job's row, so a job whose cut sheets are all
+      // later than the through date gets no row — its hours wait for the bill that carries those sheets.
+      // A job with nothing cut at all (or only billed sheets) still gets its labor-only row. Lines already billed / in progress are the once-per-job minimum's `prior`.
       const lines = (jb.laborLines || []).filter(l =>
         ((l && l.status) || 'unbilled') === 'unbilled' && (startMs === null || (Number(l.enteredAt) || 0) >= startMs));
       const priorLabor = P.priorLaborHours(jb.laborLines);
       const hasSheets = buckets.eligible.length > 0;
       if (!hasSheets && !lines.length) return;
+      if (!hasSheets && buckets.later.length) return;   // hours wait with the later sheets
 
       const priceList = priceListOf(ck);
       if (!priceList) { needsAttention.push({ jobKey: jk, jobName: g.jobName, reason: 'Price list not set up' }); return; }
@@ -385,7 +399,7 @@ const BillingModel = (() => {
     return out;
   }
 
-  return { defaultThroughDate, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
+  return { defaultThroughDate, cadenceOf, build, pricingInput, rowPricing, rowAmount, laborAmount, summaryText, rowDetail, laborText, recentJobs, buildDraft };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BillingModel;
