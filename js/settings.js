@@ -243,6 +243,7 @@ const SettingsScreen = (() => {
       const cb = OwnerStore.getCustomerBilling(c.key);
       const outside = !!(cb && cb.billedOutsideApp);
       const cur = (cb && cb.priceList) || 'standard';
+      const cadence = BillingModel.cadenceOf(cb);
       const names = lists.includes(cur) ? lists : [...lists, cur];
       const defaults = (cb && cb.defaultMaterialByThickness) || {};
       const chips = Object.keys(defaults).sort((x, y) => Number(x) - Number(y)).map(t => {
@@ -252,7 +253,8 @@ const SettingsScreen = (() => {
       }).join('');
       return `<div class="settings-customer"><div class="settings-customer-top"><span>${escHtml(c.name)}</span>
         <label><input type="checkbox" data-customer="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${outside ? 'checked' : ''} ${ok ? '' : 'disabled'}> Billed outside this app</label>
-        <label>Price list <select class="form-input" data-pricelist="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${ok ? '' : 'disabled'}>${names.map(n => `<option value="${escHtml(n)}" ${n === cur ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}</select></label></div>
+        <label>Price list <select class="form-input" data-pricelist="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${ok ? '' : 'disabled'}>${names.map(n => `<option value="${escHtml(n)}" ${n === cur ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}</select></label>
+        <label>Billing <select class="form-input" data-cadence="${escHtml(c.key)}" data-name="${escHtml(c.name)}" ${ok ? '' : 'disabled'}><option value="weekly" ${cadence === 'weekly' ? 'selected' : ''}>Weekly</option><option value="toDate" ${cadence === 'toDate' ? 'selected' : ''}>Everything to date</option></select></label></div>
         <div class="settings-chips">Remembered material: ${chips || 'none yet'}</div></div>`;
     }).join('');
   }
@@ -260,11 +262,16 @@ const SettingsScreen = (() => {
   async function onCustomerChange(e) {
     const box = e.target.closest('input[data-customer]');
     const sel = e.target.closest('select[data-pricelist]');
-    if (!box && !sel) return;
+    const cad = e.target.closest('select[data-cadence]');
+    if (!box && !sel && !cad) return;
     try {
       if (box) {
         await OwnerStore.mutateCustomerBilling(box.dataset.customer, cur => ({ ...cur, name: box.dataset.name, billedOutsideApp: box.checked }), opts.currentEmail());
         setStatus(`${box.dataset.name}: ${box.checked ? 'billed outside this app' : 'billed here'}.`);
+      } else if (cad) {
+        const value = cad.value === 'toDate' ? 'toDate' : 'weekly';
+        await OwnerStore.mutateCustomerBilling(cad.dataset.cadence, cur => ({ ...cur, name: cad.dataset.name, cadence: value }), opts.currentEmail());
+        setStatus(`${cad.dataset.name}: billed ${value === 'toDate' ? 'everything to date' : 'weekly'}.`);
       } else {
         await OwnerStore.mutateCustomerBilling(sel.dataset.pricelist, cur => ({ ...cur, name: sel.dataset.name, priceList: sel.value }), opts.currentEmail());
         setStatus(`${sel.dataset.name}: price list ${sel.value}.`);
