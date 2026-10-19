@@ -551,11 +551,13 @@ function compareSheets(a, b) {
   return sheetNumber(a.fileName) - sheetNumber(b.fileName);
 }
 
+// Board order: thickest material first, then compareSheets inside each thickness. The CSV
+// export, billing and the notes window keep plain compareSheets order (doExport re-sorts).
 function getDisplaySheets() {
   const result = currentProject
     ? visibleSheets().filter(s => Keys.jobOf(s) === currentProject)
     : [...visibleSheets()];
-  return result.sort(compareSheets);
+  return SheetThickness.order(result.sort(compareSheets));
 }
 
 function getProjectGroups() {
@@ -791,6 +793,13 @@ function buildProjectCard(jobName, projectSheets) {
   hdrText.innerHTML = `
     <div class="project-card-name">${escHtml(jobName)}</div>
     <div class="project-card-sheet-count">${total} sheet${total !== 1 ? 's' : ''}</div>`;
+  const thicknessLine = SheetThickness.summary(projectSheets);
+  if (thicknessLine) {
+    const tEl = document.createElement('div');
+    tEl.className = 'project-card-sheet-count';
+    tEl.textContent = thicknessLine;
+    hdrText.appendChild(tEl);
+  }
 
   const deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
@@ -950,8 +959,20 @@ function renderAllSheets() {
 
   const tagGroups = Features.on('jobCard') ? Pricing.repeatGroups(displaySheets) : null;
   sheetNavEl.innerHTML = '';
-  active.forEach((sheet) => {
+  // A heading each time the thickness changes ("3/4 in — 7 sheets"); none for old files with no thickness.
+  const showThickness = SheetThickness.known(active);
+  let lastThickness;
+  active.forEach((sheet, i) => {
     const idx = displaySheets.indexOf(sheet);
+    const t = SheetThickness.of(sheet);
+    if (showThickness && (i === 0 || t !== lastThickness)) {
+      const n = active.filter(s => SheetThickness.of(s) === t).length;
+      const label = document.createElement('div');
+      label.className = 'sheet-nav-section-label';
+      label.textContent = `${SheetThickness.label(t)} — ${n} sheet${n !== 1 ? 's' : ''}`;
+      sheetNavEl.appendChild(label);
+    }
+    lastThickness = t;
     sheetNavEl.appendChild(buildSheetNavRow(sheet, idx, tagGroups));
   });
   if (complete.length) {
@@ -1694,7 +1715,7 @@ async function exportJob(jobName, jobSheets, customerName) {
 async function doExport() {
   const customerName = await customerForExport(currentProject);
   if (!customerName) return;
-  await exportJob(currentProject, getDisplaySheets(), customerName);
+  await exportJob(currentProject, getDisplaySheets().sort(compareSheets), customerName);
 }
 
 async function doResetAll() {
