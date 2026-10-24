@@ -2047,3 +2047,46 @@ body {
 .billing-recent-none { color: var(--gray-500); }
 .billing-recent-po-input { width: 160px; }
 .billing-recent-note { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--gray-500); }
+
+/* ── New-job alert ──
+   Fixed bottom-centre so it never covers the sticky header's buttons; above the signed-in bar,
+   below modals (200). Pulses so it catches the eye from across the shop. */
+.new-job-banner {
+  position: fixed;
+  bottom: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 160;
+  width: min(620px, calc(100vw - 32px));
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--orange); color: var(--text-inverse);
+  box-shadow: var(--shadow-lg);
+  font-size: 17px; font-weight: 700; line-height: 1.35;
+  animation: new-job-pulse 1.6s ease-in-out infinite;
+}
+.new-job-banner[hidden] { display: none; }
+.new-job-banner-list { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.new-job-banner-row { display: flex; align-items: center; gap: 12px; }
+.new-job-banner-row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.new-job-banner-open {
+  flex-shrink: 0;
+  background: var(--text-inverse); color: var(--orange);
+  border: none; border-radius: var(--radius-sm);
+  padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer;
+}
+.new-job-banner-close {
+  background: none; border: none; color: inherit;
+  font-size: 24px; line-height: 1; cursor: pointer; padding: 0;
+}
+@keyframes new-job-pulse {
+  0%, 100% { box-shadow: var(--shadow-lg), 0 0 0 0 rgba(255,90,31,0.55); }
+  50%      { box-shadow: var(--shadow-lg), 0 0 0 10px rgba(255,90,31,0); }
+}
+@media (prefers-reduced-motion: reduce) { .new-job-banner { animation: none; } }
+@media (max-width: 600px) { .new-job-banner { bottom: 76px; } }
+.new-job-tag {
+  display: inline-block; align-self: flex-start;
+  margin-bottom: 4px; padding: 2px 8px; border-radius: 999px;
+  background: var(--orange); color: var(--text-inverse);
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em;
+}

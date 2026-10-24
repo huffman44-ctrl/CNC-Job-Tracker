@@ -232,7 +232,7 @@ async function handleFiles(fileList, isFirstLoad) {
     addToBoard: s => { sheets.push(s); },
     removeFromBoard: k => { sheets = sheets.filter(s => s.fileKey !== k); },
     getSheetDoc: k => Storage.getSheetDoc(k),
-    saveSheet: s => Storage.saveSheet(s),
+    saveSheet: s => { uploadedHere.add(s.fileKey); return Storage.saveSheet(s); },
     archive: (name, jobName, text) => Endpoint.archiveSheet(name, jobName, text),
     setArchiveUrl: (k, url) => Storage.setArchiveUrl(k, url),
   });
@@ -299,6 +299,90 @@ document.getElementById('save-banner-close').addEventListener('click', hideSaveB
 
 function showSaveBanner(msg) { saveBannerTextEl.textContent = msg; saveBannerEl.hidden = false; }
 function hideSaveBanner()    { saveBannerEl.hidden = true; }
+
+/* ══════════════════════════════════════════
+   New-job alert — a job (or sheets) uploaded on ANOTHER computer: banner on every screen until
+   Open it / ×, flashing tab title, a chime, NEW tag on the project card until the job is opened.
+   What counts as an arrival lives in NewJobAlert (js/new-job-alert.js).
+══════════════════════════════════════════ */
+const uploadedHere = new Set();   // fileKeys this tab saved — never alert for our own uploads
+// 10 minutes of slack for clocks that disagree; older sheets coming back (Put back) never alert.
+const newJobs = NewJobAlert.create({ sinceMs: Date.now() - 10 * 60 * 1000 });
+const newJobBannerEl   = document.getElementById('new-job-banner');
+const newJobBannerList = document.getElementById('new-job-banner-list');
+const pageTitle = document.title;
+let titleFlashTimer = null;
+let lastChimeAt = 0;
+
+document.getElementById('new-job-banner-close').addEventListener('click', () => {
+  newJobs.dismiss();
+  renderNewJobBanner();
+});
+
+function renderNewJobBanner() {
+  const alerts = newJobs.alerts();
+  newJobBannerList.innerHTML = '';
+  for (const a of alerts) {
+    const row = document.createElement('div');
+    row.className = 'new-job-banner-row';
+    const text = document.createElement('span');
+    text.textContent = NewJobAlert.message(a);
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'new-job-banner-open';
+    open.textContent = 'Open it';
+    open.addEventListener('click', () => openNewJob(a.jobName));
+    row.append(text, open);
+    newJobBannerList.appendChild(row);
+  }
+  newJobBannerEl.hidden = !alerts.length;
+  if (alerts.length && !titleFlashTimer) {
+    titleFlashTimer = setInterval(() => {
+      document.title = document.title === pageTitle ? '● New job' : pageTitle;
+    }, 1000);
+  } else if (!alerts.length && titleFlashTimer) {
+    clearInterval(titleFlashTimer);
+    titleFlashTimer = null;
+    document.title = pageTitle;
+  }
+}
+
+function openNewJob(jobName) {
+  newJobs.opened(jobName);
+  renderNewJobBanner();
+  if (!sheets.some(s => Keys.jobOf(s) === jobName)) return;
+  hideAllScreens();
+  cardReturn = null; setCardBackLabel();
+  resetFinishedView();
+  currentProject = jobName;
+  vanlabPanel.hidden = true;
+  vanlabEpoch++;
+  showContentScreen();
+}
+
+// Two short rising beeps. A browser that hasn't been clicked yet blocks sound — then it stays quiet
+// (the banner and the tab still show). At most one chime per 10 s: a big drop saves sheet by sheet.
+let chimeCtx = null;
+function playNewJobChime() {
+  if (Date.now() - lastChimeAt < 10000) return;
+  lastChimeAt = Date.now();
+  try {
+    chimeCtx = chimeCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (chimeCtx.state === 'suspended') chimeCtx.resume().catch(() => {});
+    [[880, 0], [1320, 0.18]].forEach(([freq, delay]) => {
+      const osc = chimeCtx.createOscillator();
+      const gain = chimeCtx.createGain();
+      const t = chimeCtx.currentTime + delay;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      osc.connect(gain).connect(chimeCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    });
+  } catch (e) { console.warn('New-job chime failed:', e); }
+}
 
 /* ══════════════════════════════════════════
    Screen Navigation
@@ -691,6 +775,8 @@ const deletesInFlight = new Map();   // fileKey -> sheet, while deleteSheetsAndR
 // board: Firestore's local write drops it from the snapshot at once, and a refused delete would
 // otherwise vanish, move the screen, then come back.
 function applySheetsSnapshot(newSheets) {
+  if (newJobs.observe(newSheets, uploadedHere)) playNewJobChime();
+  renderNewJobBanner();
   const have = new Set(newSheets.map(s => s.fileKey));
   sheets = newSheets.concat([...deletesInFlight.values()].filter(s => !have.has(s.fileKey)));
   if (!projectsScreen.hidden) renderProjects();
@@ -910,7 +996,16 @@ function buildProjectCard(jobName, projectSheets) {
     hdrText.appendChild(fin);
   }
 
+  const newTag = showFinished ? null : NewJobAlert.tag(newJobs.fresh(jobName));
+  if (newTag) {
+    const t = document.createElement('span');
+    t.className = 'new-job-tag';
+    t.textContent = newTag;
+    hdrText.prepend(t);
+  }
+
   card.addEventListener('click', () => {
+    if (!showFinished) { newJobs.opened(jobName); renderNewJobBanner(); }
     currentProject = jobName;
     viewingFinished = showFinished;
     vanlabPanel.hidden = true;
@@ -2690,6 +2785,7 @@ async function loadDataAndShowApp() {
   ]);
 
   sheets = storedSheets;
+  newJobs.baseline(storedSheets);
   // Everyone lands on Projects, empty board or not: its header holds To Print, so a sticker
   // queued for Collin is reachable with no jobs loaded (+ Upload Job is one click away).
   showProjectsScreen();

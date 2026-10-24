@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=29">
+  <link rel="stylesheet" href="css/style.css?v=30">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -25,6 +25,13 @@
   <div id="save-banner" class="save-banner" hidden>
     <span id="save-banner-text"></span>
     <button type="button" id="save-banner-close" class="save-banner-close" aria-label="Dismiss">&times;</button>
+  </div>
+
+  <!-- Screen-independent new-job alert: a job uploaded on another computer shows here on every
+       screen until Open it / × (app.js renderNewJobBanner). -->
+  <div id="new-job-banner" class="new-job-banner" role="status" hidden>
+    <div id="new-job-banner-list" class="new-job-banner-list"></div>
+    <button type="button" id="new-job-banner-close" class="new-job-banner-close" aria-label="Dismiss">&times;</button>
   </div>
 
   <!-- Screen-independent signed-in indicator: visible on every screen once
@@ -750,6 +757,7 @@
   <script src="js/svg-codec.js?v=1"></script>
   <script src="js/path-utils.js?v=1"></script>
   <script src="js/keys.js?v=1"></script>
+  <script src="js/new-job-alert.js?v=1"></script>
   <script src="js/job-stickers.js?v=1"></script>
   <script src="js/upload-batch.js?v=1"></script>
   <script src="js/storage.js?v=18"></script>
@@ -784,6 +792,6 @@
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=46"></script>
+  <script src="js/app.js?v=47"></script>
 </body>
 </html>
