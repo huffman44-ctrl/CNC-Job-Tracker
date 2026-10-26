@@ -27,6 +27,9 @@ cpSync(join(ROOT, sample), join(dst, sample2));
 // The same sheet filed under another (fake) job name, for the job-stickers "another job" case.
 const sampleOther = 'Other_Job_Sheet 1.html';
 writeFileSync(join(dst, sampleOther), readFileSync(join(ROOT, sample), 'utf8').replace(/(<div id="jobtitle">)[^<]*(<\/div>)/, '$1Fake_Other_Job_0001$2'));
+// A second VanLab job (another order number) for the VanLab bar's job-to-job stale-lookup case.
+const sampleOrder2 = 'Fake_Van_Job_Order_1196_Sheet 1.html';
+writeFileSync(join(dst, sampleOrder2), readFileSync(join(ROOT, sample), 'utf8').replace(/(<div id="jobtitle">)[^<]*(<\/div>)/, '$1Fake_Van_Job_0002$2'));
 writeFileSync(join(dst, 'saved-web-page.html'), '<!doctype html><html><head><title>Recipe</title></head><body><h1>Banana bread</h1></body></html>\n');
 // PASTE mode: BOTH configs are overwritten in the COPY, fully written before the server listens.
 writeFileSync(join(dst, 'js/firebase-config.js'), "const FIREBASE_CONFIG = { apiKey: 'x', authDomain: 'x', projectId: 'PASTE_DISABLED', appId: 'x' };\n");
@@ -583,19 +586,39 @@ async function main() {
   await page.click('#vanlab-print-btn');
   assert(await page.isHidden('#vanlab-panel'), 'vanlab bar: header button closes it again');
 
-  // Stale lookup: leave the VanLab job before its lookup answers — the other job must not get its bar.
+  // Reopening the same job from Billing (Back first) gets a fresh bar and a fresh lookup.
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: '40 Sprinter 170', vanKey: '40', assembly: '', customer: 'Pat Sample' }); });
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.evaluate(() => openJobFromBilling([...new Set(sheets.map(s => Keys.jobOf(s)))].find(j => /Order_1195/.test(j))));
+  await page.waitForFunction(() => /Sprinter/.test(document.getElementById('vanlab-bar-title').textContent), null, { timeout: 10000 }).catch(() => {});
+  assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1195 · Van 40 Sprinter 170', 'vanlab bar: reopening the same job from Billing looks the order up again');
+  assert(!/ready/.test(await page.textContent('#vanlab-status')), "vanlab bar: reopening doesn't carry the last print's status");
+  await page.evaluate(() => { cardReturn = null; setCardBackLabel(); });
+
+  // Stale lookup: leave one VanLab job before its lookup answers — the next VanLab job must show its own order.
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.setInputFiles('#file-input', join(dst, sampleOrder2));
+  await page.waitForFunction(() => document.querySelectorAll('.project-card').length === 3, null, { timeout: 15000 });
+  // A van picked by hand on the no-order job must not carry over to a VanLab job.
+  await openJobCard('Fake_Other_Job_0001');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.click('#vanlab-print-btn');
+  await page.selectOption('#vanlab-van-select', '15');
   await page.evaluate(() => {
-    Endpoint.lookupOrder = (n) => new Promise(r => setTimeout(() => r({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: 'Pat Sample' }), 600));
+    Endpoint.lookupOrder = (n) => new Promise(r => setTimeout(() => r({ orderNum: n, vanRaw: 'Van of ' + n, vanKey: '15', assembly: '', customer: 'Pat Sample' }), n === '1195' ? 900 : 100));
   });
   await page.click('#back-to-projects-btn');
   await page.waitForSelector('#projects-screen:not([hidden])');
   await openJobCard('Order_1195');
   await page.waitForSelector('#content-screen:not([hidden])');
+  assert(await page.inputValue('#vanlab-van-select') === '', 'vanlab bar: a van picked by hand on another job is cleared');
   await page.click('#back-to-projects-btn');
   await page.waitForSelector('#projects-screen:not([hidden])');
-  await openJobCard('Fake_Other_Job_0001');
-  await page.waitForTimeout(900);
-  assert(await page.isHidden('#vanlab-panel') && !/Transit/.test(await page.textContent('#vanlab-bar-title')), 'vanlab bar: a slow lookup from the job you left paints nothing');
+  await openJobCard('Fake_Van_Job_0002');
+  await page.waitForTimeout(1300);
+  assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1196 · Van Van of 1196', "vanlab bar: a slow lookup from the job you left doesn't overwrite the next VanLab job's bar");
   await page.close();
 
   // ── Settings screen ──

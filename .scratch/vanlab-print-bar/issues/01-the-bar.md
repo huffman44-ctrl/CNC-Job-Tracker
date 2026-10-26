@@ -1,6 +1,6 @@
 # 01 — The VanLab print bar
 
-Status: in-progress
+Status: done
 
 Spec: `.scratch/vanlab-print-bar/spec.md`
 
@@ -29,3 +29,7 @@ Spec: `.scratch/vanlab-print-bar/spec.md`
 ## Done
 
 `node --test` green, browser check `SUITE: PASS`, `?v=` bumped, CLAUDE.md file-structure line for `js/vanlab-bar.js`.
+
+## Comments
+
+2026-10-26 — built and committed on `claude/vanlab-print-bar-9f9b26` (not on master). Opus fresh-eyes review: fixed (1) Back / reopen from Billing kept the old bar and skipped the lookup → `vanlabForgetJob()` in the Back handler and `openJobFromBilling`; (2) `vanlabPrintStickers` had no epoch guard and a hand-picked van could carry to the next job → `ep` guard + van select cleared in `vanlabLoad`. Note for go-live: the lookup now runs on every VanLab job open, so if the live script's `ALLOWED_UIDS` blocks Collin he'll see the honest error + manual picker every time.

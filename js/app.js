@@ -153,6 +153,7 @@ document.getElementById('clear-confirm').addEventListener('click', confirmClear)
 document.getElementById('back-to-projects-btn').addEventListener('click', () => {
   viewingFinished = false;
   currentProject = null;
+  vanlabForgetJob();   // the next open of any job (from the board or Billing) gets a fresh bar and lookup
   if (cardReturn === 'billing') { cardReturn = null; setCardBackLabel(); BillingScreen.show({ resume: true }); return; }
   showProjectsScreen();
 });
@@ -1934,6 +1935,7 @@ async function vanlabLoad() {
   vanlabPackingBtn.disabled = true;
   vanlabCrateBtn.disabled = true;
   vanlabManualFields.hidden = true;
+  vanlabVanSelect.value = '';   // a van picked by hand on another job must never print for this one
   vanlabManualOrder.value = '';
   vanlabManualCustomer.value = '';
   vanlabManualAssembly.value = '';
@@ -1979,6 +1981,7 @@ async function vanlabLoad() {
 }
 
 async function vanlabPrintStickers() {
+  const ep = vanlabEpoch;
   const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
   const res = VanlabPrint.resolveStickers(vanKey, STICKER_MAP);
   if (res.status !== 'matched') {
@@ -1991,6 +1994,7 @@ async function vanlabPrintStickers() {
   vanlabSetStatus('Building the sticker PDF…');
   try {
     const bytes = await StickerPdf.buildStickerPdf(res.items, STICKER_MAP.stickers, await loadBalooFont());
+    if (ep !== vanlabEpoch) return;   // the job changed while the PDF was building
     if (vanlabLastBlobUrl) URL.revokeObjectURL(vanlabLastBlobUrl);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     vanlabLastBlobUrl = url;
@@ -2002,9 +2006,9 @@ async function vanlabPrintStickers() {
     const count = res.items.reduce((n, [, q]) => n + q, 0);
     vanlabSetStatus(`${count} stickers ready — print the opened PDF on the STICKERS 1x3 printer at 100% scale.`);
   } catch (err) {
-    vanlabSetStatus(`Couldn't build the sticker PDF — ${err.message}`, true);
+    if (ep === vanlabEpoch) vanlabSetStatus(`Couldn't build the sticker PDF — ${err.message}`, true);
   } finally {
-    vanlabPrintBtn.disabled = false;
+    if (ep === vanlabEpoch) vanlabPrintBtn.disabled = false;
   }
 }
 
@@ -2749,6 +2753,7 @@ function openJobFromBilling(jobName, finishedList) {
   }
   cardReturn = 'billing'; setCardBackLabel();
   hideAllScreens();
+  vanlabForgetJob();
   showContentScreen();
 }
 
