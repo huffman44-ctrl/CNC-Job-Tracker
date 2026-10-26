@@ -63,3 +63,69 @@ test('stickerCount is right for the real van 15 list (#1210: 7 stickers, 6 kinds
   assert.equal(res.items.length, 6);
   assert.equal(VanlabBar.stickerCount(res.items), 7);
 });
+
+// ── Ticket 02: who printed what, and when (vanlabPrinted on the jobs/ doc) ──
+
+const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).getTime();   // local time, so the test is TZ-safe
+
+test('printedFrom reads the three records off the job doc and drops malformed ones', () => {
+  const doc = { jobName: 'x', vanlabPrinted: {
+    stickers: { at: 100, by: 'Collin' },
+    packing: { at: 'yesterday', by: 'Collin' },   // not a time
+    crate: { at: 200 },                           // no name
+    labels: { at: 300, by: 'Travis' },            // not one of ours
+  } };
+  assert.deepEqual(VanlabBar.printedFrom(doc), { stickers: { at: 100, by: 'Collin' }, crate: { at: 200, by: 'Someone' } });
+  assert.deepEqual(VanlabBar.printedFrom(null), {});
+  assert.deepEqual(VanlabBar.printedFrom({ jobName: 'x' }), {});
+  assert.deepEqual(VanlabBar.printedFrom({ vanlabPrinted: { stickers: null, crate: 'yes' } }), {});
+});
+
+test('record keeps the name and time; a blank name is Someone', () => {
+  assert.deepEqual(VanlabBar.record('Collin', 123), { at: 123, by: 'Collin' });
+  assert.deepEqual(VanlabBar.record('  ', 123), { at: 123, by: 'Someone' });
+  assert.deepEqual(VanlabBar.record(null, 123), { at: 123, by: 'Someone' });
+});
+
+test('a button not printed yet just prints', () => {
+  assert.deepEqual(VanlabBar.itemView('crate', null, { now: at(2026, 10, 26, 11, 0) }),
+    { title: 'Crate label', done: false, action: 'Print', note: '', canUndo: false });
+  assert.equal(VanlabBar.itemView('stickers', null, { stickerCount: 7 }).title, 'Hardware stickers (7)');
+});
+
+test('a printed button shows a check, who and when, Reprint and Undo', () => {
+  const now = at(2026, 10, 26, 15, 0);
+  assert.deepEqual(VanlabBar.itemView('crate', { at: at(2026, 10, 26, 10, 42), by: 'Collin' }, { now }),
+    { title: '✓ Crate label', done: true, action: 'Reprint', note: 'Printed by Collin, 10:42 AM', canUndo: true });
+  assert.equal(VanlabBar.itemView('stickers', { at: at(2026, 10, 26, 0, 5), by: 'Travis' }, { now, stickerCount: 7 }).title, '✓ Hardware stickers (7)');
+  assert.equal(VanlabBar.itemView('stickers', { at: at(2026, 10, 26, 0, 5), by: 'Travis' }, { now }).note, 'Printed by Travis, 12:05 AM');
+  assert.equal(VanlabBar.itemView('packing', { at: at(2026, 10, 26, 12, 30), by: 'Collin' }, { now }).note, 'Printed by Collin, 12:30 PM');
+});
+
+test('a print from another day also shows the date', () => {
+  const now = at(2026, 10, 26, 9, 0);
+  assert.equal(VanlabBar.itemView('packing', { at: at(2026, 10, 24, 14, 5), by: 'Collin' }, { now }).note, 'Printed by Collin, 10/24 2:05 PM');
+  assert.equal(VanlabBar.itemView('packing', { at: at(2025, 10, 26, 14, 5), by: 'Collin' }, { now }).note, 'Printed by Collin, 10/26/2025 2:05 PM');
+});
+
+test('an unknown item is refused', () => {
+  assert.throws(() => VanlabBar.itemView('labels', null, {}));
+});
+
+// ── Ticket 03: collapse the bar once the kit is printed ──
+
+test('a van with no packing list counts the packing list as done, with nothing to undo', () => {
+  assert.deepEqual(VanlabBar.itemView('packing', null, { packingNone: true }),
+    { title: '✓ Packing list', done: true, action: null, note: 'None needed for this van', canUndo: false });
+  // An old record on such a van is ignored — there is nothing to undo.
+  assert.equal(VanlabBar.itemView('packing', { at: 1, by: 'Collin' }, { packingNone: true }).canUndo, false);
+});
+
+test('barState: collapsed only when all three are done and the bar was not expanded', () => {
+  const r = { at: 1, by: 'Collin' };
+  assert.deepEqual(VanlabBar.barState({ stickers: r, crate: r }, {}), { allDone: false, collapsed: false });
+  assert.deepEqual(VanlabBar.barState({ stickers: r, packing: r, crate: r }, {}), { allDone: true, collapsed: true });
+  assert.deepEqual(VanlabBar.barState({ stickers: r, packing: r, crate: r }, { expanded: true }), { allDone: true, collapsed: false });
+  assert.deepEqual(VanlabBar.barState({ stickers: r, crate: r }, { packingNone: true }), { allDone: true, collapsed: true });
+  assert.deepEqual(VanlabBar.barState({}, { packingNone: true }), { allDone: false, collapsed: false });
+});

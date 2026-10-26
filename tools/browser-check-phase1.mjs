@@ -542,6 +542,12 @@ async function main() {
   await page.click('#vanlab-stickers-btn');
   await page.waitForFunction(() => /7 stickers ready/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 15000 });
   assert(await page.evaluate(() => window.__opened) === 1, 'vanlab bar: Hardware stickers opens the sticker PDF');
+  // Ticket 02: the print is recorded on the job — check mark, who and when, Undo.
+  await page.waitForFunction(() => document.getElementById('vanlab-stickers-btn').textContent.startsWith('✓'), null, { timeout: 5000 }).catch(() => {});
+  assert((await page.textContent('#vanlab-stickers-btn')).trim() === '✓ Hardware stickers (7)', 'vanlab tracking: a printed button shows a check mark');
+  assert(/^Printed by Someone, \d{1,2}:\d{2} (AM|PM)$/.test((await page.textContent('#vanlab-stickers-note .vanlab-item-note-text')).trim()), 'vanlab tracking: who and when under the button');
+  assert(await page.isVisible('#vanlab-stickers-note .vanlab-undo'), 'vanlab tracking: Undo shows on a printed item');
+  assert(await page.isHidden('#vanlab-crate-note'), 'vanlab tracking: an item not printed has no note');
 
   // Phone width: no horizontal scroll, the button row wraps inside the screen.
   await page.setViewportSize({ width: 375, height: 800 });
@@ -560,15 +566,42 @@ async function main() {
   await page.click('.project-card');
   await page.waitForFunction(() => /Transit/.test(document.getElementById('vanlab-bar-title').textContent), null, { timeout: 10000 });
   assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1195 · Van 15 Transit 148 Passenger · kit 15-05', 'vanlab bar: heading names order, van and kit after the lookup');
-  assert(JSON.stringify(await vlTitles()) === JSON.stringify(['Hardware stickers (7)', 'Packing list', 'Crate label']), 'vanlab bar: sticker count from the looked-up van');
+  assert(JSON.stringify(await vlTitles()) === JSON.stringify(['✓ Hardware stickers (7)', 'Packing list', 'Crate label']), 'vanlab bar: sticker count from the looked-up van; the earlier print is still checked after reopening');
   assert(await page.isHidden('#vanlab-van-select') && await page.isHidden('#vanlab-manual-fields'), 'vanlab bar: no manual picker after a good lookup');
   assert(!(await page.$eval('#vanlab-crate-btn', b => b.disabled)), 'vanlab bar: buttons ready after a good lookup');
   await page.click('#vanlab-crate-btn');
   await page.waitForFunction(() => /Crate label for order 1195 ready/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 15000 });
   assert(await page.evaluate(() => window.__opened) === 2, 'vanlab bar: Crate label opens the crate PDF');
+  assert((await page.textContent('#vanlab-crate-btn')).trim() === '✓ Crate label', 'vanlab tracking: crate label checked after printing');
   await page.click('#vanlab-packing-btn');
   const packingReached = await page.waitForFunction(() => /Packing-list fetch is not configured/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 15000 }).then(() => true, () => false);
   assert(packingReached, 'vanlab bar: Packing list reaches the fetch (not configured on the test copy — no Drive call)');
+  assert((await page.textContent('#vanlab-packing-btn')).trim() === 'Packing list', 'vanlab tracking: a print that never opened is not recorded');
+
+  // Ticket 03: the packing list printed on ANOTHER computer arrives through the job listener — all three done, the bar folds.
+  const otherComputer = (fn) => page.evaluate(fn, null);
+  await otherComputer(() => Storage.setVanlabPrinted(Keys.job(currentProject), currentProject, 'packing', { at: Date.now(), by: 'Collin' }));
+  await page.waitForSelector('#vanlab-collapsed:not([hidden])', { timeout: 5000 }).catch(() => {});
+  assert(await page.isVisible('#vanlab-collapsed') && await page.isHidden('#vanlab-actions') && await page.isHidden('#vanlab-bar-text'), 'vanlab collapse: all three printed → one thin line');
+  assert((await page.textContent('#vanlab-collapsed .vanlab-collapsed-text')).trim() === 'VanLab kit printed ✓', 'vanlab collapse: says the kit is printed');
+  await page.click('#vanlab-show-btn');
+  assert(await page.isHidden('#vanlab-collapsed') && await page.isVisible('#vanlab-actions'), 'vanlab collapse: Show expands it');
+  assert(/^Printed by Collin, /.test((await page.textContent('#vanlab-packing-note .vanlab-item-note-text')).trim()), "vanlab tracking: the other computer's print shows who did it");
+  await page.click('#vanlab-crate-note .vanlab-undo');
+  await page.waitForFunction(() => document.getElementById('vanlab-crate-btn').textContent.trim() === 'Crate label', null, { timeout: 5000 }).catch(() => {});
+  assert((await page.textContent('#vanlab-crate-btn')).trim() === 'Crate label' && await page.isHidden('#vanlab-crate-note'), 'vanlab tracking: Undo clears just that item');
+  assert((await page.textContent('#vanlab-stickers-btn')).trim() === '✓ Hardware stickers (7)', 'vanlab tracking: Undo leaves the other items alone');
+  await page.click('#vanlab-crate-btn');
+  await page.waitForFunction(() => document.getElementById('vanlab-crate-btn').textContent.startsWith('✓'), null, { timeout: 15000 }).catch(() => {});
+  assert(await page.isVisible('#vanlab-actions'), 'vanlab collapse: once expanded it stays open while the job is open');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.click('.project-card');
+  await page.waitForSelector('#vanlab-collapsed:not([hidden])', { timeout: 10000 }).catch(() => {});
+  assert(await page.isVisible('#vanlab-collapsed'), 'vanlab collapse: a fresh open of a printed job starts folded');
+  await otherComputer(() => Storage.clearVanlabPrinted(Keys.job(currentProject), 'packing'));
+  await page.waitForSelector('#vanlab-actions:not([hidden])', { timeout: 5000 }).catch(() => {});
+  assert(await page.isHidden('#vanlab-collapsed') && await page.isVisible('#vanlab-actions'), 'vanlab collapse: an Undo (from any computer) opens the bar again');
 
   // A non-VanLab job: no bar until the header button opens it with the manual picker.
   await page.click('#back-to-projects-btn');
@@ -594,6 +627,11 @@ async function main() {
   await page.waitForFunction(() => /Sprinter/.test(document.getElementById('vanlab-bar-title').textContent), null, { timeout: 10000 }).catch(() => {});
   assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1195 · Van 40 Sprinter 170', 'vanlab bar: reopening the same job from Billing looks the order up again');
   assert(!/ready/.test(await page.textContent('#vanlab-status')), "vanlab bar: reopening doesn't carry the last print's status");
+  // Van 40 has no packing list: stickers + crate printed is the whole kit, so the bar folds.
+  assert(await page.isVisible('#vanlab-collapsed'), 'vanlab collapse: a van with no packing list folds once stickers and crate are printed');
+  await page.click('#vanlab-show-btn');
+  assert((await page.textContent('#vanlab-packing-btn')).trim() === '✓ Packing list' && (await page.textContent('#vanlab-packing-note .vanlab-item-note-text')).trim() === 'None needed for this van', 'vanlab collapse: packing list shows None needed for this van');
+  assert(await page.isHidden('#vanlab-packing-note .vanlab-undo'), 'vanlab collapse: nothing to undo on a packing list that is not needed');
   await page.evaluate(() => { cardReturn = null; setCardBackLabel(); });
 
   // Stale lookup: leave one VanLab job before its lookup answers — the next VanLab job must show its own order.

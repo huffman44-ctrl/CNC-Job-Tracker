@@ -82,7 +82,7 @@ test('jobs: upsertJob creates once, finishJob stamps + increments, reopenJob cle
   Storage.init(db);
   await Storage.upsertJob('proj_1', 'Northlight Wall', 'travis@example.com');
   await Storage.upsertJob('proj_1', 'Northlight Wall', 'travis@example.com');
-  const creates = db.writes.filter(w => w.path === 'jobs/proj_1' && w.op === 'set' && !(w.opts && w.opts.merge));
+  const creates = db.writes.filter(w => w.path === 'jobs/proj_1' && w.op === 'set' && 'createdAt' in w.data);
   assert.equal(creates.length, 1, 'second upsert does not rewrite createdAt');
   assert.equal(db.docs['jobs/proj_1'].finished, false);
   assert.equal(db.docs['jobs/proj_1'].exportCount, 0);
@@ -110,6 +110,24 @@ test('migrateFinishedFlag stamps only docs lacking the field, writes the flag, i
   const second = await Storage.migrateFinishedFlag();
   assert.deepEqual(second, { stamped: 0, total: 3 });
   assert.equal(db.docs['settings/migrations'].sheetsFinishedFlag.count, 2, 'count is the running total, not reset');
+});
+
+test('upsertJob: a VanLab print record saved between its read and its write survives', async () => {
+  const db = fakeDb();
+  const col = db.collection;
+  db.collection = (name) => {
+    const c = col(name), doc = c.doc;
+    c.doc = (id) => {
+      const ref = doc(id), get = ref.get;
+      ref.get = async () => { const snap = await get(); db.docs[`${name}/${id}`] = { vanlabPrinted: { crate: { at: 1, by: 'Collin' } } }; return snap; };
+      return ref;
+    };
+    return c;
+  };
+  Storage.init(db);
+  await Storage.upsertJob('proj_gap', 'Order 1210 Job', 'collin@example.com');
+  assert.deepEqual(db.docs['jobs/proj_gap'].vanlabPrinted, { crate: { at: 1, by: 'Collin' } });
+  assert.equal(db.docs['jobs/proj_gap'].finished, false);
 });
 
 test('upsertJobForUpload: creates once with createdAt/createdBy kept, and always ends finished:false', async () => {

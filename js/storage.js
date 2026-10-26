@@ -472,7 +472,7 @@ const Storage = (() => {
       const ref = db.collection('jobs').doc(jobKey);
       const snap = await ref.get();
       if (snap.exists) return;
-      await ref.set({ jobName: jobName || '', finished: false, finishedAt: null, finishedBy: '', exportCount: 0, lastExportAt: null, createdAt: Date.now(), createdBy: by || '' });
+      await ref.set({ jobName: jobName || '', finished: false, finishedAt: null, finishedBy: '', exportCount: 0, lastExportAt: null, createdAt: Date.now(), createdBy: by || '' }, { merge: true });   // merge: a VanLab print record landing between the get and this set survives
     } catch (e) {
       console.warn('Firestore upsertJob failed:', e);
     }
@@ -500,6 +500,55 @@ const Storage = (() => {
   async function reopenJob(jobKey) {
     if (!db) return;
     await db.collection('jobs').doc(jobKey).set({ finished: false }, { merge: true });
+  }
+
+  /* ── VanLab print records: jobs/{jobKey}.vanlabPrinted.{stickers|packing|crate} = { at, by } (ticket 02) ──
+     Field-level set-merge only, so the other two items and the rest of the job doc survive (and a job
+     with no doc yet gets one). With no database (PASTE copy) the records live in this tab. */
+  const VANLAB_PRINTS = ['stickers', 'packing', 'crate'];
+  const localJobDocs = {};       // { [jobKey]: jobDoc } — no-database mode only
+  const localJobListeners = {};  // { [jobKey]: Set<cb> } — no-database mode only
+
+  function checkVanlabKind(kind) {
+    if (!VANLAB_PRINTS.includes(kind)) throw new Error('unknown VanLab print: ' + kind);
+  }
+
+  function changeLocalJobDoc(jobKey, edit) {
+    const doc = localJobDocs[jobKey] = localJobDocs[jobKey] || {};
+    edit(doc);
+    (localJobListeners[jobKey] || []).forEach(cb => cb(JSON.parse(JSON.stringify(doc))));
+  }
+
+  async function setVanlabPrinted(jobKey, jobName, kind, record) {
+    checkVanlabKind(kind);
+    if (!db) {
+      changeLocalJobDoc(jobKey, d => { d.jobName = jobName || ''; d.vanlabPrinted = { ...d.vanlabPrinted, [kind]: record }; });
+      return;
+    }
+    await db.collection('jobs').doc(jobKey).set({ jobName: jobName || '', vanlabPrinted: { [kind]: record } }, { merge: true });
+  }
+
+  async function clearVanlabPrinted(jobKey, kind) {
+    checkVanlabKind(kind);
+    if (!db) {
+      changeLocalJobDoc(jobKey, d => { if (d.vanlabPrinted) delete d.vanlabPrinted[kind]; });
+      return;
+    }
+    await db.collection('jobs').doc(jobKey).set({ vanlabPrinted: { [kind]: firebase.firestore.FieldValue.delete() } }, { merge: true });
+  }
+
+  // Live view of one job doc while that job is open; cb(data or null). Returns the unsubscribe.
+  function onJobDocChange(jobKey, cb) {
+    if (!db) {
+      const set = localJobListeners[jobKey] = localJobListeners[jobKey] || new Set();
+      set.add(cb);
+      cb(localJobDocs[jobKey] ? JSON.parse(JSON.stringify(localJobDocs[jobKey])) : null);
+      return () => set.delete(cb);
+    }
+    return db.collection('jobs').doc(jobKey).onSnapshot(
+      snap => cb(snap.exists ? snap.data() : null),
+      err => console.warn('Firestore job listener failed:', err),
+    );
   }
 
   /* ── One-time migration: stamp finished:false on every legacy sheet (spec §11.1 step 6) ── */
@@ -799,7 +848,7 @@ const Storage = (() => {
     }
   }
 
-  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheets, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, upsertJobForUpload, finishJob, reopenJob, migrateFinishedFlag };
+  return { init, get, set, clear, clearAll, loadCompletions, onCompletionChange, getNote, setNote, loadNotes, onNoteChange, getSheetNote, setSheetNote, loadSheetNotes, onSheetNoteChange, getAnnotations, setAnnotations, loadAnnotations, onAnnotationsChange, getCustomers, addCustomer, renameCustomer, removeCustomer, loadCustomers, onCustomersChange, getProjectCustomer, setProjectCustomer, loadProjectCustomers, saveSheet, setArchiveUrl, loadSheets, onSheetsChange, deleteSheets, clearSheets, clearAllCompletions, saveTicketRecord, loadTicketHistory, getPrintQueue, getPrintedItems, addPrintItem, markPrinted, loadPrintQueue, onPrintQueueChange, PRINT_RETENTION_DAYS, printRetentionCutoff, unmarkPrinted, deletePrintItem, countPrintedBefore, clearPrintedBefore, loadMigrationState, migrationState, sheetsFilterReady, filterActive, sortByUploadedAt, loadFinishedSheets, getSheetDoc, finishPatch, finishSheets, unfinishSheets, upsertJob, upsertJobForUpload, finishJob, reopenJob, setVanlabPrinted, clearVanlabPrinted, onJobDocChange, migrateFinishedFlag };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Storage;

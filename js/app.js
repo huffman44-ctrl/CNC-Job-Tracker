@@ -1846,6 +1846,23 @@ let vanlabLastBlobUrl = null;  // last sticker-PDF object URL, revoked before a 
 let vanlabPackingBlobUrl = null;  // last packing-PDF object URL, revoked before a new one
 let vanlabCrateBlobUrl = null;  // last crate-label object URL, revoked before a new one
 
+// Print tracking (ticket 02) and collapse (ticket 03): who printed what lives on jobs/{jobKey}.vanlabPrinted,
+// watched live while the bar is open so the office PC sees what the shop PC printed.
+const vanlabCollapsedRow = document.getElementById('vanlab-collapsed');
+const vanlabBarText      = document.getElementById('vanlab-bar-text');
+const vanlabActions      = document.getElementById('vanlab-actions');
+const vanlabItems = {
+  stickers: { btn: vanlabPrintBtn,   note: document.getElementById('vanlab-stickers-note') },
+  packing:  { btn: vanlabPackingBtn, note: document.getElementById('vanlab-packing-note') },
+  crate:    { btn: vanlabCrateBtn,   note: document.getElementById('vanlab-crate-note') },
+};
+let vanlabPrinted = {};          // the open job's records: VanlabBar.printedFrom(its jobs/ doc)
+let vanlabStickerCount = 0;      // for the stickers button title
+let vanlabAuto = false;          // the bar showed by itself (a VanLab job) — only that bar collapses
+let vanlabExpanded = false;      // Show pressed on the folded bar; kept until the job is closed
+let vanlabWatchedJob = null;     // job whose jobs/ doc is being watched
+let vanlabUnwatch = null;
+
 async function loadBalooFont() {
   if (!vanlabFontBytes) {
     const resp = await fetch('assets/fonts/Baloo2-SemiBold.ttf');
@@ -1884,13 +1901,75 @@ function vanlabShowManualPicker() {
     vanlabPackingBtn.disabled = !vanlabVanSelect.value;
     vanlabCrateBtn.disabled = !vanlabVanSelect.value;
   };
+  vanlabRenderPrinted();   // a folded bar opens up again when the lookup falls back to the picker
 }
 
 // Sticker count on the stickers button for a van (the looked-up one, or the one picked by hand).
 function vanlabShowStickerCount(vanKey) {
   const res = vanKey ? VanlabPrint.resolveStickers(vanKey, STICKER_MAP) : null;
-  const stickerCount = res && res.status === 'matched' ? VanlabBar.stickerCount(res.items) : 0;
-  vanlabPrintBtn.textContent = VanlabBar.buttonTitle('stickers', { stickerCount });
+  vanlabStickerCount = res && res.status === 'matched' ? VanlabBar.stickerCount(res.items) : 0;
+  vanlabRenderPrinted();
+}
+
+// Button titles, check marks, "Printed by …" + Undo, and the fold to one line once the kit is printed.
+function vanlabRenderPrinted() {
+  const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
+  const assembly = vanlabOrder ? vanlabOrder.assembly : vanlabManualAssembly.value.trim();
+  const packingNone = !!vanKey && PackingMap.resolve(vanKey, assembly, null).status === 'none_needed';
+  const opts = { now: Date.now(), stickerCount: vanlabStickerCount, packingNone };
+  for (const [kind, el] of Object.entries(vanlabItems)) {
+    const view = VanlabBar.itemView(kind, vanlabPrinted[kind] || null, opts);
+    el.btn.textContent = view.title;
+    el.btn.title = view.action === 'Reprint' ? 'Print it again' : '';
+    el.btn.classList.toggle('btn-primary', !view.done);
+    el.btn.classList.toggle('vanlab-btn-done', view.done);
+    el.note.hidden = !view.note;
+    el.note.querySelector('.vanlab-item-note-text').textContent = view.note;
+    el.note.querySelector('.vanlab-undo').hidden = !view.canUndo;
+  }
+  // Only the bar that showed by itself folds, and never while the manual van picker is up.
+  const { collapsed } = VanlabBar.barState(vanlabPrinted, { packingNone, expanded: vanlabExpanded });
+  const fold = collapsed && vanlabAuto && vanlabVanSelect.hidden;
+  vanlabCollapsedRow.hidden = !fold;
+  vanlabBarText.hidden = fold;
+  vanlabActions.hidden = fold;
+}
+
+function vanlabWatch(jobName) {
+  if (jobName === vanlabWatchedJob && vanlabUnwatch) return;
+  vanlabUnwatchJob();
+  if (!jobName) return;
+  vanlabWatchedJob = jobName;
+  vanlabUnwatch = Storage.onJobDocChange(Keys.job(jobName), doc => {
+    if (vanlabWatchedJob !== jobName) return;
+    vanlabPrinted = VanlabBar.printedFrom(doc);
+    vanlabRenderPrinted();
+  });
+}
+
+function vanlabUnwatchJob() {
+  if (vanlabUnwatch) vanlabUnwatch();
+  vanlabUnwatch = null;
+  vanlabWatchedJob = null;
+  vanlabPrinted = {};
+}
+
+// A print counts once the PDF opened. jobName is the job the print started on, so a job switch
+// mid-print still records on the right job. Never blocks the print; a failed save says so.
+function vanlabMarkPrinted(kind, jobName) {
+  if (!jobName) return;
+  const rec = VanlabBar.record(pqDisplayName(pqCurrentEmail()), Date.now());
+  Storage.setVanlabPrinted(Keys.job(jobName), jobName, kind, rec).catch(err => {
+    console.warn('VanLab print record failed:', err);
+    if (jobName === currentProject) vanlabSetStatus(`Printed, but couldn't save the check mark — ${err.message}`, true);
+  });
+}
+
+function vanlabUndoPrinted(kind) {
+  if (!currentProject) return;
+  Storage.clearVanlabPrinted(Keys.job(currentProject), kind).catch(err => {
+    vanlabSetStatus(`Couldn't undo — ${err.message}`, true);
+  });
 }
 
 // The bar belongs to one job (and its order number): showContentScreen calls this on every paint,
@@ -1902,6 +1981,8 @@ function vanlabForgetJob() {
   vanlabJobKey = null;
   vanlabPanel.hidden = true;
   vanlabEpoch++;
+  vanlabExpanded = false;
+  vanlabUnwatchJob();
 }
 
 function vanlabSyncJob(displaySheets) {
@@ -1912,12 +1993,16 @@ function vanlabSyncJob(displaySheets) {
   vanlabHeaderBtn.hidden = bar.auto;
   vanlabPanel.hidden = !bar.auto;
   vanlabEpoch++;
-  if (bar.auto) vanlabLoad();
+  vanlabAuto = bar.auto;
+  vanlabExpanded = false;
+  if (bar.auto) { vanlabWatch(currentProject); vanlabLoad(); }
+  else vanlabUnwatchJob();
 }
 
 function vanlabOpenPanel() {
   vanlabPanel.hidden = !vanlabPanel.hidden;
-  if (vanlabPanel.hidden) { vanlabEpoch++; return; }
+  if (vanlabPanel.hidden) { vanlabEpoch++; vanlabUnwatchJob(); return; }
+  vanlabWatch(currentProject);
   vanlabLoad();
 }
 
@@ -1939,6 +2024,7 @@ async function vanlabLoad() {
   vanlabManualOrder.value = '';
   vanlabManualCustomer.value = '';
   vanlabManualAssembly.value = '';
+  vanlabRenderPrinted();
 
   const { orderNum, conflict } = VanlabBar.forJob(getDisplaySheets().map(s => s.fileName));
 
@@ -1982,6 +2068,7 @@ async function vanlabLoad() {
 
 async function vanlabPrintStickers() {
   const ep = vanlabEpoch;
+  const jobName = currentProject;
   const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
   const res = VanlabPrint.resolveStickers(vanKey, STICKER_MAP);
   if (res.status !== 'matched') {
@@ -2003,6 +2090,7 @@ async function vanlabPrintStickers() {
       vanlabSetStatus('Popup blocked — allow popups for this site, then click Hardware stickers again.', true);
       return;
     }
+    vanlabMarkPrinted('stickers', jobName);
     const count = res.items.reduce((n, [, q]) => n + q, 0);
     vanlabSetStatus(`${count} stickers ready — print the opened PDF on the STICKERS 1x3 printer at 100% scale.`);
   } catch (err) {
@@ -2014,6 +2102,7 @@ async function vanlabPrintStickers() {
 
 async function vanlabPrintPacking() {
   const ep = vanlabEpoch;
+  const jobName = currentProject;
   const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
   const order = vanlabOrder || { orderNum: '', customer: '', assembly: '' };
   const suvChoice = vanlabSuvSelect.hidden ? null : (vanlabSuvSelect.value || null);
@@ -2062,6 +2151,7 @@ async function vanlabPrintPacking() {
       vanlabSetStatus('Popup blocked — allow popups for this site, then click Packing list again.', true);
       return;
     }
+    vanlabMarkPrinted('packing', jobName);
     vanlabSetStatus(`Packing list${order.orderNum ? ' for order ' + order.orderNum : ''} ready — print the opened PDF on the shop-floor letter printer at 100% scale.`);
   } catch (err) {
     if (stage === 'fetch') {
@@ -2083,6 +2173,7 @@ function vanlabToday() {
 
 async function vanlabPrintCrate() {
   const ep = vanlabEpoch;
+  const jobName = currentProject;
   let order;
   if (vanlabOrder) {
     if (!vanlabOrder.vanRaw && !vanlabOrder.vanKey) {
@@ -2128,6 +2219,7 @@ async function vanlabPrintCrate() {
       vanlabSetStatus('Popup blocked — allow popups for this site, then click Crate label again.', true);
       return;
     }
+    vanlabMarkPrinted('crate', jobName);
     vanlabSetStatus(`Crate label for order ${order.orderNum} ready — print the opened PDF on the CRATE LABEL 4x6 printer at 100% scale.`);
   } catch (err) {
     vanlabSetStatus(`Couldn't build the crate label — ${err.message}`, true);
@@ -2140,6 +2232,11 @@ vanlabHeaderBtn.addEventListener('click', vanlabOpenPanel);
 vanlabPrintBtn.addEventListener('click', vanlabPrintStickers);
 vanlabPackingBtn.addEventListener('click', vanlabPrintPacking);
 vanlabCrateBtn.addEventListener('click', vanlabPrintCrate);
+vanlabActions.addEventListener('click', (e) => {
+  const undo = e.target.closest('.vanlab-undo');
+  if (undo) vanlabUndoPrinted(undo.dataset.kind);
+});
+document.getElementById('vanlab-show-btn').addEventListener('click', () => { vanlabExpanded = true; vanlabRenderPrinted(); });
 
 /* ══════════════════════════════════════════
    Print Queue — the "To Print" panel (projects screen)

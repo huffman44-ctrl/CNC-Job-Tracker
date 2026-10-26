@@ -6,7 +6,7 @@
   <title>CNC Job Tracker</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23ff5a1f'/><text x='16' y='22' font-family='Arial Black,sans-serif' font-size='12' font-weight='900' fill='white' text-anchor='middle'>CNC</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="css/style.css?v=31">
+  <link rel="stylesheet" href="css/style.css?v=32">
   <script>
     (function(){
       var t = localStorage.getItem('cnc::darkMode');
@@ -492,14 +492,23 @@
     <!-- The VanLab print bar (spec .scratch/vanlab-print-bar): shows by itself on a job whose sheet
          names carry one order number; other jobs open it from the header "VanLab Stickers" button. -->
     <div id="vanlab-panel" class="vanlab-panel" hidden>
-      <div class="vanlab-bar-text">
+      <!-- Ticket 03: once all three are printed the bar folds to this one line until Show. -->
+      <div id="vanlab-collapsed" class="vanlab-collapsed" hidden>
+        <span class="vanlab-collapsed-text">VanLab kit printed ✓</span>
+        <button class="btn btn-sm vanlab-show-btn" id="vanlab-show-btn">Show</button>
+      </div>
+      <div id="vanlab-bar-text" class="vanlab-bar-text">
         <div id="vanlab-bar-title" class="vanlab-bar-title" hidden></div>
         <div id="vanlab-status" class="vanlab-status"></div>
       </div>
-      <div class="vanlab-actions">
+      <div id="vanlab-actions" class="vanlab-actions">
         <label class="form-label vanlab-van-label" for="vanlab-van-select" hidden>Van type</label>
         <select id="vanlab-van-select" class="form-input vanlab-van-select" hidden></select>
-        <button class="btn btn-primary btn-sm" id="vanlab-stickers-btn" disabled>Hardware stickers</button>
+        <!-- Each print: its button, then (ticket 02) "Printed by Collin, 10:42 AM · Undo" once done. -->
+        <span class="vanlab-item">
+          <button class="btn btn-primary btn-sm" id="vanlab-stickers-btn" disabled>Hardware stickers</button>
+          <span class="vanlab-item-note" id="vanlab-stickers-note" hidden><span class="vanlab-item-note-text"></span><button class="vanlab-undo" data-kind="stickers">Undo</button></span>
+        </span>
         <label class="form-label vanlab-suv-label" for="vanlab-suv-select" hidden>SUV kit</label>
         <select id="vanlab-suv-select" class="form-input vanlab-van-select" hidden>
           <option value="">— pick the SUV kit —</option>
@@ -507,8 +516,14 @@
           <option value="bed">Bed Only</option>
           <option value="kitchen">Kitchen Only</option>
         </select>
-        <button class="btn btn-primary btn-sm" id="vanlab-packing-btn" disabled>Packing list</button>
-        <button class="btn btn-primary btn-sm" id="vanlab-crate-btn" disabled>Crate label</button>
+        <span class="vanlab-item">
+          <button class="btn btn-primary btn-sm" id="vanlab-packing-btn" disabled>Packing list</button>
+          <span class="vanlab-item-note" id="vanlab-packing-note" hidden><span class="vanlab-item-note-text"></span><button class="vanlab-undo" data-kind="packing">Undo</button></span>
+        </span>
+        <span class="vanlab-item">
+          <button class="btn btn-primary btn-sm" id="vanlab-crate-btn" disabled>Crate label</button>
+          <span class="vanlab-item-note" id="vanlab-crate-note" hidden><span class="vanlab-item-note-text"></span><button class="vanlab-undo" data-kind="crate">Undo</button></span>
+        </span>
         <span id="vanlab-manual-fields" hidden>
           <label class="form-label" for="vanlab-manual-order">Order #</label>
           <input id="vanlab-manual-order" class="form-input vanlab-van-select" placeholder="e.g. 1234">
@@ -765,7 +780,7 @@
   <script src="js/new-job-alert.js?v=1"></script>
   <script src="js/job-stickers.js?v=1"></script>
   <script src="js/upload-batch.js?v=1"></script>
-  <script src="js/storage.js?v=18"></script>
+  <script src="js/storage.js?v=19"></script>
   <script src="js/storage-owner.js?v=2"></script>
   <script src="js/features.js?v=1"></script>
   <script src="js/settings.js?v=3"></script>
@@ -793,11 +808,11 @@
   <script src="js/doc-info.js?v=1"></script>
   <script src="js/sequence.js?v=1"></script>
   <script src="js/vanlab-print.js?v=2"></script>
-  <script src="js/vanlab-bar.js?v=1"></script>
+  <script src="js/vanlab-bar.js?v=2"></script>
   <script src="js/assembly-levels.js?v=1"></script>
   <script src="js/packing-map.js?v=2"></script>
   <script src="js/packing-pdf.js?v=1"></script>
   <script src="js/crate-label-pdf.js?v=1"></script>
-  <script src="js/app.js?v=49"></script>
+  <script src="js/app.js?v=50"></script>
 </body>
 </html>
