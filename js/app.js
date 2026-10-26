@@ -419,6 +419,7 @@ function setCardBackLabel() {
 function showProjectsScreen() {
   cardReturn = null; setCardBackLabel();
   resetFinishedView();
+  vanlabForgetJob();   // every way off the job screen (export, put back, sign-out…) drops its job listener
   hideAllScreens();
   projectsScreen.hidden      = false;
   renderProjects();
@@ -1958,6 +1959,9 @@ function vanlabUnwatchJob() {
 // mid-print still records on the right job. Never blocks the print; a failed save says so.
 function vanlabMarkPrinted(kind, jobName) {
   if (!jobName) return;
+  // A print made here keeps this bar open, so its "print on the … printer" line stays readable;
+  // it folds on the next open (or on other computers right away).
+  if (jobName === currentProject) vanlabExpanded = true;
   const rec = VanlabBar.record(pqDisplayName(pqCurrentEmail()), Date.now());
   Storage.setVanlabPrinted(Keys.job(jobName), jobName, kind, rec).catch(err => {
     console.warn('VanLab print record failed:', err);

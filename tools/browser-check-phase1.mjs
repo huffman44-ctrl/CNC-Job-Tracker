@@ -581,8 +581,13 @@ async function main() {
   // Ticket 03: the packing list printed on ANOTHER computer arrives through the job listener — all three done, the bar folds.
   const otherComputer = (fn) => page.evaluate(fn, null);
   await otherComputer(() => Storage.setVanlabPrinted(Keys.job(currentProject), currentProject, 'packing', { at: Date.now(), by: 'Collin' }));
-  await page.waitForSelector('#vanlab-collapsed:not([hidden])', { timeout: 5000 }).catch(() => {});
-  assert(await page.isVisible('#vanlab-collapsed') && await page.isHidden('#vanlab-actions') && await page.isHidden('#vanlab-bar-text'), 'vanlab collapse: all three printed → one thin line');
+  await page.waitForFunction(() => document.getElementById('vanlab-packing-btn').textContent.startsWith('✓'), null, { timeout: 5000 }).catch(() => {});
+  assert(await page.isVisible('#vanlab-actions') && await page.isVisible('#vanlab-status'), 'vanlab collapse: after printing here the bar stays open, so the printer line stays readable');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.click('.project-card');
+  await page.waitForSelector('#vanlab-collapsed:not([hidden])', { timeout: 10000 }).catch(() => {});
+  assert(await page.isVisible('#vanlab-collapsed') && await page.isHidden('#vanlab-actions') && await page.isHidden('#vanlab-bar-text'), 'vanlab collapse: all three printed → one thin line on the next open');
   assert((await page.textContent('#vanlab-collapsed .vanlab-collapsed-text')).trim() === 'VanLab kit printed ✓', 'vanlab collapse: says the kit is printed');
   await page.click('#vanlab-show-btn');
   assert(await page.isHidden('#vanlab-collapsed') && await page.isVisible('#vanlab-actions'), 'vanlab collapse: Show expands it');
