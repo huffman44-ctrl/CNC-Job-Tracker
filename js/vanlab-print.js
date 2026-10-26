@@ -30,3 +30,5 @@ const VanlabPrint = (() => {
 
   return { extractOrderNumber, resolveStickers };
 })();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = VanlabPrint;

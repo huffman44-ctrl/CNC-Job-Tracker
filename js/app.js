@@ -355,8 +355,7 @@ function openNewJob(jobName) {
   cardReturn = null; setCardBackLabel();
   resetFinishedView();
   currentProject = jobName;
-  vanlabPanel.hidden = true;
-  vanlabEpoch++;
+  vanlabForgetJob();
   showContentScreen();
 }
 
@@ -454,6 +453,7 @@ function showContentScreen() {
   // The Stickers panel belongs to the job it was opened on; a rerender of the same job keeps it open.
   if (jsPanelJob !== currentProject) jobStickersPanel.hidden = true;
   renderJobStickers();
+  vanlabSyncJob(displaySheets);
 
   updateJobNoteBanner();
   contentScreen.classList.toggle('content-screen--finished', viewingFinished);
@@ -1008,8 +1008,7 @@ function buildProjectCard(jobName, projectSheets) {
     if (!showFinished) { newJobs.opened(jobName); renderNewJobBanner(); }
     currentProject = jobName;
     viewingFinished = showFinished;
-    vanlabPanel.hidden = true;
-    vanlabEpoch++;
+    vanlabForgetJob();
     showContentScreen();
   });
 
@@ -1824,6 +1823,8 @@ async function doResetAll() {
    VanLab Printing (hardware stickers, packing lists, crate label)
 ══════════════════════════════════════════ */
 const vanlabPanel      = document.getElementById('vanlab-panel');
+const vanlabHeaderBtn  = document.getElementById('vanlab-print-btn');
+const vanlabBarTitle   = document.getElementById('vanlab-bar-title');
 const vanlabStatus     = document.getElementById('vanlab-status');
 const vanlabVanSelect  = document.getElementById('vanlab-van-select');
 const vanlabVanLabel   = document.querySelector('.vanlab-van-label');
@@ -1877,17 +1878,53 @@ function vanlabShowManualPicker() {
   vanlabCrateBtn.disabled = true;
   vanlabManualFields.hidden = false;
   vanlabVanSelect.onchange = () => {
+    vanlabShowStickerCount(vanlabVanSelect.value);
     vanlabPrintBtn.disabled = !vanlabVanSelect.value;
     vanlabPackingBtn.disabled = !vanlabVanSelect.value;
     vanlabCrateBtn.disabled = !vanlabVanSelect.value;
   };
 }
 
-async function vanlabOpenPanel() {
+// Sticker count on the stickers button for a van (the looked-up one, or the one picked by hand).
+function vanlabShowStickerCount(vanKey) {
+  const res = vanKey ? VanlabPrint.resolveStickers(vanKey, STICKER_MAP) : null;
+  const stickerCount = res && res.status === 'matched' ? VanlabBar.stickerCount(res.items) : 0;
+  vanlabPrintBtn.textContent = VanlabBar.buttonTitle('stickers', { stickerCount });
+}
+
+// The bar belongs to one job (and its order number): showContentScreen calls this on every paint,
+// and only a different job/order — or vanlabForgetJob() on a fresh open — resets it and looks the order up again.
+// A VanLab job (one order number in its sheet names) gets the bar by itself and no header button;
+// any other job keeps the header "VanLab Stickers" button, which opens the bar with the manual picker.
+let vanlabJobKey = null;
+function vanlabForgetJob() {
+  vanlabJobKey = null;
+  vanlabPanel.hidden = true;
+  vanlabEpoch++;
+}
+
+function vanlabSyncJob(displaySheets) {
+  const bar = VanlabBar.forJob(displaySheets.map(s => s.fileName));
+  const key = JSON.stringify([currentProject, bar.orderNum, bar.conflict]);
+  if (key === vanlabJobKey) return;
+  vanlabJobKey = key;
+  vanlabHeaderBtn.hidden = bar.auto;
+  vanlabPanel.hidden = !bar.auto;
+  vanlabEpoch++;
+  if (bar.auto) vanlabLoad();
+}
+
+function vanlabOpenPanel() {
   vanlabPanel.hidden = !vanlabPanel.hidden;
-  if (vanlabPanel.hidden) return;
+  if (vanlabPanel.hidden) { vanlabEpoch++; return; }
+  vanlabLoad();
+}
+
+async function vanlabLoad() {
   const ep = ++vanlabEpoch;
   vanlabOrder = null;
+  vanlabBarTitle.hidden = true;
+  vanlabShowStickerCount(null);
   vanlabVanSelect.hidden = true;
   vanlabVanLabel.hidden = true;
   vanlabPrintBtn.disabled = true;
@@ -1901,8 +1938,7 @@ async function vanlabOpenPanel() {
   vanlabManualCustomer.value = '';
   vanlabManualAssembly.value = '';
 
-  const fileNames = sheets.filter(s => Keys.jobOf(s) === currentProject).map(s => s.fileName);
-  const { orderNum, conflict } = VanlabPrint.extractOrderNumber(fileNames);
+  const { orderNum, conflict } = VanlabBar.forJob(getDisplaySheets().map(s => s.fileName));
 
   if (conflict) {
     vanlabSetStatus(`This job's sheets disagree about the order number (${conflict.join(' vs ')}) — fix the uploads, or pick the van type by hand:`, true);
@@ -1915,7 +1951,9 @@ async function vanlabOpenPanel() {
     return;
   }
 
-  vanlabSetStatus(`Order ${orderNum} — looking up the Order Log…`);
+  vanlabBarTitle.textContent = VanlabBar.heading(orderNum, null);
+  vanlabBarTitle.hidden = false;
+  vanlabSetStatus('Looking up the Order Log…');
   try {
     const idToken = await Auth.getIdToken();
     if (ep !== vanlabEpoch) return;
@@ -1927,7 +1965,9 @@ async function vanlabOpenPanel() {
       return;
     }
     vanlabOrder = order;
-    vanlabSetStatus(`Order ${order.orderNum} — Van ${order.vanRaw || '?'} — ${order.customer || 'no customer'}${order.assembly ? ' — kit ' + order.assembly : ''}`);
+    vanlabBarTitle.textContent = VanlabBar.heading(orderNum, order);
+    vanlabShowStickerCount(order.vanKey);
+    vanlabSetStatus(`${order.customer || 'No customer on the Order Log'} — print these now so the kit gets packed while the sheets cut.`);
     vanlabPrintBtn.disabled = false;
     vanlabPackingBtn.disabled = false;
     vanlabCrateBtn.disabled = false;
@@ -1956,7 +1996,7 @@ async function vanlabPrintStickers() {
     vanlabLastBlobUrl = url;
     const opened = window.open(url, '_blank');
     if (!opened) {
-      vanlabSetStatus('Popup blocked — allow popups for this site, then click Print again.', true);
+      vanlabSetStatus('Popup blocked — allow popups for this site, then click Hardware stickers again.', true);
       return;
     }
     const count = res.items.reduce((n, [, q]) => n + q, 0);
@@ -1978,7 +2018,7 @@ async function vanlabPrintPacking() {
   if (res.status === 'ambiguous') {
     vanlabSuvSelect.hidden = false;
     vanlabSuvLabel.hidden = false;
-    vanlabSetStatus('This SUV order doesn\'t say which kit — pick Full/Bed/Kitchen, then click Print Packing List again.', true);
+    vanlabSetStatus('This SUV order doesn\'t say which kit — pick Full/Bed/Kitchen, then click Packing list again.', true);
     return;
   }
   if (res.status === 'none_needed') {
@@ -2015,7 +2055,7 @@ async function vanlabPrintPacking() {
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     vanlabPackingBlobUrl = url;
     if (!window.open(url)) {
-      vanlabSetStatus('Popup blocked — allow popups for this site, then click Print Packing List again.', true);
+      vanlabSetStatus('Popup blocked — allow popups for this site, then click Packing list again.', true);
       return;
     }
     vanlabSetStatus(`Packing list${order.orderNum ? ' for order ' + order.orderNum : ''} ready — print the opened PDF on the shop-floor letter printer at 100% scale.`);
@@ -2042,7 +2082,7 @@ async function vanlabPrintCrate() {
   let order;
   if (vanlabOrder) {
     if (!vanlabOrder.vanRaw && !vanlabOrder.vanKey) {
-      vanlabSetStatus(`The Order Log row for order ${vanlabOrder.orderNum} has no van type yet — fill it in on the Order Log, then reopen this panel.`, true);
+      vanlabSetStatus(`The Order Log row for order ${vanlabOrder.orderNum} has no van type yet — fill it in on the Order Log, then reopen this job.`, true);
       return;
     }
     order = {
@@ -2081,7 +2121,7 @@ async function vanlabPrintCrate() {
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     vanlabCrateBlobUrl = url;
     if (!window.open(url, '_blank')) {
-      vanlabSetStatus('Popup blocked — allow popups for this site, then click Print Crate Label again.', true);
+      vanlabSetStatus('Popup blocked — allow popups for this site, then click Crate label again.', true);
       return;
     }
     vanlabSetStatus(`Crate label for order ${order.orderNum} ready — print the opened PDF on the CRATE LABEL 4x6 printer at 100% scale.`);
@@ -2092,7 +2132,7 @@ async function vanlabPrintCrate() {
   }
 }
 
-document.getElementById('vanlab-print-btn').addEventListener('click', vanlabOpenPanel);
+vanlabHeaderBtn.addEventListener('click', vanlabOpenPanel);
 vanlabPrintBtn.addEventListener('click', vanlabPrintStickers);
 vanlabPackingBtn.addEventListener('click', vanlabPrintPacking);
 vanlabCrateBtn.addEventListener('click', vanlabPrintCrate);

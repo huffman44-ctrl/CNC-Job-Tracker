@@ -514,6 +514,90 @@ async function main() {
   assert(await page.inputValue('#js-lines') === '', "job stickers: the first job's unsaved draft is not carried over");
   await page.close();
 
+  // ── VanLab print bar (spec .scratch/vanlab-print-bar, ticket 01) — Collin, no owner stub ──
+  // The sample sheet's file name carries "Order_1195", so its job is a VanLab job.
+  page = await fresh();
+  await upload(page);
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.waitForFunction(() => /Pick the van type by hand/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 10000 });
+  assert(await page.isVisible('#vanlab-panel'), 'vanlab bar: shows by itself on a VanLab job');
+  assert(await page.isHidden('#vanlab-print-btn'), 'vanlab bar: header VanLab Stickers button hidden on a VanLab job');
+  assert(await page.evaluate(() => document.querySelector('.progress-strip').nextElementSibling.id === 'vanlab-panel'), 'vanlab bar: sits directly under the progress strip');
+  assert(await page.evaluate(() => document.getElementById('vanlab-panel').getBoundingClientRect().bottom <= document.querySelector('#content-screen .content-main').getBoundingClientRect().top), 'vanlab bar: above the sheet list');
+  assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1195', 'vanlab bar: heading names the order while the lookup has failed');
+  assert(/Couldn't look up order 1195|not configured/.test(await page.textContent('#vanlab-status')), 'vanlab bar: test copy lookup fails honestly');
+  assert(await page.isVisible('#vanlab-van-select'), 'vanlab bar: lookup failure falls back to the manual van picker');
+  const vlTitles = async () => page.$$eval(['#vanlab-stickers-btn', '#vanlab-packing-btn', '#vanlab-crate-btn'].join(','), bs => bs.map(b => b.textContent.trim()));
+  assert(JSON.stringify(await vlTitles()) === JSON.stringify(['Hardware stickers', 'Packing list', 'Crate label']), 'vanlab bar: three buttons, plain names before a van is known');
+  assert(await page.$eval('#vanlab-stickers-btn', b => b.disabled), 'vanlab bar: buttons wait for a van');
+  await page.selectOption('#vanlab-van-select', '15');
+  assert((await page.textContent('#vanlab-stickers-btn')).trim() === 'Hardware stickers (7)', 'vanlab bar: picking van 15 shows its 7 stickers');
+  await page.evaluate(() => rerenderCurrent());
+  assert(await page.inputValue('#vanlab-van-select') === '15', 'vanlab bar: a repaint of the same job keeps the picked van (no new lookup)');
+  await page.evaluate(() => { window.__opened = 0; window.open = () => { window.__opened++; return {}; }; });
+  await page.click('#vanlab-stickers-btn');
+  await page.waitForFunction(() => /7 stickers ready/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 15000 });
+  assert(await page.evaluate(() => window.__opened) === 1, 'vanlab bar: Hardware stickers opens the sticker PDF');
+
+  // Phone width: no horizontal scroll, the button row wraps inside the screen.
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.waitForTimeout(200);
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= 375), 'vanlab bar: no horizontal scroll at 375px');
+  assert(await page.evaluate(() => [...document.querySelectorAll('#vanlab-panel button, #vanlab-panel select')].filter(e => e.offsetParent).every(e => e.getBoundingClientRect().right <= 375)), 'vanlab bar: every control fits on screen at 375px');
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // A working lookup (stubbed — the test copy has no Order Log): full heading, count, all three print.
+  await page.evaluate(() => {
+    Auth.getIdToken = async () => 't';
+    Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: 'Pat Sample' });
+  });
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.click('.project-card');
+  await page.waitForFunction(() => /Transit/.test(document.getElementById('vanlab-bar-title').textContent), null, { timeout: 10000 });
+  assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1195 · Van 15 Transit 148 Passenger · kit 15-05', 'vanlab bar: heading names order, van and kit after the lookup');
+  assert(JSON.stringify(await vlTitles()) === JSON.stringify(['Hardware stickers (7)', 'Packing list', 'Crate label']), 'vanlab bar: sticker count from the looked-up van');
+  assert(await page.isHidden('#vanlab-van-select') && await page.isHidden('#vanlab-manual-fields'), 'vanlab bar: no manual picker after a good lookup');
+  assert(!(await page.$eval('#vanlab-crate-btn', b => b.disabled)), 'vanlab bar: buttons ready after a good lookup');
+  await page.click('#vanlab-crate-btn');
+  await page.waitForFunction(() => /Crate label for order 1195 ready/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 15000 });
+  assert(await page.evaluate(() => window.__opened) === 2, 'vanlab bar: Crate label opens the crate PDF');
+  await page.click('#vanlab-packing-btn');
+  const packingReached = await page.waitForFunction(() => /Packing-list fetch is not configured/.test(document.getElementById('vanlab-status').textContent), null, { timeout: 15000 }).then(() => true, () => false);
+  assert(packingReached, 'vanlab bar: Packing list reaches the fetch (not configured on the test copy — no Drive call)');
+
+  // A non-VanLab job: no bar until the header button opens it with the manual picker.
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await page.setInputFiles('#file-input', join(dst, sampleOther));
+  await page.waitForFunction(() => document.querySelectorAll('.project-card').length === 2, null, { timeout: 15000 });
+  const openJobCard = (name) => page.evaluate(n => [...document.querySelectorAll('.project-card')].find(el => el.textContent.includes(n)).click(), name);
+  await openJobCard('Fake_Other_Job_0001');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  assert(await page.isHidden('#vanlab-panel'), 'vanlab bar: hidden on a job with no order number');
+  assert(await page.isVisible('#vanlab-print-btn'), 'vanlab bar: header VanLab Stickers button kept for a job with no order number');
+  await page.click('#vanlab-print-btn');
+  assert(await page.isVisible('#vanlab-panel') && await page.isVisible('#vanlab-van-select'), 'vanlab bar: header button opens the manual picker');
+  assert(await page.isHidden('#vanlab-bar-title') && /No order number found/.test(await page.textContent('#vanlab-status')), 'vanlab bar: manual picker says no order number, no heading');
+  await page.click('#vanlab-print-btn');
+  assert(await page.isHidden('#vanlab-panel'), 'vanlab bar: header button closes it again');
+
+  // Stale lookup: leave the VanLab job before its lookup answers — the other job must not get its bar.
+  await page.evaluate(() => {
+    Endpoint.lookupOrder = (n) => new Promise(r => setTimeout(() => r({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: 'Pat Sample' }), 600));
+  });
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await openJobCard('Order_1195');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await openJobCard('Fake_Other_Job_0001');
+  await page.waitForTimeout(900);
+  assert(await page.isHidden('#vanlab-panel') && !/Transit/.test(await page.textContent('#vanlab-bar-title')), 'vanlab bar: a slow lookup from the job you left paints nothing');
+  await page.close();
+
   // ── Settings screen ──
   page = await fresh();
   await upload(page);
