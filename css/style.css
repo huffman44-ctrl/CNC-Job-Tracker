@@ -86,7 +86,8 @@
 .loading-screen .upload-brand-name { color: var(--text-inverse); }
 
 [data-theme="dark"] .layout-svg-scroll { background: #ffffff; border-radius: var(--radius-sm); }
-[data-theme="dark"] .file-list-item   { border-color: #1a4a2e; }
+[data-theme="dark"] .file-list-item--ok  { border-color: #1a4a2e; }
+[data-theme="dark"] .file-list-item--bad { border-color: #5a1a1a; }
 [data-theme="dark"] .status-badge     { border-color: #0d6b39; }
 [data-theme="dark"] .chip-time              { border-color: #3d2c00; color: #fbbf24; }
 [data-theme="dark"] .status-badge--progress { background: #1f1600; border-color: #3d2c00; color: #fbbf24; }
@@ -118,6 +119,19 @@
   background: var(--gray-100);
 }
 .upload-dark-toggle:hover { background: var(--gray-200); color: var(--gray-700); }
+.upload-back-btn {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font: 600 13px 'Barlow', sans-serif;
+  color: var(--gray-500);
+  background: var(--gray-100);
+  cursor: pointer;
+}
+.upload-back-btn:hover { background: var(--gray-200); color: var(--gray-700); }
 
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -273,15 +287,27 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--green-light);
-  border: 1px solid #a7e8bf;
+  border: 1px solid var(--gray-200);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 700;
-  color: var(--green);
+  background: var(--gray-50);
+  color: var(--gray-500);
 }
-.file-list-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.file-list-item--ok   { background: var(--green-light); border-color: #a7e8bf; color: var(--green); }
+.file-list-item--bad  { background: var(--red-light);   border-color: #fecaca; color: var(--red); }
+.file-list-icon { width: 14px; height: 14px; flex-shrink: 0; display: flex; }
+.file-list-icon svg { width: 14px; height: 14px; }
+.file-list-name   { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.file-list-status { flex-shrink: 0; font-weight: 600; font-size: 11px; }
+.file-list-spinner {
+  width: 12px; height: 12px; margin: 1px;
+  border: 2px solid var(--gray-200);
+  border-top-color: var(--orange);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
 
 .upload-actions {
   margin-top: 18px;

@@ -179,3 +179,63 @@ test('the combined notice keeps today\'s order and the many-sheets wording', asy
     '"f.html" isn\'t an Aspire setup sheet, so it wasn\'t added.',
   ].join('\n\n'));
 });
+
+// Time limit (2026-10-30): a database call that never answers must not freeze the upload screen.
+const never = () => new Promise(() => {});
+
+test('a save that never answers: the drop still finishes, the sheet stays on the board as unconfirmed', async () => {
+  const w = world({ saveSheet: never });
+  const k = Keys.sheet('NL Sheet 14.html');
+  const res = await UploadBatch.run([file('NL Sheet 14.html')], { ...w.deps, waitMs: 20 });
+  assert.deepEqual(res.unconfirmed, ['NL Sheet 14.html']);
+  assert.deepEqual(res.saved, []);
+  assert.ok(w.board.has(k));
+  // The job still gets its jobs/ doc and details step, like a saved sheet.
+  assert.deepEqual([...res.savedByJob], [['NL_Bridge_Wall_Panels', [k]]]);
+  assert.equal(UploadBatch.notice(res, String), '"NL Sheet 14.html" hasn\'t finished saving yet — the connection may be slow. Keep this page open; if it isn\'t on the board in a couple of minutes, drop it again.');
+});
+
+test('a late save that fails takes the sheet off the board; a late save that works archives it', async () => {
+  let answer;
+  const w = world({ saveSheet: () => new Promise(r => { answer = r; }) });
+  const k = Keys.sheet('NL Sheet 15.html');
+  const res = await UploadBatch.run([file('NL Sheet 15.html')], { ...w.deps, waitMs: 20 });
+  assert.deepEqual(res.unconfirmed, ['NL Sheet 15.html']);
+  assert.equal(w.archived.length, 0);
+  answer({ ok: true, mode: 'plain' });
+  await settle(); await settle();
+  assert.equal(w.archived.length, 1);
+  assert.ok(w.board.has(k));
+
+  let fail;
+  const w2 = world({ saveSheet: () => new Promise(r => { fail = r; }) });
+  await UploadBatch.run([file('NL Sheet 16.html')], { ...w2.deps, waitMs: 20 });
+  fail({ ok: false, error: new Error('permission-denied') });
+  await settle();
+  assert.equal(w2.board.has(Keys.sheet('NL Sheet 16.html')), false);
+});
+
+test('a database check that never answers is "couldn\'t check", and nothing is saved', async () => {
+  const w = world({ getSheetDoc: never });
+  const warn = console.warn; console.warn = () => {};
+  let res;
+  try { res = await UploadBatch.run([file('NL Sheet 17.html')], { ...w.deps, waitMs: 20 }); } finally { console.warn = warn; }
+  assert.deepEqual(res.unchecked, ['NL Sheet 17.html']);
+  assert.deepEqual(w.saved, []);
+});
+
+test('onFileDone reports each file\'s outcome by its place in the drop', async () => {
+  const k = Keys.sheet('NL Sheet 19.html');
+  const w = world({ board: [k] });
+  const seen = [];
+  await UploadBatch.run([file('NL Sheet 18.html'), file('NL Sheet 19.html')], { ...w.deps, onFileDone: (i, outcome) => seen.push([i, outcome]) });
+  assert.deepEqual(seen.sort(), [[0, 'saved'], [1, 'alreadyLoaded']]);
+});
+
+test('many unconfirmed or unchecked sheets get one line each, not one per sheet', () => {
+  const res = { saved: [], alreadyLoaded: [], finishedBefore: [], unchecked: ['a.html', 'b.html'], unreadable: [], notSheets: [], saveFailed: [], unconfirmed: ['c.html', 'd.html', 'e.html'], savedByJob: new Map() };
+  assert.equal(UploadBatch.notice(res, String), [
+    'Couldn\'t check whether 2 sheets were already cut — check your connection and drop them again.',
+    '3 sheets haven\'t finished saving yet — the connection may be slow. Keep this page open; if any are missing from the board in a couple of minutes, drop them again.',
+  ].join('\n\n'));
+});

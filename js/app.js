@@ -158,6 +158,7 @@ document.getElementById('back-to-projects-btn').addEventListener('click', () => 
   showProjectsScreen();
 });
 document.getElementById('upload-new-btn').addEventListener('click', goToUpload);
+document.getElementById('upload-back-btn').addEventListener('click', showProjectsScreen);
 document.getElementById('ticket-history-btn').addEventListener('click', showTicketHistoryScreen);
 document.getElementById('ticket-history-back-btn').addEventListener('click', showProjectsScreen);
 document.getElementById('ticket-history-search').addEventListener('input', renderTicketHistoryList);
@@ -210,18 +211,17 @@ async function handleFiles(fileList, isFirstLoad) {
   hideUploadError();
   hideSaveBanner();
 
+  // One row per file: "Saving…" until UploadBatch says how that file ended.
+  const rows = [];
   if (isFirstLoad) {
     fileListEl.innerHTML = '';
     fileListEl.hidden = false;
     for (const f of htmlFiles) {
       const item = document.createElement('div');
-      item.className = 'file-list-item';
-      item.innerHTML = `
-        <svg class="file-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-        ${escHtml(f.name)}`;
+      item.innerHTML = `<span class="file-list-icon"></span><span class="file-list-name">${escHtml(f.name)}</span><span class="file-list-status"></span>`;
+      setUploadRow(item, 'saving');
       fileListEl.appendChild(item);
+      rows.push(item);
     }
   }
 
@@ -236,6 +236,7 @@ async function handleFiles(fileList, isFirstLoad) {
     saveSheet: s => { uploadedHere.add(s.fileKey); return Storage.saveSheet(s); },
     archive: (name, jobName, text) => Endpoint.archiveSheet(name, jobName, text),
     setArchiveUrl: (k, url) => Storage.setArchiveUrl(k, url),
+    onFileDone: (i, outcome) => { if (rows[i]) setUploadRow(rows[i], outcome); },
   });
   // One banner line, last message wins: oversize first so a save failure is never hidden behind it.
   for (const s of result.saved) {
@@ -247,9 +248,36 @@ async function handleFiles(fileList, isFirstLoad) {
   catch (err) { console.warn('finishUploadBatch failed:', err); }
 }
 
+// Each UploadBatch outcome as a file-list row: look (colour + icon) and a short status.
+const UPLOAD_ROW = {
+  saving:         { look: 'saving', label: 'Saving…' },
+  saved:          { look: 'ok',     label: 'Saved' },
+  alreadyLoaded:  { look: 'skip',   label: 'Already on the board' },
+  finishedBefore: { look: 'bad',    label: 'Already cut — not added' },
+  unchecked:      { look: 'bad',    label: "Couldn't check — drop again" },
+  unreadable:     { look: 'bad',    label: "Couldn't read — drop again" },
+  notSheets:      { look: 'bad',    label: 'Not a setup sheet' },
+  saveFailed:     { look: 'bad',    label: "Didn't save" },
+  unconfirmed:    { look: 'saving', label: 'Still saving…' },
+};
+const UPLOAD_ICON = {
+  saving: '<span class="file-list-spinner"></span>',
+  ok:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  skip:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  bad:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+};
+function setUploadRow(item, outcome) {
+  const { look, label } = UPLOAD_ROW[outcome] || UPLOAD_ROW.unchecked;
+  item.className = `file-list-item file-list-item--${look}`;
+  item.querySelector('.file-list-icon').innerHTML = UPLOAD_ICON[look];
+  item.querySelector('.file-list-status').textContent = label;
+}
+
 async function finishUploadBatch(isFirstLoad, result) {
   if (sheets.length) {
-    if (isFirstLoad) showProjectsScreen(); else renderAllSheets();
+    // Only from the upload or projects screen — Back may have taken them into a job meanwhile.
+    if (!isFirstLoad) renderAllSheets();
+    else if (!uploadScreen.hidden || !projectsScreen.hidden) showProjectsScreen();
   }
   const notice = UploadBatch.notice(result, formatDT);
   if (notice) showNotice(notice);
