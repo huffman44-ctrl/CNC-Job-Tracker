@@ -116,6 +116,32 @@ test('materials: name required, thickness > 0, price >= 0, ids never reused', ()
   assert.match(id, /^mat_[a-z0-9]{6}$/);
   assert.notEqual(id, 'mat_aaaaaa');
 });
+test('materials: thickness may be typed as a fraction or with an inch mark', () => {
+  const t = v => { const r = V.validateMaterials([mat({ thicknessIn: v })]); return r.ok ? r.items[0].thicknessIn : null; };
+  assert.equal(t('3/4'), 0.75);
+  assert.equal(t('3/4"'), 0.75);
+  assert.equal(t('3/4 in'), 0.75);
+  assert.equal(t('0.75"'), 0.75);
+  assert.equal(t('.75in'), 0.75);
+  assert.equal(t('1 1/2'), 1.5);
+  assert.equal(t('1-1/2'), 1.5);
+  assert.equal(t('3/16'), 0.1875);
+  assert.equal(t('1/64'), 0.015625);
+  assert.equal(t('3/0'), null);
+  assert.equal(t('0/4'), null);
+  assert.equal(t('3/4/5'), null);
+  assert.equal(t('three quarter'), null);
+});
+test('materials: price may be typed with a dollar sign and thousands commas', () => {
+  const p = v => { const r = V.validateMaterials([mat({ pricePerSheet: v })]); return r.ok ? r.items[0].pricePerSheet : null; };
+  assert.equal(p('$45'), 45);
+  assert.equal(p('$ 45.50'), 45.5);
+  assert.equal(p('$1,234.50'), 1234.5);
+  assert.equal(p('45$'), null);
+  assert.equal(p('$'), null);
+  assert.equal(p('$-5'), null);
+  assert.equal(p('1,2,3'), null);
+});
 test('materials: an empty list is valid', () => {
   assert.deepEqual(V.validateMaterials([]).items, []);
 });

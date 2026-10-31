@@ -18,6 +18,23 @@ const SettingsValidate = (() => {
     const n = Number(t);
     return Number.isFinite(n) ? n : null;
   }
+  // Thickness as the shop types it: 0.75, 3/4, 1 1/2, 1-1/2, with an optional " or in. Rounded
+  // to 6 places so 3/16 → 0.1875 and 1/64 → 0.015625 stay exact.
+  function inches(v) {
+    if (typeof v === 'number') return num(v);
+    const t = String(v == null ? '' : v).trim().replace(/\s*(?:"|in\.?|inch(?:es)?)$/i, '');
+    const m = /^(?:(\d+)[\s-]+)?(\d+)\/(\d+)$/.exec(t);
+    if (!m) return num(t);
+    if (Number(m[3]) === 0) return null;
+    return Math.round(((m[1] ? Number(m[1]) : 0) + Number(m[2]) / Number(m[3])) * 1e6) / 1e6;
+  }
+  // Money as typed: an optional leading $ and thousands commas (1,234.50).
+  function dollars(v) {
+    if (typeof v === 'number') return num(v);
+    const t = String(v == null ? '' : v).trim().replace(/^\$\s*/, '');
+    if (!/^\d{1,3}(,\d{3})+(\.\d*)?$/.test(t)) return num(t);
+    return num(t.replace(/,/g, ''));
+  }
   const pctToFraction = p => Math.round(p * 100) / 10000;       // 50 → 0.5
   const fractionToPct = f => Math.round(f * 10000) / 100;       // 0.5 → 50
 
@@ -96,10 +113,10 @@ const SettingsValidate = (() => {
     for (const r of rows || []) {
       const name = String(r.name || '').trim();
       if (!name) return fail('Every material needs a name.');
-      const thicknessIn = num(r.thicknessIn);
-      if (thicknessIn === null || thicknessIn <= 0) return fail(`${name}: the thickness must be a number more than 0.`);
-      const pricePerSheet = num(r.pricePerSheet);
-      if (pricePerSheet === null || pricePerSheet < 0) return fail(`${name}: the price per sheet must be a number, 0 or more.`);
+      const thicknessIn = inches(r.thicknessIn);
+      if (thicknessIn === null || thicknessIn <= 0) return fail(`${name}: the thickness must be more than 0, like 0.75 or 3/4.`);
+      const pricePerSheet = dollars(r.pricePerSheet);
+      if (pricePerSheet === null || pricePerSheet < 0) return fail(`${name}: the price per sheet must be a number, 0 or more, like 45 or $45.`);
       let id = r.id;
       if (!id) { id = newMaterialId(taken); taken.add(id); }
       items.push({ id, name, thicknessIn, pricePerSheet, taxable: !!r.taxable });
@@ -155,7 +172,11 @@ const SettingsScreen = (() => {
       addEmail: byId('settings-add-owner-email'), addBtn: byId('settings-add-owner-btn'),
       customers: byId('settings-customers-list'), migStatus: byId('settings-migration-status'), migBtn: byId('settings-migrate-btn'),
     };
-    byId('settings-back-btn').addEventListener('click', () => opts.onBack());
+    byId('settings-back-btn').addEventListener('click', () => {
+      // Leaving drops unsaved edits (show() resets the drafts), so say so before losing materials.
+      if (dirty.materials && !window.confirm("Your material changes aren't saved yet. Leave without saving?")) return;
+      opts.onBack();
+    });
     els.addBtn.addEventListener('click', addOwnerColumn);
     els.addEmail.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addOwnerColumn(); } });
     els.grid.addEventListener('change', onSwitchChange);
@@ -175,6 +196,7 @@ const SettingsScreen = (() => {
     opts.hideOthers();
     els.screen.hidden = false;
     setStatus('');
+    for (const k of Object.keys(dirty)) setCardMsg(k, '');
     resetDrafts();   // unsaved edits don't survive leaving and coming back
     render();
   }
@@ -384,17 +406,28 @@ const SettingsScreen = (() => {
     byId('settings-invoicing-saved').textContent = savedCaption('invoicing');
   }
 
+  // A card with a settings-<card>-msg line also shows the answer beside its Save button — the
+  // top status line is out of sight from the cards lower down the page.
+  function setCardMsg(card, text, isError) {
+    const el = byId(`settings-${card}-msg`);
+    if (!el) return;
+    el.textContent = text || '';
+    el.hidden = !text;
+    el.classList.toggle('settings-status--error', !!isError);
+  }
+
   // Every Save: validate → setSetting → clear dirty → redraw. Errors show as "Couldn't save — …".
   async function saveCard(card, settingName, build, okMessage) {
-    setStatus('');
+    const say = (text, isError) => { setStatus(text, isError); setCardMsg(card, text, isError); };
+    say('');
     try {
       const out = build();
-      if (!out.ok) { setStatus(`Couldn't save — ${out.error}`, true); return; }
+      if (!out.ok) { say(`Couldn't save — ${out.error}`, true); return; }
       await OwnerStore.setSetting(settingName, out.data, opts.currentEmail());
       dirty[card] = false;
-      setStatus(okMessage);
+      say(okMessage);
     } catch (err) {
-      setStatus(`Couldn't save — ${err.message}`, true);
+      say(`Couldn't save — ${err.message}`, true);
     }
     renderPhase2Cards();
   }
