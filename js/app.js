@@ -128,6 +128,7 @@ dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.class
 dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dragover'); });
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
+  e.stopPropagation();   // or document.body's drop handler uploads the same files a second time
   dropZone.classList.remove('dragover');
   handleFiles(e.dataTransfer.files, true);
 });
@@ -135,10 +136,36 @@ dropZone.addEventListener('drop', e => {
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => {
   e.preventDefault();
-  if (!uploadScreen.hidden)    handleFiles(e.dataTransfer.files, true);
-  else if (!contentScreen.hidden)  handleFiles(e.dataTransfer.files, false);
-  else if (!projectsScreen.hidden) handleFiles(e.dataTransfer.files, true);
+  const files = e.dataTransfer.files;
+  if (!files.length) return;   // dragged text or a web picture, not a file
+  if (!uploadScreen.hidden)    handleFiles(files, true);
+  else if (!contentScreen.hidden)  handleScreenDrop(files, false, jobStickersPanel.hidden
+    ? 'To send a PDF with this job, click Stickers at the top, then drop it in that panel.'
+    : 'To send a PDF with this job, drop it inside the Stickers panel.');
+  else if (!projectsScreen.hidden) handleScreenDrop(files, true, printQueuePanel.hidden
+    ? 'To send a PDF, click To Print at the top, then drop it in that panel.'
+    : 'To send a PDF, drop it inside the To Print panel.');
+  else showDropNotice('Nothing was added. Files can only be dropped on the jobs screen or inside a job.');
 });
+
+// A new file drag clears the last drop message so the banner can't cover the drop target.
+// Capture phase: the panels stop their own dragenter from bubbling.
+document.addEventListener('dragenter', e => {
+  if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) clearDropNotice();
+}, true);
+
+// A drop that missed the PDF panels. PDFs alone can't go anywhere from here, so say where
+// they do go; anything else takes the normal sheet upload path.
+function handleScreenDrop(files, isFirstLoad, pdfHint) {
+  const { sheets, pdfs } = DocInfo.sortDrop(files);
+  if (!sheets.length && pdfs.length) {
+    showDropNotice(`${dropNames(pdfs)} not added. ${pdfHint}`);
+    return;
+  }
+  handleFiles(files, isFirstLoad);
+}
+
+const dropNames = files => (files.length <= 3 ? files.map(f => `"${f.name}"`).join(', ') : `${files.length} files`);
 
 fileInput.addEventListener('change', e => { handleFiles(e.target.files, true);  fileInput.value = ''; });
 addFileInput.addEventListener('change', e => { handleFiles(e.target.files, false); addFileInput.value = ''; });
@@ -204,12 +231,15 @@ function readText(file) {
 async function handleFiles(fileList, isFirstLoad) {
   const htmlFiles = Array.from(fileList).filter(f => f.name.match(/\.(html?|htm)$/i));
   if (!htmlFiles.length) {
-    showUploadError('Please select HTML files (.html or .htm).');
+    // The upload error lives on the Upload screen; anywhere else it would never be seen.
+    if (uploadScreen.hidden) showDropNotice('Nothing was added. Job sheets must be .html or .htm files.');
+    else showUploadError('Please select HTML files (.html or .htm).');
     return;
   }
 
   hideUploadError();
   hideSaveBanner();
+  const skipped = Array.from(fileList).filter(f => !htmlFiles.includes(f));
 
   // One row per file: "Saving…" until UploadBatch says how that file ended.
   const rows = [];
@@ -244,6 +274,8 @@ async function handleFiles(fileList, isFirstLoad) {
   }
   // The sheets listener drops a sheet that failed to save on its next snapshot — say why.
   for (const f of result.saveFailed) showSaveBanner(`Couldn't save "${f.name}" — ${f.message}. The file was still archived to Drive.`);
+  // After those, because showDropNotice adds to a save message rather than replacing it.
+  if (skipped.length) showDropNotice(`Skipped ${dropNames(skipped)}. Only .html job sheets upload here.`);
   try { await finishUploadBatch(isFirstLoad, result); }
   catch (err) { console.warn('finishUploadBatch failed:', err); }
 }
@@ -328,6 +360,21 @@ document.getElementById('save-banner-close').addEventListener('click', hideSaveB
 
 function showSaveBanner(msg) { saveBannerTextEl.textContent = msg; saveBannerEl.hidden = false; }
 function hideSaveBanner()    { saveBannerEl.hidden = true; }
+
+// Drop messages use this banner because it shows on every screen. Remembered so a good
+// drop can clear its own earlier message without ever clearing a save failure, and an
+// unread save failure keeps its place with the drop message added after it.
+let dropNoticeText = null;
+function showDropNotice(msg) {
+  const current = saveBannerTextEl.textContent;
+  if (saveBannerEl.hidden || current === dropNoticeText) {
+    dropNoticeText = msg;
+    showSaveBanner(msg);
+  } else if (!current.includes(msg)) {
+    showSaveBanner(`${current} ${msg}`);
+  }
+}
+function clearDropNotice() { if (saveBannerTextEl.textContent === dropNoticeText) hideSaveBanner(); }
 
 /* ══════════════════════════════════════════
    New-job alert — a job (or sheets) uploaded on ANOTHER computer: banner on every screen until
@@ -2523,6 +2570,7 @@ printQueueList.addEventListener('click', e => pqOnRowClick(pqMainPanel, e));
 
 printQueueBtn.addEventListener('click', () => {
   printQueuePanel.hidden = !printQueuePanel.hidden;
+  clearDropNotice();
   pqSetStatus(pqMainPanel, '');
   renderPrintQueue();
 });
@@ -2627,17 +2675,19 @@ function renderJobStickers() {
   const waiting = mine.filter(i => i.printedAt == null);
   const printed = mine.filter(i => i.printedAt != null);
   jobStickersList.innerHTML = waiting.length
-    ? pqRowsHtml(waiting) : '<div class="print-queue-empty">No stickers waiting for this job.</div>';
+    ? pqRowsHtml(waiting) : '<div class="print-queue-empty">Nothing waiting for this job.</div>';
   jobStickersPrinted.innerHTML = printed.length
     ? pqRowsHtml(printed) : '<div class="print-queue-empty">Nothing printed for this job in the last 30 days.</div>';
 }
 
 jobStickersBtn.addEventListener('click', () => {
   jobStickersPanel.hidden = !jobStickersPanel.hidden;
+  clearDropNotice();
   // A draft typed for another job must never be one click from saving under this one.
   if (jsPanelJob !== currentProject) {
     [jsLines, jsPrefix, jsStart, jsEnd].forEach(el => { el.value = ''; });
     jsShowError('');
+    jsDocSender.clear();
   }
   jsPanelJob = currentProject;
   pqSetStatus(jsPanel, '');
@@ -2686,76 +2736,8 @@ jsSaveBtn.addEventListener('click', jsSave);
   if (e.key === 'Enter') { e.preventDefault(); pqFillInto(jsLines, jsPrefix, jsStart, jsEnd, jsShowError); }
 }));
 
-/* ── Builder: + Send a document ── */
-const pqDocBuilder = document.getElementById('pq-doc-builder');
-const pqFile       = document.getElementById('pq-file');
-const pqDocStaged  = document.getElementById('pq-doc-staged');
-const pqDocLabel   = document.getElementById('pq-doc-label');
-const pqDocClear   = document.getElementById('pq-doc-clear');
-const pqDocSize    = document.getElementById('pq-doc-size');
-const pqDocError   = document.getElementById('pq-doc-error');
-const pqDocSendBtn = document.getElementById('pq-doc-send-btn');
+/* ── Sending a PDF: one sender per panel — To Print ("+ Send a document") and the job's Stickers panel ── */
 const PQ_DOC_MAX_BYTES = 10 * 1024 * 1024;
-let pqDoc = null;   // staged { file, bytes, pages, size } — nothing uploads until Send
-let pqDocSending = false;   // true while pqDocSend is awaiting; blocks drops/Clear from racing it
-let pqStageSeq = 0;   // bumped on every pqStageFile call; lets the latest drop win over a stale one
-
-function pqDocShowError(msg) {
-  pqDocError.textContent = msg;
-  pqDocError.hidden = !msg;
-}
-
-function pqDocPickedSize() {
-  const r = document.querySelector('input[name="pq-doc-size"]:checked');
-  return r ? r.value : null;
-}
-
-function pqDocRender() {
-  if (!pqDoc) {
-    pqDocStaged.hidden = true;
-    pqDocSize.hidden = true;
-    pqDocSendBtn.disabled = true;
-    return;
-  }
-  const size = pqDoc.size || pqDocPickedSize();
-  pqDocLabel.textContent = `${pqDoc.file.name} · ${pqDoc.pages} page${pqDoc.pages === 1 ? '' : 's'}${size ? ' · ' + size : ''}`;
-  pqDocStaged.hidden = false;
-  pqDocSize.hidden = !!pqDoc.size;     // picker only when auto-detect found nothing
-  pqDocSendBtn.disabled = !size;
-}
-
-function pqDocReset() {
-  pqDoc = null;
-  pqFile.value = '';
-  document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => { r.checked = false; });
-  pqDocRender();
-}
-
-async function pqStageFile(file) {
-  if (pqDocSending) return;
-  const my = ++pqStageSeq;
-  pqDocShowError('');
-  pqDocReset();
-  if (!file) return;
-  pqDocBuilder.open = true;
-  if (file.size > PQ_DOC_MAX_BYTES) {
-    pqDocShowError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB — the limit is 10 MB.`);
-    return;
-  }
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (my !== pqStageSeq) return;
-  if (!DocInfo.isPdf(bytes)) { pqDocShowError("That isn't a PDF."); return; }
-  let info;
-  try {
-    info = await DocInfo.inspectPdf(bytes);
-  } catch (_) {
-    pqDocShowError(`Couldn't read ${file.name} — is it encrypted?`);
-    return;
-  }
-  if (my !== pqStageSeq) return;
-  pqDoc = { file, bytes, pages: info.pages, size: DocInfo.sizeFor(info.width, info.height) };
-  pqDocRender();
-}
 
 // The bytes are already in memory from staging, so encode those rather than
 // re-reading the file. Chunked: String.fromCharCode can't take 10 MB of args.
@@ -2768,69 +2750,191 @@ function pqBytesToBase64(bytes) {
   return btoa(s);
 }
 
-async function pqDocSend() {
-  if (!pqDoc) return;
-  const size = pqDoc.size || pqDocPickedSize();
-  if (!size) { pqDocShowError('Pick a size first.'); return; }
-  // Snapshot everything before the first await — pqDoc can be replaced or
-  // cleared out from under us while this send is in flight (drop/browse/
-  // Clear are blocked by pqDocSending below, but this is the actual fix:
-  // never re-read module-level pqDoc after control leaves this function).
-  const { file, bytes, pages } = pqDoc;
-  const name = file.name;
-  const base64 = pqBytesToBase64(bytes);
-  // Same PASTE-mode guard as pqSend: only touch firebase.auth() once an app exists.
-  const app = (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) ? firebase : null;
-  pqDocSending = true;
-  pqDocSendBtn.disabled = true;
-  pqDocShowError('');
-  pqSetStatus(pqMainPanel, `Uploading ${name}…`);
-  try {
-    if (!Endpoint.enabled()) throw new Error('endpoint not configured');
-    const user = app ? app.auth().currentUser : null;
-    const idToken = await Auth.getIdToken();
-    const fileId = await Endpoint.uploadDoc(name, base64, idToken);
-    if (!fileId) throw new Error('endpoint not configured');
-    // Upload first, queue second. If this write fails the file sits unused in
-    // the Drive folder — accepted; Travis just sends again.
-    await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages, size, lines: [], jobName: null, createdBy: user ? user.email : '' });
-    pqDocReset();
-    pqDocBuilder.open = false;
-    pqSetStatus(pqMainPanel, `${name} sent to the print list.`);
-    renderPrintLists();
-  } catch (err) {
-    pqSetStatus(pqMainPanel, '');
-    pqDocShowError(`Couldn't send — ${err.message}`);
-    pqDocSendBtn.disabled = false;
-  } finally {
-    pqDocSending = false;
+// prefix picks the panel's elements (<prefix>-file, <prefix>-doc-…). jobName() is the job a
+// drop belongs to (null = To Print). Nothing uploads until Send.
+function makeDocSender(prefix, { panelEl, panel, jobName, sentText, revealBox, onSent }) {
+  const el = name => document.getElementById(`${prefix}-${name}`);
+  const fileEl = el('file'), stagedEl = el('doc-staged'), labelEl = el('doc-label'),
+    sizeEl = el('doc-size'), errorEl = el('doc-error'), sendBtn = el('doc-send-btn');
+  const sizeRadios = () => document.querySelectorAll(`input[name="${prefix}-doc-size"]`);
+  const pickedSize = () => { const r = document.querySelector(`input[name="${prefix}-doc-size"]:checked`); return r ? r.value : null; };
+  let doc = null;        // staged { file, bytes, pages, size, job }
+  let sending = false;   // true while send is awaiting; blocks drops/Clear from racing it
+  let seq = 0;           // bumped by every stage and reset; a slower read that lost the race is dropped
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.hidden = !msg;
   }
+
+  function render() {
+    if (!doc) {
+      stagedEl.hidden = true;
+      sizeEl.hidden = true;
+      sendBtn.disabled = true;
+      return;
+    }
+    const size = doc.size || pickedSize();
+    labelEl.textContent = `${doc.file.name} · ${doc.pages} page${doc.pages === 1 ? '' : 's'}${size ? ' · ' + size : ''}`;
+    stagedEl.hidden = false;
+    sizeEl.hidden = !!doc.size;     // picker only when auto-detect found nothing
+    sendBtn.disabled = !size;
+  }
+
+  function reset() {
+    seq++;
+    doc = null;
+    fileEl.value = '';
+    sizeRadios().forEach(r => { r.checked = false; });
+    render();
+  }
+
+  function clear() {
+    showError('');
+    reset();
+  }
+
+  async function stage(file, note = '') {
+    if (sending) {
+      if (revealBox) revealBox();
+      showError('Still sending the last file. Try again in a moment.');
+      return;
+    }
+    reset();
+    const my = seq;
+    const job = jobName();   // the job on screen at the drop, whatever happens during the read
+    showError(note);
+    if (!file) return;
+    clearDropNotice();
+    if (revealBox) revealBox();
+    if (file.size > PQ_DOC_MAX_BYTES) {
+      showError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB — the limit is 10 MB.`);
+      return;
+    }
+    let bytes;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+    } catch (_) {
+      if (my === seq) showError(`Couldn't read ${file.name}. If it's on Google Drive, let it finish syncing or copy it to the desktop, then try again.`);
+      return;
+    }
+    if (my !== seq) return;
+    if (!DocInfo.isPdf(bytes)) { showError("That isn't a PDF."); return; }
+    let info;
+    try {
+      info = await DocInfo.inspectPdf(bytes);
+    } catch (_) {
+      if (my === seq) showError(`Couldn't read ${file.name} — is it encrypted?`);
+      return;
+    }
+    if (my !== seq) return;
+    doc = { file, bytes, pages: info.pages, size: DocInfo.sizeFor(info.width, info.height), job };
+    render();
+  }
+
+  async function send() {
+    if (!doc || sending) return;
+    const size = doc.size || pickedSize();
+    if (!size) { showError('Pick a size first.'); return; }
+    // Snapshot everything before the first await — doc can be replaced or cleared
+    // out from under us while this send is in flight; never re-read it below.
+    const { file, bytes, pages, job } = doc;
+    const name = file.name;
+    const base64 = pqBytesToBase64(bytes);
+    // Moved to another job, or closed the panel, while this was going? Then its status
+    // and error boxes aren't where you are looking.
+    const stillHere = () => panelEl.getClientRects().length > 0 && jobName() === job;
+    // Not here: still replace this upload's own status line, but never another job's.
+    const uploadingText = `Uploading ${name}…`;
+    const settleStatusAway = text => {
+      if (panel.statusEl.textContent === uploadingText) pqSetStatus(panel, jobName() === job ? text : '');
+    };
+    sending = true;
+    sendBtn.disabled = true;
+    showError('');
+    pqSetStatus(panel, uploadingText);
+    try {
+      if (!Endpoint.enabled()) throw new Error('endpoint not configured');
+      const idToken = await Auth.getIdToken();
+      const fileId = await Endpoint.uploadDoc(name, base64, idToken);
+      if (!fileId) throw new Error('endpoint not configured');
+      // Upload first, queue second. If this write fails the file sits unused in
+      // the Drive folder — accepted; Travis just sends again.
+      await Storage.addPrintItem({ kind: 'document', fileId, fileName: name, pages, size, lines: [], jobName: job, createdBy: pqCurrentEmail() });
+      if (stillHere()) pqSetStatus(panel, sentText(name));
+      else settleStatusAway(sentText(name));
+      clear();
+      if (onSent) onSent();
+      renderPrintLists();
+    } catch (err) {
+      if (stillHere()) {
+        pqSetStatus(panel, '');
+        if (revealBox) revealBox();
+        showError(`Couldn't send — ${err.message}`);
+      } else {
+        settleStatusAway('');
+        // Name the job: following this on another job's panel would save the PDF under that job.
+        showSaveBanner(job
+          ? `Couldn't save ${name} to job "${job}" — ${err.message}. Open that job and drop it again.`
+          : `Couldn't send ${name} — ${err.message}. Open To Print and send it again.`);
+      }
+      render();
+    } finally {
+      sending = false;
+    }
+  }
+
+  fileEl.addEventListener('change', () => stage(fileEl.files[0]));
+  el('doc-clear').addEventListener('click', () => { if (!sending) clear(); });
+  sizeRadios().forEach(r => r.addEventListener('change', render));
+  sendBtn.addEventListener('click', send);
+  return { stage, clear };
 }
 
-// Drops anywhere on the panel stage the file (the disclosure is usually
-// collapsed). stopPropagation matters: document.body's drop handler treats
-// any file dropped on the Projects screen as a job-sheet upload.
-['dragenter', 'dragover'].forEach(ev => printQueuePanel.addEventListener(ev, e => {
-  if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
-  e.preventDefault();
-  e.stopPropagation();
-  printQueuePanel.classList.add('pq-drop--over');
-}));
-printQueuePanel.addEventListener('dragleave', e => {
-  if (!printQueuePanel.contains(e.relatedTarget)) printQueuePanel.classList.remove('pq-drop--over');
+// Drops anywhere on the panel stage the file (a disclosure may be collapsed).
+// stopPropagation matters: document.body's drop handler treats any other file
+// dropped on the screen as a job-sheet upload. sheetsPassThrough leaves job sheets to it.
+function wireDocDrop(panelEl, sender, { sheetsPassThrough = false } = {}) {
+  ['dragenter', 'dragover'].forEach(ev => panelEl.addEventListener(ev, e => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    panelEl.classList.add('pq-drop--over');
+  }));
+  panelEl.addEventListener('dragleave', e => {
+    if (!panelEl.contains(e.relatedTarget)) panelEl.classList.remove('pq-drop--over');
+  });
+  panelEl.addEventListener('drop', e => {
+    panelEl.classList.remove('pq-drop--over');
+    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    if (!files.length) return;
+    const { sheets, pdfs } = DocInfo.sortDrop(files);
+    if (sheetsPassThrough && sheets.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const file = pdfs[0] || files[0];
+    sender.stage(file, files.length > 1 ? `One file at a time — using ${file.name}. Drop the others one by one.` : '');
+  });
+}
+
+const pqDocBuilder = document.getElementById('pq-doc-builder');
+const pqDocSender = makeDocSender('pq', {
+  panelEl: printQueuePanel,
+  panel: pqMainPanel,
+  jobName: () => null,
+  sentText: name => `${name} sent to the print list.`,
+  revealBox: () => { pqDocBuilder.open = true; },
+  onSent: () => { pqDocBuilder.open = false; },
 });
-printQueuePanel.addEventListener('drop', e => {
-  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (!file) return;
-  e.preventDefault();
-  e.stopPropagation();
-  printQueuePanel.classList.remove('pq-drop--over');
-  pqStageFile(file);
+wireDocDrop(printQueuePanel, pqDocSender);
+
+const jsDocSender = makeDocSender('js', {
+  panelEl: jobStickersPanel,
+  panel: jsPanel,
+  jobName: () => currentProject,
+  sentText: name => `${name} saved to this job.`,
 });
-pqFile.addEventListener('change', () => pqStageFile(pqFile.files[0]));
-pqDocClear.addEventListener('click', () => { if (pqDocSending) return; pqDocShowError(''); pqDocReset(); });
-document.querySelectorAll('input[name="pq-doc-size"]').forEach(r => r.addEventListener('change', pqDocRender));
-pqDocSendBtn.addEventListener('click', pqDocSend);
+wireDocDrop(jobStickersPanel, jsDocSender, { sheetsPassThrough: true });
 
 /* ══════════════════════════════════════════
    Owner screens - switches, Settings (customer billing redesign, Phase 1)

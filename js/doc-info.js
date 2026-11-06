@@ -39,7 +39,19 @@ const DocInfo = (() => {
     return `${fileName} · ${size} · ${pages} page${pages === 1 ? '' : 's'}`;
   }
 
-  return { isPdf, sizeFor, inspectPdf, title, TOLERANCE };
+  // Sort a drop by what each file claims to be (name, else type) so the screen can
+  // send it to the right place. isPdf still checks the real bytes before anything is sent.
+  function sortDrop(files) {
+    const out = { sheets: [], pdfs: [], other: [] };
+    for (const f of Array.from(files)) {
+      if (/\.html?$/i.test(f.name)) out.sheets.push(f);
+      else if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') out.pdfs.push(f);
+      else out.other.push(f);
+    }
+    return out;
+  }
+
+  return { isPdf, sizeFor, inspectPdf, title, sortDrop, TOLERANCE };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DocInfo;

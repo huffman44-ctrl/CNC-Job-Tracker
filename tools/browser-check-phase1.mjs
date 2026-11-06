@@ -517,6 +517,263 @@ async function main() {
   assert(await page.inputValue('#js-lines') === '', "job stickers: the first job's unsaved draft is not carried over");
   await page.close();
 
+  // ── PDF drops: job Stickers panel + every failed drop says why ──
+  // dropFiles builds real File objects in the page and fires a real drop event.
+  const dropFiles = (page, sel, specs) => page.evaluate(async ({ sel, specs }) => {
+    const files = [];
+    for (const s of specs) {
+      if (s.pdf) {
+        const d = await PDFLib.PDFDocument.create();
+        d.addPage(s.pdf);
+        files.push(new File([await d.save()], s.name, { type: 'application/pdf' }));
+      } else files.push(new File([s.text || 'junk'], s.name, { type: s.type || '' }));
+    }
+    const dt = new DataTransfer();
+    files.forEach(f => dt.items.add(f));
+    document.querySelector(sel).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, { sel, specs });
+  // Upload stubs: PASTE mode has no endpoint. window.__upload lets a test control how it ends.
+  const stubUpload = (page) => page.evaluate(() => {
+    Endpoint.enabled = () => true;
+    Auth.getIdToken = async () => 't';
+    window.__upload = async () => 'fake-file-id';
+    Endpoint.uploadDoc = (...a) => window.__upload(...a);
+  });
+  const banner = async (page) => (await page.isVisible('#save-banner')) ? (await page.textContent('#save-banner-text')) : '';
+  const LABEL_4X6 = [288, 432], ODD = [500, 500];
+  const sheetText = readFileSync(join(ROOT, sample), 'utf8');
+
+  // One drop on the Upload screen's box uploads once, with no false "already loaded" warning
+  page = await fresh();
+  const zoneDrop = await page.evaluate(async (text) => {
+    let runs = 0;
+    const real = UploadBatch.run;
+    UploadBatch.run = (...a) => { runs++; return real(...a); };
+    const dt = new DataTransfer();
+    dt.items.add(new File([text], 'Fake Sheet 9.html', { type: 'text/html' }));
+    document.getElementById('drop-zone').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    await new Promise(r => setTimeout(r, 1500));
+    return { runs, notice: !document.getElementById('notice-overlay').classList.contains('hidden'), onBoard: sheets.length };
+  }, sheetText);
+  assert(zoneDrop.runs === 1 && !zoneDrop.notice && zoneDrop.onBoard === 1, 'upload box: one drop uploads once with no false warning');
+  await page.close();
+
+  page = await fresh();
+  await upload(page);
+  await stubUpload(page);
+  // Panel closed on the Projects screen: says where a PDF goes, adds nothing
+  await dropFiles(page, '#projects-screen', [{ name: 'Fake Label.pdf', pdf: LABEL_4X6 }]);
+  assert(/Fake Label\.pdf/.test(await banner(page)) && /To Print/.test(await banner(page)), 'pdf drop: Projects screen, To Print closed — a visible message names the file and To Print');
+  assert(await page.evaluate(() => Storage.getPrintQueue().length) === 0, 'pdf drop: that drop queued nothing');
+  // To Print open: still works, and the stale message clears
+  await page.click('#print-queue-btn');
+  await dropFiles(page, '#print-queue-list', [{ name: 'Fake Label.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForSelector('#pq-doc-staged:not([hidden])');
+  assert((await page.textContent('#pq-doc-label')).includes('4x6'), 'pdf drop: To Print stages the file with its size');
+  assert((await banner(page)) === '', 'pdf drop: a good drop clears the old message');
+  await page.click('#pq-doc-send-btn');
+  await page.waitForFunction(() => /sent to the print list/.test(document.getElementById('print-queue-status').textContent));
+  const tp = await page.evaluate(() => Storage.getPrintQueue().map(i => ({ kind: i.kind, jobName: i.jobName, fileId: i.fileId })));
+  assert(tp.length === 1 && tp[0].kind === 'document' && tp[0].jobName === null && tp[0].fileId === 'fake-file-id', 'pdf drop: To Print send stores a document with no job');
+  // A PDF on the job screen with the Stickers panel closed
+  await page.click('.project-card');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  const pdfJob = await page.evaluate(() => currentProject);
+  await dropFiles(page, '#content-screen', [{ name: 'Fake Stickers.pdf', pdf: [216, 72] }]);
+  assert(/Fake Stickers\.pdf/.test(await banner(page)) && /Stickers/.test(await banner(page)), 'pdf drop: job screen, panel closed — a visible message says to use Stickers');
+  // A file that is neither a sheet nor a PDF
+  await dropFiles(page, '#content-screen', [{ name: 'photo.png', type: 'image/png' }]);
+  assert(/Nothing was added/.test(await banner(page)), 'pdf drop: a picture on the job screen gets a visible message');
+  // Job panel: highlight, stage, nothing sent yet
+  await page.click('#job-stickers-btn');
+  const lit = await page.evaluate(() => {
+    const dt = new DataTransfer(); dt.items.add(new File(['x'], 'x.pdf'));
+    const p = document.getElementById('job-stickers-panel');
+    p.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const on = p.classList.contains('pq-drop--over');
+    p.dispatchEvent(new DragEvent('dragleave', { bubbles: true, dataTransfer: dt }));
+    return on;
+  });
+  assert(lit, 'pdf drop: the job panel lights up under a dragged file');
+  assert(await page.isDisabled('#js-doc-send-btn'), 'pdf drop: job panel send is off until a file is staged');
+  await dropFiles(page, '#job-stickers-list', [{ name: 'Fake Stickers.pdf', pdf: [216, 72] }]);
+  await page.waitForSelector('#js-doc-staged:not([hidden])');
+  assert((await page.textContent('#js-doc-label')).includes('3x1'), 'pdf drop: job panel stages the file with its size');
+  assert(await page.evaluate(() => Storage.getPrintQueue().filter(i => i.jobName).length) === 0, 'pdf drop: nothing saved until Save');
+  // A failed upload says why and keeps the file for another try
+  await page.evaluate(() => { window.__upload = async () => { throw new Error('fake outage'); }; });
+  await page.click('#js-doc-send-btn');
+  await page.waitForFunction(() => /fake outage/.test(document.getElementById('js-doc-error').textContent));
+  assert(await page.isVisible('#js-doc-error') && await page.isVisible('#js-doc-staged') && await page.isEnabled('#js-doc-send-btn'), 'pdf drop: a failed upload shows the reason and can be retried');
+  await page.evaluate(() => { window.__upload = async () => 'fake-file-id'; });
+  await page.click('#js-doc-send-btn');
+  await page.waitForFunction(() => /saved to this job/.test(document.getElementById('job-stickers-status').textContent));
+  const jd = await page.evaluate(() => Storage.getPrintQueue().filter(i => i.jobName));
+  assert(jd.length === 1 && jd[0].kind === 'document' && jd[0].jobName === pdfJob && jd[0].size === '3x1' && jd[0].fileName === 'Fake Stickers.pdf', 'pdf drop: the saved PDF carries the job and its size');
+  assert(await page.locator('#job-stickers-list .pq-row').count() === 1 && (await page.textContent('#job-stickers-btn')).trim() === 'Stickers (1)', 'pdf drop: the PDF lists and counts on the job');
+  assert(await page.isHidden('#js-doc-staged') && await page.isHidden('#js-doc-error') && await page.isDisabled('#js-doc-send-btn'), 'pdf drop: the job panel is clear after saving');
+  // Printing it from the job: same fetch and printer hint as To Print, and it marks printed
+  await page.evaluate(async () => {
+    const d = await PDFLib.PDFDocument.create(); d.addPage([216, 72]);
+    const b64 = btoa(String.fromCharCode(...await d.save()));
+    Endpoint.getDoc = async () => b64;
+    window.open = () => ({});
+  });
+  assert((await page.textContent('#job-stickers-list [data-action="print"]')).includes('STICKERS 1x3'), 'pdf drop: the job row names the right printer');
+  await page.click('#job-stickers-list [data-action="print"]');
+  await page.waitForFunction(() => /Marked printed\.$/.test(document.getElementById('job-stickers-status').textContent), null, { timeout: 15000 });
+  assert(await page.locator('#job-stickers-printed-list .pq-row').count() === 1 && (await page.textContent('#job-stickers-btn')).trim() === 'Stickers', 'pdf drop: printing from the job marks it printed');
+  // Odd size: must pick one
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'Odd.pdf', pdf: ODD }]);
+  await page.waitForSelector('#js-doc-size:not([hidden])');
+  assert(await page.isDisabled('#js-doc-send-btn'), 'pdf drop: odd size waits for a pick');
+  await page.check('input[name="js-doc-size"][value="letter"]');
+  assert(await page.isEnabled('#js-doc-send-btn'), 'pdf drop: picking a size turns send on');
+  await page.click('#js-doc-clear');
+  assert(await page.isHidden('#js-doc-staged') && await page.isHidden('#js-doc-size'), 'pdf drop: × clears the staged file');
+  // Not really a PDF / unreadable / two at once
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'fake.pdf', text: 'not a pdf', type: 'application/pdf' }]);
+  await page.waitForFunction(() => /isn't a PDF/.test(document.getElementById('js-doc-error').textContent));
+  assert(await page.isVisible('#js-doc-error'), "pdf drop: a fake PDF says it isn't a PDF");
+  await page.evaluate(() => { File.prototype.arrayBuffer = () => Promise.reject(new DOMException('nope', 'NotReadableError')); });
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'OnDrive.pdf', text: 'x', type: 'application/pdf' }]);
+  await page.waitForFunction(() => /Couldn't read OnDrive\.pdf/.test(document.getElementById('js-doc-error').textContent));
+  assert(await page.isVisible('#js-doc-error'), 'pdf drop: an unreadable file says so (no uncaught error)');
+  await page.evaluate(() => { delete File.prototype.arrayBuffer; });
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'One.pdf', pdf: LABEL_4X6 }, { name: 'Two.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForFunction(() => /One\.pdf/.test(document.getElementById('js-doc-label').textContent));
+  assert(/one file at a time/i.test(await page.textContent('#js-doc-error')), 'pdf drop: two files — uses the first and says so');
+  await page.click('#js-doc-clear');
+  assert(await page.isHidden('#js-doc-error'), 'pdf drop: × clears the message too');
+  // A job sheet dropped on the open panel still adds to the job, as it always did
+  const before = await page.evaluate(() => sheets.length);
+  await dropFiles(page, '#job-stickers-panel', [{ name: sample2, text: sheetText, type: 'text/html' }, { name: 'Along For The Ride.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForFunction((n) => sheets.length === n + 1, before, { timeout: 15000 });
+  assert(await page.isHidden('#js-doc-staged'), 'pdf drop: a sheet on the panel goes to the job, not the PDF sender');
+  assert(/Along For The Ride\.pdf/.test(await banner(page)), 'pdf drop: the PDF in that mixed drop is named as skipped');
+  await page.close();
+
+  // Job-to-job safety — the same rule as the typed draft
+  page = await fresh();
+  await upload(page);
+  await stubUpload(page);
+  await page.setInputFiles('#file-input', join(dst, sampleOther));
+  await page.waitForFunction(() => document.querySelectorAll('.project-card').length === 2, null, { timeout: 15000 });
+  const openJob = async (name) => {
+    if (await page.isVisible('#back-to-projects-btn')) await page.click('#back-to-projects-btn');
+    await page.waitForSelector('#projects-screen:not([hidden])');
+    await page.evaluate((name) => [...document.querySelectorAll('.project-card')].find(el => el.textContent.includes(name)).click(), name);
+    await page.waitForSelector('#content-screen:not([hidden])');
+  };
+  const firstJob = await page.evaluate(() => [...new Set(sheets.map(s => s.jobName))].find(j => j !== 'Fake_Other_Job_0001'));
+  await openJob(firstJob);
+  await page.click('#job-stickers-btn');
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'Draft.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForSelector('#js-doc-staged:not([hidden])');
+  await openJob('Fake_Other_Job_0001');
+  await page.click('#job-stickers-btn');
+  assert(await page.isHidden('#js-doc-staged') && await page.isDisabled('#js-doc-send-btn'), "pdf drop: a staged PDF doesn't follow you to another job");
+  // A slow read that finishes after you moved on must not land on the new job
+  await openJob(firstJob);
+  await page.click('#job-stickers-btn');
+  await page.evaluate(() => { const real = Blob.prototype.arrayBuffer; File.prototype.arrayBuffer = function () { return new Promise(r => setTimeout(r, 400)).then(() => real.call(this)); }; });
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'Slow.pdf', pdf: LABEL_4X6 }]);
+  await openJob('Fake_Other_Job_0001');
+  await page.click('#job-stickers-btn');
+  await page.waitForTimeout(700);
+  await page.evaluate(() => { delete File.prototype.arrayBuffer; });
+  assert(await page.isHidden('#js-doc-staged'), 'pdf drop: a slow read from the last job does not land on this one');
+  // An upload still going when you move on saves under the job it was dropped on
+  await openJob(firstJob);
+  await page.click('#job-stickers-btn');
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'Moving.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForSelector('#js-doc-staged:not([hidden])');
+  await page.evaluate(() => { window.__upload = () => new Promise(r => { window.__finish = r; }); });
+  await page.click('#js-doc-send-btn');
+  await page.waitForFunction(() => typeof window.__finish === 'function');
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'TooSoon.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForFunction(() => /Still sending/.test(document.getElementById('js-doc-error').textContent));
+  assert(await page.isVisible('#js-doc-error'), 'pdf drop: a drop during an upload says to wait');
+  await openJob('Fake_Other_Job_0001');
+  await page.click('#job-stickers-btn');
+  await page.evaluate(() => window.__finish('fake-file-id'));
+  await page.waitForFunction(() => Storage.getPrintQueue().some(i => i.fileName === 'Moving.pdf'));
+  const moved = await page.evaluate(() => Storage.getPrintQueue().find(i => i.fileName === 'Moving.pdf').jobName);
+  assert(moved === firstJob, 'pdf drop: an in-flight upload saves under the job it came from');
+  assert(!/saved to this job/.test(await page.textContent('#job-stickers-status')), 'pdf drop: the other job does not claim it');
+  // Same, but the upload fails after you moved: the panel with the error is gone, so the banner says it
+  await openJob(firstJob);
+  await page.click('#job-stickers-btn');
+  await dropFiles(page, '#job-stickers-panel', [{ name: 'Lost.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForSelector('#js-doc-staged:not([hidden])');
+  await page.evaluate(() => { window.__upload = () => new Promise((_, no) => { window.__failed = no; }); });
+  await page.click('#js-doc-send-btn');
+  await page.waitForFunction(() => typeof window.__failed === 'function');
+  await openJob('Fake_Other_Job_0001');
+  await page.evaluate(() => window.__failed(new Error('fake outage')));
+  await page.waitForFunction(() => !document.getElementById('save-banner').hidden && /Lost\.pdf/.test(document.getElementById('save-banner-text').textContent));
+  assert(/fake outage/.test(await banner(page)) && (await banner(page)).includes(firstJob), 'pdf drop: an upload that fails after you moved on is reported in the banner and names its job');
+  assert(!/Uploading/.test(await page.textContent('#job-stickers-status')), "pdf drop: the other job's panel is not left saying Uploading");
+  await page.click('#save-banner-close');
+  // Panel open but the drop missed it: the hint must not say to click the button (that closes it)
+  await page.click('#job-stickers-btn');
+  await dropFiles(page, '#content-screen', [{ name: 'Missed.pdf', pdf: LABEL_4X6 }]);
+  assert(/inside the Stickers panel/.test(await banner(page)) && !/click Stickers/.test(await banner(page)), 'pdf drop: a miss with the job panel open says to drop inside it');
+  // A new file drag clears the message, so it can't cover the drop target
+  await page.evaluate(() => {
+    const dt = new DataTransfer(); dt.items.add(new File(['x'], 'x.pdf'));
+    document.getElementById('job-stickers-panel').dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  });
+  assert((await banner(page)) === '', 'pdf drop: starting a new drag over the panel clears the old message');
+  await dropFiles(page, '#content-screen', [{ name: 'Missed.pdf', pdf: LABEL_4X6 }]);
+  await page.click('#job-stickers-btn');
+  assert((await banner(page)) === '', 'pdf drop: clicking Stickers clears the old message');
+  // A drop message never wipes an unread save failure, and a good drop never clears it
+  await page.evaluate(() => { showSaveBanner('Fake save failure.'); showDropNotice('Fake drop message.'); clearDropNotice(); });
+  assert(/Fake save failure\./.test(await banner(page)) && /Fake drop message\./.test(await banner(page)), 'pdf drop: a save failure and a drop message both stay readable');
+  await page.click('#save-banner-close');
+  // Mixed drop on the Projects screen: the sheet uploads, the PDF is named as skipped
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await dropFiles(page, '#projects-screen', [{ name: 'Fake Label 2.pdf', pdf: LABEL_4X6 }, { name: sample2, text: sheetText, type: 'text/html' }]);
+  await page.waitForFunction(() => /Fake Label 2\.pdf/.test(document.getElementById('save-banner-text').textContent), null, { timeout: 15000 });
+  assert(await page.isVisible('#save-banner'), 'pdf drop: a mixed drop on Projects names the skipped PDF');
+  await page.click('#save-banner-close');
+  // To Print: a miss with the panel open, and an upload that outlasts a trip into a job
+  await page.click('#print-queue-btn');
+  await dropFiles(page, '#projects-screen', [{ name: 'Missed.pdf', pdf: LABEL_4X6 }]);
+  assert(/inside the To Print panel/.test(await banner(page)) && !/click To Print/.test(await banner(page)), 'pdf drop: a miss with To Print open says to drop inside it');
+  await page.evaluate(() => { window.__finish = null; window.__upload = () => new Promise(r => { window.__finish = r; }); });
+  await dropFiles(page, '#print-queue-panel', [{ name: 'Trip.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForSelector('#pq-doc-staged:not([hidden])');
+  await page.click('#pq-doc-send-btn');
+  await page.waitForFunction(() => typeof window.__finish === 'function');
+  // The box was closed by hand during the upload: a drop still has to say something, and it goes once the upload ends
+  await page.evaluate(() => { document.getElementById('pq-doc-builder').open = false; });
+  await dropFiles(page, '#print-queue-panel', [{ name: 'TooSoon.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForFunction(() => /Still sending/.test(document.getElementById('pq-doc-error').textContent));
+  assert(await page.isVisible('#pq-doc-error'), 'pdf drop: a drop during an upload is visible even with the box closed');
+  await openJob(firstJob);
+  await page.evaluate(() => window.__finish('fake-file-id'));
+  await page.waitForFunction(() => Storage.getPrintQueue().some(i => i.fileName === 'Trip.pdf'));
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  assert(/Trip\.pdf sent to the print list/.test(await page.textContent('#print-queue-status')), 'pdf drop: To Print does not stay stuck on Uploading after a trip into a job');
+  assert(await page.isHidden('#pq-doc-error'), 'pdf drop: the Still sending message goes away with the upload');
+  await page.evaluate(() => { window.__failed = null; window.__upload = () => new Promise((_, no) => { window.__failed = no; }); });
+  await dropFiles(page, '#print-queue-panel', [{ name: 'Trip2.pdf', pdf: LABEL_4X6 }]);
+  await page.waitForSelector('#pq-doc-staged:not([hidden])');
+  await page.click('#pq-doc-send-btn');
+  await page.waitForFunction(() => typeof window.__failed === 'function');
+  await openJob(firstJob);
+  await page.evaluate(() => window.__failed(new Error('fake outage')));
+  await page.waitForFunction(() => !document.getElementById('save-banner').hidden && /Trip2\.pdf/.test(document.getElementById('save-banner-text').textContent));
+  await page.click('#save-banner-close');
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  assert(!/Uploading/.test(await page.textContent('#print-queue-status')) && await page.isEnabled('#pq-doc-send-btn'), 'pdf drop: a To Print upload that fails while away is not stuck, and can be resent');
+  await page.close();
+
   // ── VanLab print bar (spec .scratch/vanlab-print-bar, ticket 01) — Collin, no owner stub ──
   // The sample sheet's file name carries "Order_1195", so its job is a VanLab job.
   page = await fresh();

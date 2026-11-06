@@ -1,5 +1,5 @@
 /**
- * JobStickers — pure helpers for sticker batches attached to a job (spec .scratch/job-stickers).
+ * JobStickers — pure helpers for sticker batches and PDFs attached to a job (spec .scratch/job-stickers).
  *   forJob(items, jobName)       print-queue items whose jobName is the same job (Keys.job match; never trimmed)
  *   waitingCount(items, jobName) how many of that job's items are waiting (printedAt == null)
  *   ordered(items)               waiting oldest first, then printed newest first (mirrors Storage)

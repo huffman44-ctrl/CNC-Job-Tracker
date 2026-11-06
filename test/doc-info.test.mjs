@@ -82,3 +82,20 @@ test('title pluralises pages', () => {
   assert.equal(DocInfo.title('cut-list.pdf', '4x6', 8), 'cut-list.pdf · 4x6 · 8 pages');
   assert.equal(DocInfo.title('label.pdf', 'letter', 1), 'label.pdf · letter · 1 page');
 });
+
+test('sortDrop sorts dropped files into sheets, PDFs and everything else', () => {
+  const { DocInfo } = load();
+  const f = (name, type = '') => ({ name, type });
+  const got = DocInfo.sortDrop([f('Sheet 1.html'), f('label.PDF'), f('photo.png', 'image/png'), f('Sheet 2.HTM'), f('no-extension', 'application/pdf')]);
+  assert.deepEqual(Array.from(got.sheets, x => x.name), ['Sheet 1.html', 'Sheet 2.HTM']);
+  assert.deepEqual(Array.from(got.pdfs, x => x.name), ['label.PDF', 'no-extension']);
+  assert.deepEqual(Array.from(got.other, x => x.name), ['photo.png']);
+});
+
+test('sortDrop accepts a FileList-shaped input and an empty drop', () => {
+  const { DocInfo } = load();
+  const got = DocInfo.sortDrop({ length: 1, 0: { name: 'a.pdf', type: '' } });
+  assert.equal(got.pdfs.length, 1);
+  const none = DocInfo.sortDrop([]);
+  assert.equal(none.sheets.length + none.pdfs.length + none.other.length, 0);
+});

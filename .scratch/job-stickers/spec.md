@@ -50,6 +50,6 @@ Most sticker batches belong to one job: Collin sticks them on parts as that job'
 
 - A sticker badge on the project cards.
 - Opening the job from a To Print row.
-- Sending documents from the job panel.
+- ~~Sending documents from the job panel.~~ Added 2026-11-06 at Travis's request: he dropped a PDF on this panel and nothing happened.
 - Merging with VanLab Stickers.
 - Filling sticker lines from the sheets' part names.

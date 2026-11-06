@@ -59,3 +59,10 @@ test('ordered: waiting oldest first (missing createdAt last), then printed newes
   assert.deepEqual(items.map(i => i.id), before);
   assert.notEqual(out, items);
 });
+
+test('a PDF saved to a job counts and lists like a sticker batch', () => {
+  const doc = { ...item('d', 'Harbor Lane', 5), kind: 'document', fileName: 'fake-label.pdf', lines: [] };
+  const items = [item('a', 'Harbor Lane', 1), doc, { ...item('e', null, 6), kind: 'document', lines: [] }];
+  assert.deepEqual(JobStickers.forJob(items, 'Harbor Lane').map(i => i.id), ['a', 'd']);
+  assert.equal(JobStickers.waitingCount(items, 'Harbor Lane'), 2);
+});

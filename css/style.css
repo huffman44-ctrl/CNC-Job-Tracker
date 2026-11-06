@@ -1824,7 +1824,7 @@ body {
    operator uploaded from. */
 .save-banner {
   position: fixed;
-  top: 16px; left: 50%; transform: translateX(-50%);
+  top: 72px; left: 50%; transform: translateX(-50%);   /* under the 60px header: its messages point at the buttons up there */
   z-index: 9999;
   max-width: min(560px, calc(100vw - 32px));
   display: flex; align-items: flex-start; gap: 12px;
