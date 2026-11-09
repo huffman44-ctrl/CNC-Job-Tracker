@@ -58,7 +58,7 @@ const PackingMap = (() => {
 
   function resolve(vanKey, assembly, suvChoice) {
     if (!vanKey) {
-      return { status: 'missing', file: null, reason: 'van not recognized from the Order Log entry' };
+      return { status: 'missing', file: null, reason: 'van not recognized for this order' };
     }
     if (vanKey === 'SUV01') {
       const keyword = suvChoice || findVariantKeyword(assembly);

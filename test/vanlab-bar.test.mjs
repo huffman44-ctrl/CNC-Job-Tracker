@@ -129,3 +129,79 @@ test('barState: collapsed only when all three are done and the bar was not expan
   assert.deepEqual(VanlabBar.barState({ stickers: r, crate: r }, { packingNone: true }), { allDone: true, collapsed: true });
   assert.deepEqual(VanlabBar.barState({}, { packingNone: true }), { allDone: false, collapsed: false });
 });
+
+// ── Lookup wording (sticker-feed ticket 04) ──
+const NOW = Date.parse('2026-11-09T12:00:00Z');
+const ago = (ms) => new Date(NOW - ms).toISOString();
+const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+
+test('sourceNote names the source used; an old script (no source) adds nothing', () => {
+  assert.equal(VanlabBar.sourceNote({ source: 'feed' }), 'from the CRM feed');
+  assert.equal(VanlabBar.sourceNote({ source: 'orderLog' }), 'from the Order Log');
+  assert.equal(VanlabBar.sourceNote({}), '');
+  assert.equal(VanlabBar.sourceNote(null), '');
+});
+
+test('customerLine is the customer, else a plain fallback', () => {
+  assert.equal(VanlabBar.customerLine({ customer: 'Pat Sample' }), 'Pat Sample');
+  assert.equal(VanlabBar.customerLine({ customer: '  ' }), 'No customer on this order');
+  assert.equal(VanlabBar.customerLine({}), 'No customer on this order');
+});
+
+test('ageWords says how old in plain words', () => {
+  assert.equal(VanlabBar.ageWords(ago(20 * 1000), NOW), 'less than a minute');
+  assert.equal(VanlabBar.ageWords(ago(1 * MIN), NOW), '1 minute');
+  assert.equal(VanlabBar.ageWords(ago(45 * MIN), NOW), '45 minutes');
+  assert.equal(VanlabBar.ageWords(ago(1 * HOUR), NOW), '1 hour');
+  assert.equal(VanlabBar.ageWords(ago(5 * HOUR + 10 * MIN), NOW), '5 hours');
+  assert.equal(VanlabBar.ageWords(ago(1 * DAY), NOW), '1 day');
+  assert.equal(VanlabBar.ageWords(ago(3 * DAY + HOUR), NOW), '3 days');
+  assert.equal(VanlabBar.ageWords('', NOW), '');
+  assert.equal(VanlabBar.ageWords('not a date', NOW), '');
+});
+
+test('staleNote shows only when the feed is stale, whichever source was used', () => {
+  assert.equal(VanlabBar.staleNote({ feedStale: false, feedUpdatedAt: ago(DAY) }, NOW), '');
+  assert.equal(VanlabBar.staleNote({}, NOW), '');
+  assert.equal(VanlabBar.staleNote({ source: 'orderLog', feedStale: true, feedUpdatedAt: ago(3 * DAY) }, NOW),
+    'The CRM feed was last updated 3 days ago, so it may be out of date.');
+  assert.equal(VanlabBar.staleNote({ source: 'feed', feedStale: true, feedUpdatedAt: ago(2 * HOUR) }, NOW),
+    'The CRM feed was last updated 2 hours ago, so it may be out of date.');
+  assert.equal(VanlabBar.staleNote({ feedStale: true, feedUpdatedAt: '' }, NOW),
+    "The CRM feed's update time is unknown, so it may be out of date.");
+  assert.equal(VanlabBar.staleNote({ feedStale: true }, NOW),
+    "The CRM feed's update time is unknown, so it may be out of date.");
+});
+
+test('checkedNote appears only when orderLogChecked is exactly false', () => {
+  assert.match(VanlabBar.checkedNote({ orderLogChecked: false }), /Order Log couldn't be checked.*not double-checked/);
+  assert.equal(VanlabBar.checkedNote({ orderLogChecked: true }), '');
+  assert.equal(VanlabBar.checkedNote({}), '');
+});
+
+test('successStatus joins customer, source and notes and keeps the print ending', () => {
+  const s = VanlabBar.successStatus({ customer: 'Pat Sample', source: 'feed', feedStale: true, feedUpdatedAt: ago(2 * HOUR), orderLogChecked: false }, NOW);
+  assert.match(s, /^Pat Sample \(from the CRM feed\)/);
+  assert.match(s, /2 hours ago/);
+  assert.match(s, /couldn't be checked/);
+  assert.match(s, /print these now so the kit gets packed while the sheets cut\./);
+  assert.equal(VanlabBar.successStatus({ customer: 'Pat Sample' }, NOW),
+    'Pat Sample \u2014 print these now so the kit gets packed while the sheets cut.');
+  assert.equal(VanlabBar.successStatus({ source: 'orderLog' }, NOW),
+    'No customer on this order (from the Order Log) \u2014 print these now so the kit gets packed while the sheets cut.');
+});
+
+test('conflictText names both sources and says to pick by hand; blanks read as none', () => {
+  const t = VanlabBar.conflictText({
+    orderNum: '1195', customer: 'Pat Sample',
+    feed: { vanRaw: '15 Transit', vanKey: '15', assembly: '15-05' },
+    orderLog: { vanRaw: '40 Sprinter', vanKey: '40', assembly: '' },
+  });
+  assert.match(t, /1195/);
+  assert.match(t, /CRM feed says van 15, kit 15-05/);
+  assert.match(t, /Order Log says van 40, kit none/);
+  assert.match(t, /check which is right and pick the van type by hand/);
+  const blank = VanlabBar.conflictText({ orderNum: '1', feed: {}, orderLog: undefined });
+  assert.ok(!/undefined|null/.test(blank));
+  assert.match(blank, /CRM feed says van none, kit none/);
+});

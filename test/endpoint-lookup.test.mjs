@@ -65,3 +65,21 @@ test('unconfigured endpoint returns null without fetching', async () => {
   assert.equal(await Endpoint.lookupOrder('1199', 'T'), null);
   assert.equal(calls.length, 0);
 });
+
+test('lookupOrder returns { conflict } when the server reports a disagreement', async () => {
+  const conflict = { orderNum: '1199', customer: 'Pat Sample', feed: { vanKey: '15' }, orderLog: { vanKey: '40' }, feedStale: false };
+  const { Endpoint } = loadEndpoint({
+    config: LIVE,
+    fetchImpl: async () => ({ json: async () => ({ ok: true, order: null, conflict }) }),
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(await Endpoint.lookupOrder('1199', 'T'))), { conflict });
+});
+
+test('lookupOrder passes the new order fields through untouched', async () => {
+  const order = { orderNum: '1199', customer: 'Pat Sample', vanRaw: '39 Ford', vanKey: '39', assembly: '3806', source: 'feed', feedUpdatedAt: '2026-11-09T10:00:00Z', feedStale: false, orderLogChecked: true };
+  const { Endpoint } = loadEndpoint({
+    config: LIVE,
+    fetchImpl: async () => ({ json: async () => ({ ok: true, order }) }),
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(await Endpoint.lookupOrder('1199', 'T'))), order);
+});

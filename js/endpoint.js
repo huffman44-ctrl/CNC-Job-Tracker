@@ -73,6 +73,7 @@ const Endpoint = (() => {
   async function lookupOrder(orderNum, idToken) {
     if (!enabled()) return null;
     const data = await post({ action: 'lookupOrder', orderNum, idToken });
+    if (data.conflict) return { conflict: data.conflict };
     return data.order;
   }
 

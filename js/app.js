@@ -2120,7 +2120,7 @@ async function vanlabLoad() {
 
   vanlabBarTitle.textContent = VanlabBar.heading(orderNum, null);
   vanlabBarTitle.hidden = false;
-  vanlabSetStatus('Looking up the Order Log…');
+  vanlabSetStatus('Looking up the order…');
   try {
     const idToken = await Auth.getIdToken();
     if (ep !== vanlabEpoch) return;
@@ -2131,15 +2131,23 @@ async function vanlabLoad() {
       vanlabShowManualPicker();
       return;
     }
+    if (order.conflict) {   // the CRM feed and the Order Log disagree: nothing is trusted, the person picks
+      const c = order.conflict;
+      vanlabSetStatus(VanlabBar.conflictText(c), true);
+      vanlabShowManualPicker();
+      vanlabManualOrder.value = c.orderNum || orderNum;
+      vanlabManualCustomer.value = c.customer || '';
+      return;
+    }
     vanlabOrder = order;
     vanlabBarTitle.textContent = VanlabBar.heading(orderNum, order);
     vanlabShowStickerCount(order.vanKey);
-    vanlabSetStatus(`${order.customer || 'No customer on the Order Log'} — print these now so the kit gets packed while the sheets cut.`);
+    vanlabSetStatus(VanlabBar.successStatus(order, Date.now()));
     vanlabPrintBtn.disabled = false;
     vanlabPackingBtn.disabled = false;
     vanlabCrateBtn.disabled = false;
   } catch (err) {
-    const why = err.endpointError ? err.message : 'the Order Log lookup is unreachable';
+    const why = err.endpointError ? err.message : 'the order lookup is unreachable';
     vanlabSetStatus(`Couldn't look up order ${orderNum} — ${why}. Pick the van type by hand:`, true);
     vanlabShowManualPicker();
   }
@@ -2256,7 +2264,7 @@ async function vanlabPrintCrate() {
   let order;
   if (vanlabOrder) {
     if (!vanlabOrder.vanRaw && !vanlabOrder.vanKey) {
-      vanlabSetStatus(`The Order Log row for order ${vanlabOrder.orderNum} has no van type yet — fill it in on the Order Log, then reopen this job.`, true);
+      vanlabSetStatus(`The record for order ${vanlabOrder.orderNum} has no van type yet — fill it in at the source (the CRM or the Order Log), then reopen this job.`, true);
       return;
     }
     order = {

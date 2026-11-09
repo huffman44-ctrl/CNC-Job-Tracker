@@ -6,6 +6,7 @@
  *   stickerCount(items)            total stickers in a VanlabPrint.resolveStickers list of [key, qty] pairs
  *   record(by, at) / printedFrom(jobDoc)   the { at, by } print records kept on jobs/{jobKey}.vanlabPrinted
  *   itemView(kind, rec, opts)      one button: { title: '✓ Crate label', done, action: 'Reprint', note: 'Printed by Collin, 10:42 AM', canUndo }
+ *   sourceNote / customerLine / ageWords / staleNote / checkedNote / successStatus / conflictText   the lookup's wording: which source, how old the feed is, Order Log unchecked, the feed-vs-Order-Log disagreement
  *   barState(printed, opts)        { allDone, collapsed } — the bar folds to one line once the kit is printed
  * No DOM, no Firestore, no clock. Browser global `VanlabBar`; module.exports for node --test.
  */
@@ -35,6 +36,66 @@ const VanlabBar = (() => {
 
   function stickerCount(items) {
     return (items || []).reduce((n, [, q]) => n + q, 0);
+  }
+
+  // ── Lookup wording (sticker-feed ticket 04) ──
+  const SOURCE_NAMES = { feed: 'the CRM feed', orderLog: 'the Order Log' };
+  const END = 'print these now so the kit gets packed while the sheets cut.';
+
+  function sourceNote(order) {
+    const name = order && SOURCE_NAMES[order.source];
+    return name ? 'from ' + name : '';
+  }
+
+  function customerLine(order) {
+    const c = order && typeof order.customer === 'string' ? order.customer.trim() : '';
+    return c || 'No customer on this order';
+  }
+
+  function plural(n, unit) { return n + ' ' + unit + (n === 1 ? '' : 's'); }
+
+  // "3 days" / "2 hours" / "45 minutes"; '' when the time is missing or unreadable.
+  function ageWords(updatedAt, now) {
+    if (!updatedAt) return '';
+    const t = new Date(updatedAt).getTime();
+    if (!Number.isFinite(t)) return '';
+    const ms = Math.max(0, now - t);
+    if (ms < 60000) return 'less than a minute';
+    if (ms < 3600000) return plural(Math.floor(ms / 60000), 'minute');
+    if (ms < 86400000) return plural(Math.floor(ms / 3600000), 'hour');
+    return plural(Math.floor(ms / 86400000), 'day');
+  }
+
+  function staleNote(order, now) {
+    if (!order || order.feedStale !== true) return '';
+    const age = ageWords(order.feedUpdatedAt, now);
+    return age
+      ? 'The CRM feed was last updated ' + age + ' ago, so it may be out of date.'
+      : "The CRM feed's update time is unknown, so it may be out of date.";
+  }
+
+  function checkedNote(order) {
+    return order && order.orderLogChecked === false
+      ? "The Order Log couldn't be checked, so the feed's values were not double-checked."
+      : '';
+  }
+
+  function successStatus(order, now) {
+    const src = sourceNote(order);
+    const head = customerLine(order) + (src ? ' (' + src + ')' : '');
+    const notes = [staleNote(order, now), checkedNote(order)].filter(Boolean);
+    return [head + ' — ' + END].concat(notes).join(' ');
+  }
+
+  function conflictText(conflict) {
+    const side = (o) => {
+      const v = (o && (o.vanKey || o.vanRaw)) || 'none';
+      const k = (o && o.assembly) || 'none';
+      return 'van ' + v + ', kit ' + k;
+    };
+    const c = conflict || {};
+    return 'The CRM feed and the Order Log disagree about order ' + (c.orderNum || '') + ': the CRM feed says '
+      + side(c.feed) + '; the Order Log says ' + side(c.orderLog) + '. Please check which is right and pick the van type by hand:';
   }
 
   // ── Print tracking (ticket 02): jobs/{jobKey}.vanlabPrinted = { stickers|packing|crate: { at, by } } ──
@@ -79,7 +140,7 @@ const VanlabBar = (() => {
     return { allDone, collapsed: allDone && !expanded };
   }
 
-  return { forJob, heading, buttonTitle, stickerCount, record, printedFrom, itemView, barState, KINDS: Object.keys(TITLES) };
+  return { forJob, heading, buttonTitle, stickerCount, record, printedFrom, itemView, barState, sourceNote, customerLine, ageWords, staleNote, checkedNote, successStatus, conflictText, KINDS: Object.keys(TITLES) };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = VanlabBar;

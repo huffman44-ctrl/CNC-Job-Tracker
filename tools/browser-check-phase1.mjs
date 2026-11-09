@@ -919,6 +919,49 @@ async function main() {
   await openJobCard('Fake_Van_Job_0002');
   await page.waitForTimeout(1300);
   assert((await page.textContent('#vanlab-bar-title')).trim() === 'VanLab order 1196 · Van Van of 1196', "vanlab bar: a slow lookup from the job you left doesn't overwrite the next VanLab job's bar");
+  // Sticker-feed ticket 04: the status names the source, warns on a stale feed, and a disagreement goes to the picker.
+  const reopen1195 = async () => {
+    await page.click('#back-to-projects-btn');
+    await page.waitForSelector('#projects-screen:not([hidden])');
+    await openJobCard('Order_1195');
+    await page.waitForSelector('#content-screen:not([hidden])');
+  };
+  const statusText = async () => (await page.textContent('#vanlab-status')).trim();
+  const waitStatus = (re) => page.waitForFunction(r => new RegExp(r).test(document.getElementById('vanlab-status').textContent), re, { timeout: 10000 }).catch(() => {});
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: 'Pat Sample' }); });
+  await reopen1195(); await waitStatus('print these now');
+  assert(await statusText() === 'Pat Sample \u2014 print these now so the kit gets packed while the sheets cut.', 'lookup wording: an old script (no source fields) reads exactly as before');
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: 'Pat Sample', source: 'feed', feedUpdatedAt: new Date().toISOString(), feedStale: false, orderLogChecked: true }); });
+  await reopen1195(); await waitStatus('print these now');
+  assert(/^Pat Sample \(from the CRM feed\) \u2014 print these now/.test(await statusText()), 'lookup wording: feed source shown');
+  assert(!/out of date|couldn't be checked/.test(await statusText()), 'lookup wording: a fresh, double-checked feed has no warnings');
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: '', source: 'orderLog', feedUpdatedAt: new Date(Date.now() - 3 * 86400000).toISOString(), feedStale: true, orderLogChecked: true }); });
+  await reopen1195(); await waitStatus('print these now');
+  assert(/^No customer on this order \(from the Order Log\) \u2014 print these now/.test(await statusText()), 'lookup wording: Order Log source shown, blank customer has plain wording');
+  assert(/CRM feed was last updated 3 days ago/.test(await statusText()), 'lookup wording: stale note says how old the feed is');
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: '15 Transit 148 Passenger', vanKey: '15', assembly: '15-05', customer: 'Pat Sample', source: 'feed', feedUpdatedAt: '', feedStale: true, orderLogChecked: false }); });
+  await reopen1195(); await waitStatus('print these now');
+  assert(/update time is unknown/.test(await statusText()) && /Order Log couldn't be checked/.test(await statusText()), 'lookup wording: unknown feed age and unchecked Order Log are both said');
+  // Disagreement: nothing is trusted — both values shown, order + customer prefilled, van and kit blank, printing locked until a van is picked.
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ conflict: { orderNum: n, customer: 'Pat Sample', feed: { vanRaw: '15 Transit', vanKey: '15', assembly: '15-05' }, orderLog: { vanRaw: '40 Sprinter', vanKey: '40', assembly: '' }, feedUpdatedAt: new Date().toISOString(), feedStale: false } }); });
+  await reopen1195(); await waitStatus('disagree');
+  const conflictStatus = await statusText();
+  assert(/CRM feed says van 15, kit 15-05/.test(conflictStatus) && /Order Log says van 40, kit none/.test(conflictStatus) && /pick the van type by hand/.test(conflictStatus), 'disagreement: status shows both sources\' van and kit and says to pick by hand');
+  assert(await page.evaluate(() => document.getElementById('vanlab-status').classList.contains('vanlab-status-error')), 'disagreement: status is red');
+  assert(await page.isVisible('#vanlab-van-select') && await page.isVisible('#vanlab-manual-fields'), 'disagreement: the manual picker opens');
+  assert(await page.inputValue('#vanlab-manual-order') === '1195' && await page.inputValue('#vanlab-manual-customer') === 'Pat Sample', 'disagreement: order number and customer are prefilled');
+  assert(await page.inputValue('#vanlab-van-select') === '' && await page.inputValue('#vanlab-manual-assembly') === '', 'disagreement: van and kit are left blank');
+  assert(await page.$eval('#vanlab-stickers-btn', b => b.disabled) && await page.$eval('#vanlab-packing-btn', b => b.disabled) && await page.$eval('#vanlab-crate-btn', b => b.disabled), 'disagreement: all three print buttons are disabled');
+  await page.selectOption('#vanlab-van-select', '15');
+  assert(!(await page.$eval('#vanlab-stickers-btn', b => b.disabled)) && !(await page.$eval('#vanlab-crate-btn', b => b.disabled)), 'disagreement: buttons enable once a van is picked by hand');
+  // Nothing from the disagreement leaks onto the next job.
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: 'Van of ' + n, vanKey: '15', assembly: '', customer: 'Pat Sample' }); });
+  await page.click('#back-to-projects-btn');
+  await page.waitForSelector('#projects-screen:not([hidden])');
+  await openJobCard('Fake_Van_Job_0002');
+  await page.waitForSelector('#content-screen:not([hidden])');
+  await waitStatus('print these now');
+  assert(await page.inputValue('#vanlab-van-select') === '' && await page.inputValue('#vanlab-manual-order') === '' && await page.inputValue('#vanlab-manual-customer') === '', 'disagreement: a hand-picked van and prefilled fields do not carry to the next job');
   await page.close();
 
   // ── Settings screen ──
