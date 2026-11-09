@@ -345,10 +345,12 @@ function sanitizeTabName(name) {
 }
 
 /**
- * Look up ONE order in the live VanLab Order Log. Auth note: the repo (and
- * ENDPOINT_CONFIG.token) is public, so this action additionally demands a
- * Firebase ID token and verifies it with Google before reading anything.
- * Returns only the five fields printing needs — no bulk read exists.
+ * Look up ONE order: the Sticker Feed first (when configured), then the live
+ * VanLab Order Log. Auth note: the repo (and ENDPOINT_CONFIG.token) is public,
+ * so this action additionally demands a Firebase ID token and verifies it with
+ * Google before reading anything. Returns only the printing fields plus source
+ * and feed freshness (or a conflict when the two sources disagree) — no bulk
+ * read exists.
  */
 function lookupOrder(body) {
   if (ORDER_LOG_SPREADSHEET_ID.startsWith('PASTE') || FIREBASE_API_KEY.startsWith('PASTE')) {

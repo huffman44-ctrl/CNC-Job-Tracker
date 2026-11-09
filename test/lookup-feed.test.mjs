@@ -239,6 +239,25 @@ test('bad token reads neither sheet', () => {
   assert.deepEqual(ctx.opened, []);
 });
 
+test('INVOICE 1030 on the Order Log side is not order 1030 (no feed row)', () => {
+  const orderLog = sheetRows('', [['INVOICE 1030', 'Pat Sample', '39 Ford', '1']]);
+  for (const feedId of [null, FEED_ID]) {
+    const r = ask(makeCtx({ feedId, orderLog, feed: sheetRows(fresh(), []) }), '1030');
+    assert.equal(r.ok, false);
+    assert.match(r.error, /1030.*not found/);
+  }
+});
+
+test('placeholder feed id, Order Log read throws: original exception propagates', () => {
+  const ctx = makeCtx({ feedId: null, orderLog: 'throw' });
+  assert.throws(() => ctx.lookupOrder({ idToken: 'IDTOKEN1', orderNum: '1199' }), /orderLog no access/);
+});
+
+test('feed on, no usable feed row, Order Log throws: original exception propagates', () => {
+  const ctx = makeCtx({ feed: sheetRows(fresh(), []), orderLog: 'throw' });
+  assert.throws(() => ctx.lookupOrder({ idToken: 'IDTOKEN1', orderNum: '1199' }), /orderLog no access/);
+});
+
 test('response carries only the one order: no other rows, customers or sheet ids', () => {
   const feed = sheetRows(fresh(), [...FEED_PAT, ['1300', 'Zed Other', '12: Ram', '9']]);
   const text = JSON.stringify(ask(makeCtx({ feed }), '1199'));
