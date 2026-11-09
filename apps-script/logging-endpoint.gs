@@ -11,6 +11,10 @@ const ARCHIVE_FOLDER_ID  = 'PASTE_ARCHIVE_FOLDER_ID';
 const LOG_SPREADSHEET_ID = 'PASTE_LOG_SPREADSHEET_ID';
 const ORDER_LOG_SPREADSHEET_ID = 'PASTE_ORDER_LOG_SPREADSHEET_ID';
 const FIREBASE_API_KEY         = 'PASTE_FIREBASE_API_KEY';
+// Sticker Feed sheet (Entity Store copies order, customer, van, kit into it). Same
+// layout as the Order Log. While this starts with PASTE the feed is skipped.
+const FEED_SPREADSHEET_ID      = 'PASTE_FEED_SPREADSHEET_ID';
+const FEED_STALE_MS            = 2 * 60 * 60 * 1000;
 const PACKING_FOLDER_ID = 'PASTE_PACKING_FOLDER_ID';
 // Optional allowlist: empty = any signed-in user of this Firebase project;
 // non-empty = only these uids (paste from Firebase console → Authentication
@@ -354,23 +358,138 @@ function lookupOrder(body) {
   if (!auth.ok) return auth;
   const wanted = normalizeOrderId(body.orderNum);
   if (!wanted) return { ok: false, error: 'missing orderNum' };
-  const sheet = SpreadsheetApp.openById(ORDER_LOG_SPREADSHEET_ID).getSheetByName(ORDER_LOG_TAB);
-  if (!sheet) return { ok: false, error: 'Order Log tab not found' };
-  const values = sheet.getDataRange().getValues();
-  for (let i = ORDER_LOG_HEADER_ROW; i < values.length; i++) {
-    const row = values[i];
-    const orderNum = String(row[1] == null ? '' : row[1]).trim();   // column B
-    if (!orderNum || normalizeOrderId(orderNum) !== wanted) continue;
-    const vanRaw = String(row[4] == null ? '' : row[4]).trim();      // column E
-    return { ok: true, order: {
-      orderNum: orderNum,
-      customer: String(row[2] == null ? '' : row[2]).trim(),         // column C
-      vanRaw: vanRaw,
-      vanKey: parseVanKey(vanRaw),
-      assembly: String(row[5] == null ? '' : row[5]).trim(),         // column F
+  const feedOn = !FEED_SPREADSHEET_ID.startsWith('PASTE');
+  if (!feedOn) {
+    const only = readOrderLogOrder_(wanted, false);
+    if (only.state === 'found') return { ok: true, order: orderFields_(only.row) };
+    if (only.state === 'unreadable') return { ok: false, error: only.error };
+    return { ok: false, error: 'order ' + String(body.orderNum) + ' not found in Order Log' };
+  }
+
+  const feed = readFeedOrder_(wanted);
+  const log = readOrderLogOrder_(wanted, true);
+  const logOrder = log.state === 'found' ? orderFields_(log.row) : null;
+
+  if (!feed.order) {
+    if (logOrder) {
+      logOrder.source = 'orderLog';
+      logOrder.feedUpdatedAt = feed.updatedAt;
+      logOrder.feedStale = feed.stale;
+      logOrder.orderLogChecked = true;
+      return { ok: true, order: logOrder };
+    }
+    if (log.state === 'unreadable') {
+      if (log.thrown) throw log.thrown;
+      return { ok: false, error: log.error };
+    }
+    return { ok: false, error: 'order ' + String(body.orderNum) + ' not found in the sticker feed or the Order Log' };
+  }
+
+  const customer = feed.order.customer || (logOrder ? logOrder.customer : '');
+  if (logOrder && ordersDisagree_(feed.order, logOrder)) {
+    return { ok: true, order: null, conflict: {
+      orderNum: feed.order.orderNum,
+      customer: customer,
+      feed: { vanRaw: feed.order.vanRaw, vanKey: feed.order.vanKey, assembly: feed.order.assembly },
+      orderLog: { vanRaw: logOrder.vanRaw, vanKey: logOrder.vanKey, assembly: logOrder.assembly },
+      feedUpdatedAt: feed.updatedAt,
+      feedStale: feed.stale,
     } };
   }
-  return { ok: false, error: 'order ' + String(body.orderNum) + ' not found in Order Log' };
+  return { ok: true, order: {
+    orderNum: feed.order.orderNum,
+    customer: customer,
+    vanRaw: feed.order.vanRaw,
+    vanKey: feed.order.vanKey,
+    assembly: feed.order.assembly,
+    source: 'feed',
+    feedUpdatedAt: feed.updatedAt,
+    feedStale: feed.stale,
+    orderLogChecked: log.state !== 'unreadable',
+  } };
+}
+
+function cellText_(v) {
+  return String(v == null ? '' : v).trim();
+}
+
+// The five printing fields from one sheet row (columns B, C, E, F).
+function orderFields_(row) {
+  const vanRaw = cellText_(row[4]);
+  return {
+    orderNum: cellText_(row[1]),
+    customer: cellText_(row[2]),
+    vanRaw: vanRaw,
+    vanKey: parseVanKey(vanRaw),
+    assembly: cellText_(row[5]),
+  };
+}
+
+// First data row (row 5 on) whose order number matches exactly, or null.
+function findOrderRow_(values, wanted) {
+  for (let i = ORDER_LOG_HEADER_ROW; i < values.length; i++) {
+    const orderNum = cellText_(values[i][1]);
+    if (orderNum && normalizeOrderId(orderNum) === wanted) return values[i];
+  }
+  return null;
+}
+
+// Order Log read for one order. state: 'found' | 'none' | 'unreadable'.
+// With catchErrors false a thrown error propagates, as it always did.
+function readOrderLogOrder_(wanted, catchErrors) {
+  let values;
+  try {
+    const sheet = SpreadsheetApp.openById(ORDER_LOG_SPREADSHEET_ID).getSheetByName(ORDER_LOG_TAB);
+    if (!sheet) return { state: 'unreadable', error: 'Order Log tab not found', thrown: null };
+    values = sheet.getDataRange().getValues();
+  } catch (err) {
+    if (!catchErrors) throw err;
+    return { state: 'unreadable', error: 'Order Log could not be read', thrown: err };
+  }
+  const row = findOrderRow_(values, wanted);
+  return row ? { state: 'found', row: row } : { state: 'none' };
+}
+
+// Feed read for one order. Never throws and never logs: any problem is "no row".
+// Returns { order: fields | null, updatedAt: ISO or '', stale: boolean }.
+function readFeedOrder_(wanted) {
+  try {
+    const sheet = SpreadsheetApp.openById(FEED_SPREADSHEET_ID).getSheetByName(ORDER_LOG_TAB);
+    if (!sheet) return { order: null, updatedAt: '', stale: true };
+    const values = sheet.getDataRange().getValues();
+    const ms = feedTimeMs_(values.length && values[0] ? values[0][0] : '');
+    let order = null;
+    for (let i = ORDER_LOG_HEADER_ROW; i < values.length && !order; i++) {
+      const num = cellText_(values[i][1]);
+      if (!num || normalizeOrderId(num) !== wanted) continue;
+      const fields = orderFields_(values[i]);
+      if (fields.vanRaw && fields.vanKey && fields.assembly) order = fields;
+    }
+    return {
+      order: order,
+      updatedAt: ms == null ? '' : new Date(ms).toISOString(),
+      stale: ms == null || Date.now() - ms > FEED_STALE_MS,
+    };
+  } catch (err) {
+    return { order: null, updatedAt: '', stale: true };
+  }
+}
+
+// A1 arrives as a string or a Date. Check for getTime rather than instanceof:
+// a Date from Apps Script services is not guaranteed to share this realm.
+function feedTimeMs_(v) {
+  let ms = NaN;
+  if (v && typeof v.getTime === 'function') ms = v.getTime();
+  else if (typeof v === 'string' && v.trim()) ms = Date.parse(v.trim());
+  return isNaN(ms) ? null : ms;
+}
+
+// Disagree only when both sides have the value and it differs. Never compares van wording.
+function ordersDisagree_(feedOrder, logOrder) {
+  if (feedOrder.vanKey && logOrder.vanKey && feedOrder.vanKey !== logOrder.vanKey) return true;
+  const a = feedOrder.assembly.toLowerCase();
+  const b = logOrder.assembly.toLowerCase();
+  return !!(a && b && a !== b);
 }
 
 function normalizeOrderId(id) {
