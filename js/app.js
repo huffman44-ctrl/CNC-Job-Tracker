@@ -1948,9 +1948,12 @@ async function loadBalooFont() {
   return vanlabFontBytes;
 }
 
+// While a feed/Order Log disagreement is unresolved its text stays on screen (red) beside any later status;
+// vanlabSyncJob's reset clears it, so it never reaches another job.
+let vanlabConflictText = '';
 function vanlabSetStatus(text, isError) {
-  vanlabStatus.textContent = text;
-  vanlabStatus.classList.toggle('vanlab-status-error', !!isError);
+  vanlabStatus.textContent = vanlabConflictText ? (text ? vanlabConflictText + ' ' + text : vanlabConflictText) : text;
+  vanlabStatus.classList.toggle('vanlab-status-error', !!isError || !!vanlabConflictText);
 }
 
 function vanlabShowManualPicker() {
@@ -2088,6 +2091,7 @@ function vanlabOpenPanel() {
 async function vanlabLoad() {
   const ep = ++vanlabEpoch;
   vanlabOrder = null;
+  vanlabConflictText = '';
   vanlabBarTitle.hidden = true;
   vanlabShowStickerCount(null);
   vanlabVanSelect.hidden = true;
@@ -2133,7 +2137,8 @@ async function vanlabLoad() {
     }
     if (order.conflict) {   // the CRM feed and the Order Log disagree: nothing is trusted, the person picks
       const c = order.conflict;
-      vanlabSetStatus(VanlabBar.conflictText(c), true);
+      vanlabConflictText = [VanlabBar.conflictText(c), VanlabBar.staleNote(c, Date.now())].filter(Boolean).join(' ');
+      vanlabSetStatus('', true);
       vanlabShowManualPicker();
       vanlabManualOrder.value = c.orderNum || orderNum;
       vanlabManualCustomer.value = c.customer || '';
@@ -2191,7 +2196,11 @@ async function vanlabPrintPacking() {
   const ep = vanlabEpoch;
   const jobName = currentProject;
   const vanKey = vanlabOrder ? vanlabOrder.vanKey : vanlabVanSelect.value;
-  const order = vanlabOrder || { orderNum: '', customer: '', assembly: '' };
+  const order = vanlabOrder || {
+    orderNum: vanlabManualOrder.value.trim(),
+    customer: vanlabManualCustomer.value.trim(),
+    assembly: vanlabManualAssembly.value.trim(),
+  };
   const suvChoice = vanlabSuvSelect.hidden ? null : (vanlabSuvSelect.value || null);
   const res = PackingMap.resolve(vanKey, order.assembly, suvChoice);
 
@@ -2264,7 +2273,7 @@ async function vanlabPrintCrate() {
   let order;
   if (vanlabOrder) {
     if (!vanlabOrder.vanRaw && !vanlabOrder.vanKey) {
-      vanlabSetStatus(`The record for order ${vanlabOrder.orderNum} has no van type yet — fill it in at the source (the CRM or the Order Log), then reopen this job.`, true);
+      vanlabSetStatus(`The Order Log row for order ${vanlabOrder.orderNum} has no van type yet — fill it in on the Order Log, then reopen this job.`, true);
       return;
     }
     order = {

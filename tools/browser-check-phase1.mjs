@@ -943,7 +943,7 @@ async function main() {
   await reopen1195(); await waitStatus('print these now');
   assert(/update time is unknown/.test(await statusText()) && /Order Log couldn't be checked/.test(await statusText()), 'lookup wording: unknown feed age and unchecked Order Log are both said');
   // Disagreement: nothing is trusted — both values shown, order + customer prefilled, van and kit blank, printing locked until a van is picked.
-  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ conflict: { orderNum: n, customer: 'Pat Sample', feed: { vanRaw: '15 Transit', vanKey: '15', assembly: '15-05' }, orderLog: { vanRaw: '40 Sprinter', vanKey: '40', assembly: '' }, feedUpdatedAt: new Date().toISOString(), feedStale: false } }); });
+  await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ conflict: { orderNum: n, customer: 'Pat Sample', feed: { vanRaw: '15 Transit', vanKey: '15', assembly: '15-05' }, orderLog: { vanRaw: '40 Sprinter', vanKey: '40', assembly: '' }, feedUpdatedAt: new Date(Date.now() - 2 * 86400000).toISOString(), feedStale: true } }); });
   await reopen1195(); await waitStatus('disagree');
   const conflictStatus = await statusText();
   assert(/CRM feed says van 15, kit 15-05/.test(conflictStatus) && /Order Log says van 40, kit none/.test(conflictStatus) && /pick the van type by hand/.test(conflictStatus), 'disagreement: status shows both sources\' van and kit and says to pick by hand');
@@ -951,9 +951,23 @@ async function main() {
   assert(await page.isVisible('#vanlab-van-select') && await page.isVisible('#vanlab-manual-fields'), 'disagreement: the manual picker opens');
   assert(await page.inputValue('#vanlab-manual-order') === '1195' && await page.inputValue('#vanlab-manual-customer') === 'Pat Sample', 'disagreement: order number and customer are prefilled');
   assert(await page.inputValue('#vanlab-van-select') === '' && await page.inputValue('#vanlab-manual-assembly') === '', 'disagreement: van and kit are left blank');
+  assert(/CRM feed was last updated 2 days ago/.test(conflictStatus), 'disagreement: stale note shows too');
   assert(await page.$eval('#vanlab-stickers-btn', b => b.disabled) && await page.$eval('#vanlab-packing-btn', b => b.disabled) && await page.$eval('#vanlab-crate-btn', b => b.disabled), 'disagreement: all three print buttons are disabled');
   await page.selectOption('#vanlab-van-select', '15');
-  assert(!(await page.$eval('#vanlab-stickers-btn', b => b.disabled)) && !(await page.$eval('#vanlab-crate-btn', b => b.disabled)), 'disagreement: buttons enable once a van is picked by hand');
+  await page.fill('#vanlab-manual-assembly', '15-05');
+  assert(!(await page.$eval('#vanlab-stickers-btn', b => b.disabled)) && !(await page.$eval('#vanlab-packing-btn', b => b.disabled)) && !(await page.$eval('#vanlab-crate-btn', b => b.disabled)), 'disagreement: all three buttons enable once a van is picked by hand');
+  await page.evaluate(() => {
+    window.__stamped = null;
+    Endpoint.getPackingPdf = async () => 'AA==';
+    PackingPdf.stampPdf = async (t, order) => { window.__stamped = JSON.parse(JSON.stringify(order)); return new Uint8Array([37, 80, 68, 70]); };
+  });
+  await page.click('#vanlab-packing-btn');
+  await waitStatus('Packing list for order 1195 ready');
+  const stamped = await page.evaluate(() => window.__stamped);
+  assert(stamped && stamped.orderNum === '1195' && stamped.customer === 'Pat Sample' && stamped.assembly === '15-05', "disagreement: the packing list is stamped with the picker's order, customer and kit");
+  const afterPrint = await statusText();
+  assert(/CRM feed says van 15, kit 15-05/.test(afterPrint) && /Order Log says van 40, kit none/.test(afterPrint) && /Packing list for order 1195 ready/.test(afterPrint) && /out of date/.test(afterPrint), 'disagreement: the warning stays visible after a print');
+  assert(await page.evaluate(() => document.getElementById('vanlab-status').classList.contains('vanlab-status-error')), 'disagreement: the status stays red after a print');
   // Nothing from the disagreement leaks onto the next job.
   await page.evaluate(() => { Endpoint.lookupOrder = async (n) => ({ orderNum: n, vanRaw: 'Van of ' + n, vanKey: '15', assembly: '', customer: 'Pat Sample' }); });
   await page.click('#back-to-projects-btn');
@@ -961,7 +975,8 @@ async function main() {
   await openJobCard('Fake_Van_Job_0002');
   await page.waitForSelector('#content-screen:not([hidden])');
   await waitStatus('print these now');
-  assert(await page.inputValue('#vanlab-van-select') === '' && await page.inputValue('#vanlab-manual-order') === '' && await page.inputValue('#vanlab-manual-customer') === '', 'disagreement: a hand-picked van and prefilled fields do not carry to the next job');
+  assert(await page.inputValue('#vanlab-van-select') === '' && await page.inputValue('#vanlab-manual-order') === '' && await page.inputValue('#vanlab-manual-customer') === '' && await page.inputValue('#vanlab-manual-assembly') === '', 'disagreement: a hand-picked van and prefilled fields do not carry to the next job');
+  assert(!/disagree/.test(await statusText()) && !(await page.evaluate(() => document.getElementById('vanlab-status').classList.contains('vanlab-status-error'))), 'disagreement: the warning is gone on the next job');
   await page.close();
 
   // ── Settings screen ──

@@ -205,3 +205,8 @@ test('conflictText names both sources and says to pick by hand; blanks read as n
   assert.ok(!/undefined|null/.test(blank));
   assert.match(blank, /CRM feed says van none, kit none/);
 });
+
+test('staleNote works on a disagreement object too', () => {
+  assert.match(VanlabBar.staleNote({ orderNum: '1', feed: {}, orderLog: {}, feedStale: true, feedUpdatedAt: ago(2 * DAY) }, NOW), /2 days ago/);
+  assert.equal(VanlabBar.staleNote({ orderNum: '1', feed: {}, orderLog: {}, feedStale: false }, NOW), '');
+});
