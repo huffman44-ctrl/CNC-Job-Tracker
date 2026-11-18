@@ -30,7 +30,7 @@ const PackingPdf = (() => {
   // below each. The SUV sheets are portrait pages whose content is turned
   // 90 deg (reads bottom-to-top), so there the QRs stack up the right edge
   // and the captions are turned to match.
-  const QR_SIZE = 66;      // ~0.92" - plenty for a short URL off paper
+  const QR_SIZE = 80;      // ~1.1" (was 66; Travis found 66 touchy to scan)
   const QR_QUIET = 2;      // quiet-zone modules, same as the crate label
   const QR_MARGIN = 20;
   const SLOT = 190;        // room along the reading direction per QR + caption
@@ -45,7 +45,7 @@ const PackingPdf = (() => {
     for (let i = 0; i < n; i++) {
       if (!portrait) {
         const slotStart = width - QR_MARGIN - (n - i) * SLOT;
-        boxes.push({ x: slotStart + (SLOT - QR_SIZE) / 2, y: 30, size: QR_SIZE, slotStart, portrait });
+        boxes.push({ x: slotStart + (SLOT - QR_SIZE) / 2, y: 28, size: QR_SIZE, slotStart, portrait });
       } else {
         // Stacked down from just under the logo, so the bottom stays clear
         // for the "Packed and Signed" signature.
@@ -58,7 +58,7 @@ const PackingPdf = (() => {
   }
 
   function drawQr(page, text, x, y, size) {
-    const qr = qrcode(0, 'M');
+    const qr = qrcode(0, 'L');   // L = fewer, bigger squares; plenty for a printed URL
     qr.addData(text);
     qr.make();
     const count = qr.getModuleCount();

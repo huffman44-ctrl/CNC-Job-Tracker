@@ -104,7 +104,7 @@ test('qrLayout keeps every QR and caption on the page, without overlaps (landsca
 test('qrLayout stays in the free corner (bottom-right; below the parts table on landscape)', () => {
   const { PackingPdf } = load();
   for (const b of JSON.parse(JSON.stringify(PackingPdf.qrLayout(842, 595, 2)))) {
-    assert.ok(b.y + b.size <= 105, 'landscape QR rises into the parts table');
+    assert.ok(b.y + b.size <= 110, 'landscape QR rises into the parts table (Native kit 1x3 table ends ~113pt up)');
     assert.ok(b.x >= 480, 'landscape QR runs into the Signed line');
   }
   for (const b of JSON.parse(JSON.stringify(PackingPdf.qrLayout(612, 792, 2)))) {
