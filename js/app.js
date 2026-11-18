@@ -2238,7 +2238,7 @@ async function vanlabPrintPacking() {
     stage = 'stamp';
     const template = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     vanlabSetStatus('Stamping the packing list…');
-    const bytes = await PackingPdf.stampPdf(template, order);
+    const bytes = await PackingPdf.stampPdf(template, order, ManualLinks.linksFor(vanKey, order.assembly));
     if (ep !== vanlabEpoch) return;
     if (vanlabPackingBlobUrl) URL.revokeObjectURL(vanlabPackingBlobUrl);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
