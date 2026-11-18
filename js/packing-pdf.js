@@ -36,6 +36,7 @@ const PackingPdf = (() => {
   const SLOT = 190;        // room along the reading direction per QR + caption
   const CAPTION_SIZE = 7;
   const URL_SIZE_MAX = 6;
+  const PORTRAIT_TOP = 520; // SUV sheets: just below the turned VanLab logo
 
   // Returns [{x, y, size, slotStart, portrait}] in print order (kit first).
   function qrLayout(width, height, n) {
@@ -46,7 +47,9 @@ const PackingPdf = (() => {
         const slotStart = width - QR_MARGIN - (n - i) * SLOT;
         boxes.push({ x: slotStart + (SLOT - QR_SIZE) / 2, y: 30, size: QR_SIZE, slotStart, portrait });
       } else {
-        const slotStart = QR_MARGIN + i * SLOT;
+        // Stacked down from just under the logo, so the bottom stays clear
+        // for the "Packed and Signed" signature.
+        const slotStart = PORTRAIT_TOP - (n - i) * SLOT;
         boxes.push({ x: width - QR_MARGIN - 24 - QR_SIZE, y: slotStart + (SLOT - QR_SIZE) / 2,
           size: QR_SIZE, slotStart, portrait });
       }
@@ -114,7 +117,10 @@ const PackingPdf = (() => {
     page.drawText(optionsText(order), {
       x: 10, y: height - 33, size: 9, font: regular, color: PDFLib.rgb(1, 1, 1),
     });
-    if (links && links.length) drawQrs(page, links, bold, regular);
+    // A QR problem must never stop a packing list from printing.
+    if (links && links.length) {
+      try { drawQrs(page, links, bold, regular); } catch (err) { console.warn('Packing list QR skipped:', err); }
+    }
     // Same uncompressed-objects choice as sticker-pdf.js: keeps the PDF
     // introspectable by the page-count test and plain-text tooling.
     return doc.save({ useObjectStreams: false });

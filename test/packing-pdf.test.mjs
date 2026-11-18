@@ -109,7 +109,8 @@ test('qrLayout stays in the free corner (bottom-right; below the parts table on 
   }
   for (const b of JSON.parse(JSON.stringify(PackingPdf.qrLayout(612, 792, 2)))) {
     assert.ok(b.x >= 460, 'portrait QR runs into the SUV table');
-    assert.ok(b.y + b.size <= 500, 'portrait QR runs into the logo');
+    assert.ok(b.y + b.size <= 525, 'portrait QR runs into the logo');
+    assert.ok(b.y >= 120, 'portrait QR sits on the Packed and Signed area');
   }
 });
 
