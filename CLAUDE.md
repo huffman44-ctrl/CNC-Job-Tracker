@@ -4,48 +4,49 @@
 Browser-only (no build step, no framework) single-page app. Operators upload VCarve CNC job sheet HTML files, grouped into projects by job name, and track each sheet through a 3-state workflow: **Incomplete → In Progress → Complete** (date/time + operator name + notes recorded on completion). All sheet data, completions, and project notes sync live across devices via Firestore — this is **not** local-only storage; every operator sees the same shared state in real time.
 
 ## File structure
+Full per-file detail: docs/file-guide.md — read the entry before changing a file.
 ```
 CNC_WebApp/
-├── index.html                 — 4 screens (loading, projects directory, upload, content) + secondary screens (Ticket History, Manage Customers) + 4 modals (mark complete, clear confirm, project notes, sheet note)
-├── css/style.css               — all styles; CSS custom properties for color tokens; dark mode via [data-theme]
-├── js/parser.js                 — parseJobSheet(htmlString) → { jobName, sheetTitle, totalTime, toolpaths, materialInfo, layoutSvg }
-├── js/keys.js                   — Keys: the ID formulas every record is filed under — job(jobName) `proj_…`, customer(name) `cust_…` (trimmed), sheet(fileName) = fileKey, jobOf(sheet) = job name, else file name, else "Unknown Job". **LOCKED** by test/keys.test.mjs: these are the doc ids of every live record — never change what they produce (not even trimming the job name). Screens call Keys directly; BillingModel takes `jobKeyOf` / `customerKeyOf` as inputs so its tests keep readable fake ids
-├── js/upload-batch.js           — UploadBatch: what happens to every file in a drop — run(files, deps) reads, checks (the re-upload guard: finished in the database = refused; on this board, claimed by an in-flight upload, or in the database with finished:false = already loaded, never overwritten; failed read = couldn't check) and saves each file; refuses non-Aspire HTML (isAspireSheet: job title, toolpaths, material setup or drawing); notice() builds the one combined message. Every database call gets 30 s (`waitMs`): a check that doesn't answer = couldn't check; a save that doesn't answer = `unconfirmed` (stays on the board, its job counts as uploaded, a late failure takes it off) — a stalled Firestore write used to freeze the upload screen forever. `onFileDone(index, outcome)` drives the per-file rows (Saving… → Saved / Already on the board / red reason). app.js handleFiles only does screen work around it; the upload screen has a Back to jobs button
-├── js/new-job-alert.js          — NewJobAlert: pure tracker for the new-job alert — a job or sheets uploaded on ANOTHER computer (not in this tab's `uploadedHere`, uploadedAt after page load − 10 min, so Put back never alerts). app.js shows the bottom banner on every screen (Open it / ×), flashes the tab title, chimes (max once per 10 s) and tags the project card NEW / "N NEW SHEETS" until the job is opened. In memory only: a page reload clears it
-├── js/path-utils.js             — sanitizeForPath(name) helper; builds safe folder names for customer-named export paths
-├── js/sequence.js               — generateSequence(prefix, start, end) for the To Print panel: numeric or doubling-alpha (A…Z, AA, BB…), cap 500; parseLines, rangeLabel
-├── js/job-stickers.js           — JobStickers: pure helpers for sticker batches attached to a job — forJob(items, jobName), waitingCount, ordered (waiting oldest first, then printed newest first); node-tested, no DOM/Firestore
-├── js/vanlab-bar.js            — VanlabBar: pure helpers for the VanLab print bar under the job screen's progress strip (spec .scratch/vanlab-print-bar) — forJob(fileNames) (auto = ONE order number in the sheet names → the bar shows by itself and the header "VanLab Stickers" button hides; other jobs keep that button, which opens the same bar with the manual picker), heading, buttonTitle, stickerCount, plus the lookup's source / stale-feed / disagreement wording. app.js `vanlabSyncJob` runs from showContentScreen: a new job/order resets the bar and re-runs the order lookup; a repaint of the same job keeps it. Ticket 01 writes nothing to the database; print tracking and collapse are tickets 02/03
-├── js/doc-info.js               — isPdf / sizeFor (3x1, 4x6 or letter from the first page, ±3 pt, either orientation) / inspectPdf / title — print-queue document staging and the wrong-printer title guard; sortDrop (dropped files → sheets / pdfs / other). A drop that misses a panel gets a message in the save banner (shows on every screen, sits below the header) — the upload error is on the hidden Upload screen
-├── js/storage.js                — Storage wrapper around Firestore (sheets/ with finished flag, completions/, projectNotes/, sheetNotes/, customers/, projectCustomer/, jobs/, printQueue/, settings/migrations read) with in-memory cache for sync reads — printQueue loads open items + printed-in-last-30-days only (two scoped listeners merged into one cache; older printed items are deleted by "Clear printed older than 30 days"). `deleteSheets(fileKeys)` is the ONE sheet delete (trash icon, Delete Sheet, job-details Cancel): sheet doc first, then its completion/note/markup via `SHEET_RECORD_PARTS` only if that worked; reports { deleted, blocked (permission-denied and the sheet is still there = on an invoice), failed }; app.js holds in-flight deletes on the board (`deletesInFlight`) so the live listener cannot drop them before the answer
-├── js/storage-owner.js          — OwnerStore: the OWNER-ONLY collections (jobBilling/, sheetBilling/, customerBilling/, settings/) — initialised only after Features.isOwner(); Collin's rules deny them, his browser never asks. Owner-panel writes that rebuild a doc from the cache are disabled unless `OwnerStore.loaded(<collection>)` (a cache-only/offline read counts as NOT loaded; seeds and the first-owner settings/features doc are written only inside a transaction that re-checks the doc is missing). Phase 2: every write is a read-modify-write transaction — never a whole-doc set from the cache
-├── js/features.js               — Features: reads settings/features (owner switches per screen); a denied read = operator, every owner screen off; first owner sign-in seeds the doc. Owner UI is gated on `Features.on(<key>)`, never `Features.isOwner()` alone
-├── js/pricing.js                — Pricing: sheet signature / repeat groups / V-bit rule / local cut dates (Phase 1 helpers). Phase 2 adds priceInvoice() — the ONLY place price math lives (billing screens and quotes only format its numbers; 2026-10-06: the labor minimum is charged once per job across bills via `priorLaborHours`)
-├── js/invoice-lines.js          — InvoiceLines: words + QuickBooks columns only, no arithmetic. Registry of line types (cutSheets, labor, material) turning priced lines into QuickBooks lines (description, item name, Taxable) and building the QuickBooks CSV. A weekly bill's cutting line is just `Week ending M/D/YYYY` (ctx.weekEnding); other bills keep "CNC cutting — …"
-├── js/invoice-store.js          — InvoiceStore: the invoice lifecycle. Pure planners (lock / Imported OK / Cancel / Add PO, each (docs, args) → { writes, invoice }) plus the transaction executor over `invoices/`, the sheet/job/customer billing docs and the Master Job Log write with retry
-├── js/billing-model.js          — BillingModel: the PURE model behind the Billing screen — billable sheets and labor, row states (ready / partly / labor-only — every row included by default, no Done step), through-date and billing-start gates, invoice draft and fingerprint, `recentJobs()`. No DOM/Firestore/clock; every dollar comes from Pricing.priceInvoice(). Weekly billing: `build()` takes `throughDateOf(customerKey)` (per-customer through date: null = everything to date); `cadenceOf(customerBilling)` (no field = weekly), `weekEndingOf`, `weekSections(customer, ctx)` (a Weekly customer's rows split by cut week, oldest first, only the oldest billable, later weeks priced as if earlier ones were billed), `lastFinishedWeekEnd` (the last week-ending day whose week is over: on the week-ending day itself, a week earlier), `weekEndingFor` (the "Week ending" date for a bill, or null); a job's hours wait with its later sheets
-├── js/billing.js                — BillingScreen (spec layout B): in-progress reminders, jobs needing details, "bill work cut through" box, one card per customer with ready / partly cut / design-hours-only rows (all in by default; Remove / Add back) and a Bill button, job names open the job card (Back returns to Billing), Recent jobs, Recent invoices. Owners only, behind `Features.on('billing')`. Two modes: rhythm (default on every visit — Weekly customers get one section per finished week, oldest has Bill, later ones show a total and "Bill after week ending …"; Everything-to-date customers get one card with everything cut to date (through date null)) and hand mode ("Pick a date yourself": one date for everyone, today's single-card layout, "Back to weekly bills" resets). No dollars on a weekly card while one of its invoices is in progress
-├── js/invoice-screen.js         — InvoiceScreen: check the number → lock THEN download the QuickBooks file → Imported OK / Cancel. The file is served only after `InvoiceStore.lockAndCreate` resolves. Download also refuses if the lines' wording changed since shown
-├── js/billing-done.js           — BillingDone: the Done screen after Imported OK and the text/row builders Recent invoices shares (Add PO, Retry log write)
-├── js/log-rows.js               — LogRows.build(): the 14-column Master Job Log row object shared by export and (Phase 2) billing
-├── js/export-finish.js          — ExportFinish: what Export does after the ticket prints. csvFile() builds the 9-column CSV + its download name; logAndFinish(job, deps) writes the Master Job Log and only then finishes the job doc, then its sheets — returns { finished } or { finished: false, message } (the exact alert text). Spec docs/specs/2026-10-10-print-ticket-and-export-finish.md
-├── js/sheet-thickness.js        — SheetThickness: per-sheet thickness (Material Block Z via JobDetails) — of / label ("3/4 in") / order (thickest first, stable, unknown last) / known / summary ("3/4 in × 7 · 1/2 in × 13"); pure, node-tested. Board display only
-├── js/job-details.js            — owner job-details step at upload (customer, material, turnaround) + Edit job details form
-├── js/job-card.js               — owner panel on the job card: statuses/tags, cut-date correction, Design/CAM hours (they go on the next bill as entered — no Done step), billing-status chip (Not billed yet / N of M sheets billed / Billed · #N), finished jobs + Put back on the board
-├── js/settings.js               — Settings screen (owners): cards for Screens on/off, Customers (price list + material defaults), Prices, Labor types, Materials, QuickBooks, Invoicing (seed number, week-ending day, default due, billing-starts-on date) and Maintenance (finished-flag migration); the pure `SettingsValidate` functions are exported for node --test. The Customers card has a Billing select per customer (Weekly / Everything to date → `customerBilling.cadence`)
-├── tools/browser-check-phase1.mjs — Playwright pass in PASTE mode (owner vs Collin, incl. Print Ticket = print only, delete sheet / job / job-details Cancel, and the upload guard incl. not-a-sheet and in-database-not-on-board); not under test/ because node --test runs everything there. Serves the PASTE temp copy from an in-process node:http server on an ephemeral port (no npx/serve child — a spawned serve leaks on Windows). Run `node tools/browser-check-phase1.mjs` → `SUITE: PASS`
-├── tools/browser-check-phase2.mjs — Playwright pass in PASTE mode: owner billing end to end (job details → cut → Billing with every row in by default → job-name link / hours / Back to Billing → Invoice → Imported OK / Cancel, $0 labor-only bill, Recent jobs, reminders, rejected lock) vs Collin seeing nothing. Same in-process server as phase 1. Run `node tools/browser-check-phase2.mjs` → `SUITE: PASS`. Step 15 covers weekly billing: week sections, week-ending wording on screen and in the CSV, hours placement, the Settings Billing choice
-├── tools/emulator-check-phase2.mjs — the REAL OwnerStore + InvoiceStore against the REAL Phase 2 rules (HQ worktree) in the Firestore emulator. EMULATOR ONLY — it refuses to run otherwise; run from the HQ worktree with the `firebase emulators:exec` command in its header
-├── tools/build-pricing-fixtures.mjs — one-off: builds test/fixtures/pricing/*.json from past job-export CSVs with FAKE customer names (read-only on the source folder; the repo is public)
-├── test/helpers/fake-firestore.cjs — in-memory compat-shaped fake Firestore for tests: optimistic transactions that retry on conflict, a beforeCommit hook to land a concurrent write, and a failWrites hook for permission-denied. Defines no tests
-├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker` (real credentials, committed to git — Firebase web API keys are not secrets; access is governed by Firestore security rules, not key secrecy)
-├── js/endpoint-config.js        — ENDPOINT_CONFIG (Apps Script web app URL + token), PASTE convention like firebase-config.js
-├── js/endpoint.js                — Endpoint client: archives uploaded sheet HTML on upload, upserts Master Job Log rows on export (`upsertLogRows`, one row per sheet keyed by Sheet Key; `appendLogRows` kept for un-refreshed shop tabs); uploadDoc/getDoc for print-queue documents (120 s timeout); `logWriteOutcome(reply, hasDatabase)` is the ONE rule for "did a Master Job Log write work?" — Export (ExportFinish) and Billing (InvoiceStore) both read it
-├── js/app.js                    — all UI logic: dark mode, file upload, projects directory, master-detail sheet workspace, modals, CSV export, Firebase init
-├── package.json                 — `npm run serve` → `npx serve .` (no build step needed)
-├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root (not in samples/)
-├── samples/                    — gitignored; local-only scratch space for test HTML files, not committed
-└── apps-script/logging-endpoint.gs — Apps Script endpoint source (archive + log append + upsertRows (one log row per sheet keyed by Sheet Key, Phase 1) + print-queue uploadDoc/getDoc — Drive folder "CNC Print Queue" self-created on first upload, id kept in a script property); pasted into script.google.com, not executed from the repo
+├── index.html                 — screens + modals markup; screens toggled via `hidden`
+├── css/style.css               — all styles; CSS color tokens; dark mode via [data-theme]
+├── js/parser.js                 — parseJobSheet(htmlString): reads one VCarve/Aspire setup sheet
+├── js/keys.js                   — Keys: record ID formulas. **LOCKED** by test/keys.test.mjs: doc ids of every live record — never change what they produce
+├── js/upload-batch.js           — UploadBatch: per-file upload checks (re-upload guard), saves, combined notice
+├── js/new-job-alert.js          — NewJobAlert: alert for a job uploaded on another computer
+├── js/path-utils.js             — sanitizeForPath(name) for customer-named export paths
+├── js/sequence.js               — generateSequence for the To Print panel
+├── js/job-stickers.js           — JobStickers: pure helpers for a job's sticker batches
+├── js/vanlab-bar.js            — VanlabBar: pure helpers for the VanLab print bar on the job screen
+├── js/doc-info.js               — print-queue PDF inspection/sizing; sortDrop for dropped files
+├── js/storage.js                — Storage: Firestore wrapper + sync cache; deleteSheets() is the ONE sheet delete
+├── js/storage-owner.js          — OwnerStore: OWNER-ONLY collections; every write is a read-modify-write transaction
+├── js/features.js               — Features: owner switches; gate owner UI on Features.on(<key>), never isOwner() alone
+├── js/pricing.js                — Pricing: priceInvoice() is the ONLY place price math lives
+├── js/invoice-lines.js          — InvoiceLines: words + QuickBooks columns/CSV only, no arithmetic
+├── js/invoice-store.js          — InvoiceStore: invoice lifecycle planners + transaction executor
+├── js/billing-model.js          — BillingModel: pure Billing-screen model; every dollar from Pricing.priceInvoice()
+├── js/billing.js                — BillingScreen: owners-only Billing screen (weekly rhythm + hand mode)
+├── js/invoice-screen.js         — InvoiceScreen: lock THEN download QuickBooks file → Imported OK / Cancel
+├── js/billing-done.js           — BillingDone: Done screen + Recent invoices builders
+├── js/log-rows.js               — LogRows.build(): the 14-column Master Job Log row
+├── js/export-finish.js          — ExportFinish: CSV, Master Job Log write, then finish job + sheets
+├── js/sheet-thickness.js        — SheetThickness: per-sheet thickness helpers; board display only
+├── js/job-details.js            — owner job-details step at upload + Edit job details form
+├── js/job-card.js               — owner panel on the job card (statuses, hours, billing chip, finished jobs)
+├── js/settings.js               — Settings screen (owners) + pure SettingsValidate
+├── tools/browser-check-phase1.mjs — Playwright pass in PASTE mode (owner vs Collin) → `SUITE: PASS`
+├── tools/browser-check-phase2.mjs — Playwright pass in PASTE mode: owner billing end to end → `SUITE: PASS`
+├── tools/emulator-check-phase2.mjs — real stores vs real rules in Firestore emulator. EMULATOR ONLY
+├── tools/build-pricing-fixtures.mjs — one-off: pricing fixtures with FAKE customer names (repo is public)
+├── test/helpers/fake-firestore.cjs — in-memory fake Firestore for tests; defines no tests
+├── js/firebase-config.js        — FIREBASE_CONFIG for the LIVE production Firestore project `cnc-job-tracker`
+├── js/endpoint-config.js        — ENDPOINT_CONFIG: LIVE Apps Script web app URL + token
+├── js/endpoint.js                — Endpoint client: sheet archive, Master Job Log writes, print-queue docs
+├── js/app.js                    — all UI logic, Firebase init
+├── package.json                 — `npm run serve` → `npx serve .` (no build step)
+├── 260520_..._Summary_Sheet 9.html — tracked sample file at repo root
+├── samples/                    — gitignored local test HTML, not committed
+└── apps-script/logging-endpoint.gs — Apps Script endpoint source; pasted into script.google.com, not run from repo
 ```
 
 ## ⚠️ Testing safety — read before running this app
@@ -64,12 +65,7 @@ If you ever suspect a test run touched production, check the `sheets` collection
 **`master` is live-deployed.** This repo is published via GitHub Pages directly from the `master` branch at https://huffman44-ctrl.github.io/CNC-Job-Tracker/ — there is no build/CI step in between. Pushing to `master` is a real deploy to whatever real operators have open, not just a git bookkeeping update. Merge and verify locally before pushing.
 
 ## Architecture
-- **Screens** (`index.html`, toggled via `hidden` attribute, driven by `showProjectsScreen()` / `goToUpload()` / `showContentScreen()` in app.js):
-  1. **Loading** — shown while Firebase connects
-  2. **Projects directory** — grid of project cards (one per distinct `jobName`), each showing progress %, complete/in-progress/incomplete stat chips, an optional note preview, Add Note / Open / Delete (trash icon) actions; a **To Print** header button opens a collapsed print-queue panel (list of queued sticker batches for the shop floor, + New batch builder) — spec in docs/superpowers/specs/2026-09-10-print-queue-design.md
-  3. **Upload** — drag-drop or browse for HTML files
-  4. **Content** — master-detail sheet workspace for one project: a sidebar sheet-nav (`buildSheetNavRow`, one row per sheet) beside a detail panel (`buildSheetDetail`) showing the selected sheet's hero header, note callout (if present), material info, layout SVG, toolpaths, and completion footer; plus a progress bar, Print Ticket (prints the job ticket only — no CSV, no log, job stays on the board), Export CSV, a **Stickers** button + panel (this job's sticker batches and PDFs — `makeDocSender('js', …)` in app.js is the same PDF sender To Print uses, saved with the job's name; Print marks printed), the **VanLab print bar** under the progress strip on VanLab jobs (Hardware stickers / Packing list / Crate label), Reset All (the old "New Job" wipe-everything button was removed 2026-08-29 — + Upload Job on the Projects screen is how jobs are added)
-  - Secondary screens reached from the Projects directory header: **Ticket History** (searchable list of past export/print records) and **Manage Customers** (`showManageCustomersScreen()`/`renderCustomersList()` — add, rename, delete customer directory entries)
+- **Screens** — Loading, Projects directory, Upload, Content, plus Ticket History and Manage Customers: full walk-through in docs/file-guide.md (Architecture).
 - **Storage** (`js/storage.js`, operator-reachable) and **OwnerStore** (`js/storage-owner.js`, owners only) — thin wrappers over Firestore with synchronous local caches. Rules: `HQ/firestore.rules` (deployed from the HQ repo; a collection with no match block is denied; a console edit is wiped by the next deploy). Roles are the signed-in email: operators = Travis, Collin (+ Eva); owners = Travis, Eva. Owners are operators automatically (`isJtOperator` includes owners); only owners may flip `sheets.finished` true→false. Never write a real email, uid, token or spreadsheet id into this public repo.
 
 ### The sheet record (spec 2026-10-04 §5.1 — this is the one place it is written down)
@@ -95,26 +91,16 @@ Job-level, keyed `jobKey = Keys.job(jobName)` (`'proj_…'`): `projectNotes/` (n
 **Board query:** `Storage.onSheetsChange`/`loadSheets` read `where('finished','==',false)` once `settings/migrations.sheetsFinishedFlag.done` is true (Settings › Maintenance), the whole collection before; finished docs are also dropped client-side. No `orderBy` — sorted client-side by `uploadedAt` (a query orderBy drops docs missing the field, and where+orderBy on different fields needs a composite index).
 
 **Export:** in a real-database session, export refuses to finish a job when the Master Job Log endpoint is unconfigured (offline success only counts in PASTE mode). Everyone (Collin included) lands on the Projects screen even when the board is empty — its header holds To Print, so a queued sticker is reachable with no jobs loaded; an empty board shows "No jobs loaded." + one line a day from `EMPTY_BOARD_LINES` in app.js.
-- **Sheet ordering** — `getDisplaySheets()` (app.js ~line 614) sorts with `compareSheets` (~line 607): first by `sheetMaterial(fileName)` (the label before the number, e.g. `0.25 MDF` in `0.25 MDF [1].html`; empty for old `SheetN` names), then numerically by `sheetNumber(fileName)` — which reads `Sheet 9` / `Sheet01`, then `[n]`, then a trailing number. Files without a parseable number sort last. Since 2026-10-19 `getDisplaySheets()` then applies `SheetThickness.order` (thickest material first, compareSheets order kept inside each thickness), the sheet nav gets a "3/4 in — 7 sheets" heading per thickness (none when no sheet has a thickness), and each project card shows the per-thickness count line. **Export CSV, billing (`compareSheets` option), the job-details step and the notes window keep plain `compareSheets` order** — `doExport` re-sorts `getDisplaySheets()` with `compareSheets`.
+- **Sheet ordering** — `getDisplaySheets()` / `compareSheets` (thickest first on the board); Export CSV, billing, job-details and notes keep plain `compareSheets` order. Detail: docs/file-guide.md (Architecture).
 - **Project grouping** — `Keys.jobOf(sheet)` = `sheet.jobName || sheet.fileName || 'Unknown Job'`; `getProjectGroups()` buckets all loaded sheets by that key for the directory screen.
 - **3-state completion** — no record = Incomplete; `{status:'in-progress'}` = In Progress; `{status:'complete', completedAt, operator, notes}` = Complete. Driven by `applySheetCompletion()` (app.js ~line 1286); clicking the action button advances the state, the modal only appears for the In Progress → Complete transition.
-- `buildSheetDetail()` assembles the selected sheet's detail panel in order: hero header → note callout (if a sheet note exists) → material-strip → layout-svg-wrap → toolpaths-list → sheet-complete-footer. `buildSheetNavRow()` builds each sidebar row: sheet number, title + time, a note icon if the sheet has a note, and a status dot.
-- **Dark mode** — `data-theme` attribute on `<html>`, persisted to `localStorage['cnc::darkMode']` (this one piece of state is intentionally local-only, not synced — it's a per-device display preference, not job data).
+- `buildSheetDetail()` / `buildSheetNavRow()` panel order, and **Dark mode** (`localStorage['cnc::darkMode']`, local-only on purpose): docs/file-guide.md (Architecture).
 
 ## VCarve HTML format (source files)
-- Top-level `.boxborder` sections with `.boxtitle` headings
-- Job name comes from `#jobtitle`; sheet title from the first `.boxtitle` (fallback `#title`)
-- **Job Layout Sheet** section: contains `#vectorcenter` div with the Material Border SVG
-- **Toolpaths Summary** section: `.childindent .fullwidth` rows, each with three `.box33` cols [name | tool | time]
-- **Material Setup** section: `.box33`/`.fullwidth` elements with `<b>` labels and `.boxpic span` values
-- SVG uses `viewBox="0 0 48 96"` (portrait, 48"×96" coordinate space), inline `stroke-width: 0.03`
+Moved to docs/file-guide.md — the selectors parseJobSheet reads and the SVG viewBox.
 
 ## Key technical decisions
-- SVG `id`, `width`, `height` attributes are stripped before storing `outerHTML` — prevents duplicate IDs across cards and lets CSS control sizing
-- `vector-effect: non-scaling-stroke; stroke-width: 1.5px !important` applied via CSS to all SVG shape elements — the 0.03 viewBox-unit strokes would be sub-pixel (~0.08px) at display size without this
-- SVG displayed at `width: 280px; height: auto` (portrait ~560px tall) inside a `max-height: 420px; overflow-y: auto` scroll container
-- SVG insertion in `buildSheetDetail` is wrapped in try-catch so any SVG error doesn't prevent toolpaths from rendering
-- Project card header text wrapper has `min-width: 0` + `.project-card-name` has `overflow-wrap: break-word` — without this, a long job name with no spaces (no soft wrap point) forces the flex header row wider than the card, pushing the delete button past the card's `overflow: hidden` edge and making it disappear
+Moved to docs/file-guide.md — SVG stripping/stroke/size, the SVG try-catch in buildSheetDetail, the project-card long-name wrap fix.
 
 ## Where the status lives
 
@@ -126,8 +112,7 @@ Job-level, keyed `jobKey = Keys.job(jobName)` (`'proj_…'`): `projectNotes/` (n
 - Other... (free-text input)
 
 ## Sample test files
-- `260520_gmc_savana_3500_155wb_ew_cargo_Order_1195_Summary_Sheet 9.html` (repo root, tracked in git) — GMC Savana 3500 cargo van, 1 Job Layout Sheet (with SVG), 1 Material Setup section, 1 Toolpaths Summary section with 5 toolpath rows
-- `samples/` — gitignored scratch folder for additional local test files (e.g. `260623_Sprinter_2108_Order_1201_Summary_Sheet01.html`); add files here freely, they won't be committed
+Moved to docs/file-guide.md — the tracked root sample file and the gitignored `samples/` folder.
 
 ## Agent skills
 
